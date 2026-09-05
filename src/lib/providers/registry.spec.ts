@@ -14,7 +14,7 @@ describe("provider registry", () => {
   it("openrouter على قاعدته الصحيحة مع ترويسات هوية التطبيق", () => {
     const p = getProvider("openrouter");
     expect(p.baseURL).toBe("https://openrouter.ai/api/v1");
-    expect(p.defaultHeaders?.["HTTP-Referer"]).toBeTruthy();
+    expect(p.defaultHeaders?.["HTTP-Referer"]).toBe("http://localhost:5173");
   });
   it("opencodego على بوابة zen/go مع دعم جلسة", () => {
     const p = getProvider("opencodego");
@@ -25,11 +25,11 @@ describe("provider registry", () => {
     expect(() => getProvider("nonexistent" as never)).toThrow(/مزود غير معروف/);
   });
   it("computeCost يحسب من أسعار الموديل", () => {
-    const cost = computeCost({ inputTokens: 1_000_000, outputTokens: 1_000_000, cachedInputTokens: 0 }, { pricing: { inputPerMTok: 1, outputPerMTok: 2 } });
+    const cost = computeCost({ inputTokens: 1_000_000, outputTokens: 1_000_000 }, { pricing: { inputPerMTok: 1, outputPerMTok: 2 } });
     expect(cost).toBeCloseTo(3);
   });
   it("computeCost يعيد null بلا تسعير", () => {
-    expect(computeCost({ inputTokens: 10, outputTokens: 5, cachedInputTokens: 0 }, { pricing: null })).toBeNull();
+    expect(computeCost({ inputTokens: 10, outputTokens: 5 }, { pricing: null })).toBeNull();
   });
   it("buildLanguageModel يبني موديل openai-compatible لكل مزود وgoogle خاصًا", () => {
     const m1 = buildLanguageModel("openrouter", "KEY", "gpt-4o", async () => new Response());

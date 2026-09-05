@@ -5,12 +5,14 @@ import type { ModelInfo, ProviderConfig, ProviderId, Usage } from "@/types";
 
 const staticPricing = (inP: number, outP: number) => ({ inputPerMTok: inP, outputPerMTok: outP });
 
+const APP_REFERER = (import.meta.env?.VITE_APP_REFERER as string | undefined) ?? "http://localhost:5173";
+
 export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
   openrouter: {
     id: "openrouter", label: "OpenRouter", browserDirect: true, kind: "openai-compatible",
     baseURL: "https://openrouter.ai/api/v1", modelsSource: "live",
     liveModelsUrl: "https://openrouter.ai/api/v1/models",
-    defaultHeaders: { "HTTP-Referer": "http://localhost:5173", "X-Title": "Shura" },
+    defaultHeaders: { "HTTP-Referer": APP_REFERER, "X-Title": "Shura" },
     staticModels: [
       { id: "openai/gpt-4o", label: "GPT-4o", contextLength: 128000, pricing: staticPricing(2.5, 10) },
       { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5", contextLength: 200000, pricing: staticPricing(3, 15) },
@@ -53,7 +55,7 @@ export function getProvider(id: ProviderId): ProviderConfig {
   return p;
 }
 
-export function computeCost(usage: Pick<Usage, "inputTokens" | "outputTokens" | "cachedInputTokens">, model: Pick<ModelInfo, "pricing">): number | null {
+export function computeCost(usage: Pick<Usage, "inputTokens" | "outputTokens">, model: Pick<ModelInfo, "pricing">): number | null {
   if (!model.pricing) return null;
   const { inputPerMTok, outputPerMTok } = model.pricing;
   return (usage.inputTokens / 1e6) * inputPerMTok + (usage.outputTokens / 1e6) * outputPerMTok;
