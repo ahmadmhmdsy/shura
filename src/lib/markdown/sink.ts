@@ -13,7 +13,21 @@ export function memoryFileSink(): FileSink & { reset(): void; tree(): string[] }
     async writeFile(p, c) { files.set(p, c); },
     async readFile(p) { const c = files.get(p); if (c === undefined) throw new Error("ENOENT: " + p); return c; },
     async exists(p) { return files.has(p); },
-    async readDir() { return []; },
+    // [إصلاح مأذون موثق — المهمة 13] readDir كانت راية [] دائمًا (Minor 8 من مراجعة المهمة 6:
+    // «readDir الذاكرة يعيد [] دائمًا — يلزم حقيقي قبل استرجاع شجرة المجلد»)، واختبار recoverFromDisk
+    // في موجز المهمة 13 يفشل معها حتمًا (RED-2: توقّع معيدين والحصل []. الدلالة: أسماء المداخل
+    // (ملفات ومجلدات) مباشرة تحت المسار، مشتقة من مفاتيح الملفات المخزنة ومرتبة.
+    async readDir(p) {
+      const base = p.replace(/[\\/]+$/, "");
+      const prefix = base === "" ? "" : base + "/";
+      const names = new Set<string>();
+      for (const f of files.keys()) {
+        if (!f.startsWith(prefix)) continue;
+        const rest = f.slice(prefix.length);
+        if (rest) names.add(rest.split("/")[0]);
+      }
+      return [...names].sort();
+    },
     reset() { files.clear(); },
     tree() { return [...files.keys()]; },
   };

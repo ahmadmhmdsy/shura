@@ -8,6 +8,8 @@ import { useSettingsStore } from "@/state/settingsStore";
 import { estimateSessionTokens } from "@/lib/tokens/estimate";
 import { getProvider } from "@/lib/providers/registry";
 import { sendTurn } from "@/lib/chat/chatController";
+import { dispatchTurn } from "@/lib/chat/dispatch";
+import { buildSummaryPrompt } from "@/lib/chat/synthesis";
 import { newId } from "@/lib/id";
 import { updateSession } from "@/lib/db/repos";
 import { isFilePersistActive } from "@/lib/markdown/sink";
@@ -16,7 +18,7 @@ import { ar } from "@/i18n/ar";
 import type { ChatMessage, SessionMeta, Turn } from "@/types";
 
 export function ChatScreen({ session }: { session: SessionMeta }) {
-  const { messages, patchMessage, upsertMessagesLocal } = useSessionsStore();
+  const { messages, patchMessage, upsertMessagesLocal, appendMessageLocal } = useSessionsStore();
   const { targets, syncMode, sharedPrompt, customs } = useComposerStore();
   const settings = useSettingsStore();
   const [sending, setSending] = useState(false);
@@ -98,6 +100,21 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     } finally { setSending(false); aborts.current.clear(); stopped.current.clear(); }
   }
 
+  async function extractSummary(): Promise<void> {
+    const last = turns[turns.length - 1];
+    if (!last || last[1].results.length === 0) { toast.warning("لا نتائج لاستخلاصها بعد"); return; }
+    const primary = settings.primaryTarget ?? (targets[0] ? { providerId: targets[0].providerId, modelId: targets[0].modelId } : null);
+    if (!primary) { toast.warning("حدد النموذج الأساسي من الإعدادات أولًا"); return; }
+    const turnId = "syn-" + last[0];
+    const prompt = buildSummaryPrompt(last[0], last[1].results);
+    await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
+    const msgId = newId("m");
+    await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: Date.now() + 1, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
+    const outcome = (await dispatchTurn({ sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs }))[0];
+    patchMessage(msgId, { text: outcome.text, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage });
+    if (!outcome.ok) toast.error(outcome.error ?? "فشل");
+  }
+
   async function onToggleLayout(): Promise<void> {
     const next = session.layoutMode === "vertical" ? "horizontal" : "vertical";
     await updateSession(session.id, { layoutMode: next });
@@ -108,7 +125,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     return (
       <main className="flex-1 flex flex-col h-full min-w-0">
         <div className="flex-1 grid place-items-center text-sura-muted text-sm">أضف نماذج من (+) ثم اكتب سؤالك.</div>
-        <Composer onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => {}} sending={sending} sessionTokens={sessionTokens} contextLimit={128000} />
+        <Composer onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => void extractSummary()} sending={sending} sessionTokens={sessionTokens} contextLimit={128000} />
       </main>
     );
   }
@@ -135,7 +152,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
         {turns.length === 0 && <p className="text-sura-muted text-sm">لا رسائل بعد.</p>}
       </div>
       <Composer onSend={() => void doSend()} onStop={() => { for (const [tid, a] of aborts.current) { stopped.current.add(tid); a.abort(new Error("ألغي بواسطة المستخدم")); } }}
-        onExtractSummary={() => {}} sending={sending}
+        onExtractSummary={() => void extractSummary()} sending={sending}
         sessionTokens={sessionTokens}
         contextLimit={getProvider(targets[0]?.providerId ?? "openrouter").staticModels.find((m) => m.id === targets[0]?.modelId)?.contextLength ?? 128000} />
     </main>

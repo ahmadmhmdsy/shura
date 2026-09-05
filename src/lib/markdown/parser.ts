@@ -25,3 +25,13 @@ export async function importSessionFromDisk(sink: FileSink, dir: string): Promis
   }
   return { meta, messages, usageEvents };
 }
+
+export async function recoverFromDisk(sink: FileSink, rootDir: string): Promise<RestoredSession[]> {
+  const names = await sink.readDir(rootDir).catch(() => []);
+  const out: RestoredSession[] = [];
+  for (const n of names) {
+    const dir = rootDir.replace(/\/+$/, "") + "/" + n;
+    try { out.push(await importSessionFromDisk(sink, dir)); } catch { /* مجلد بلا meta.json — تجاوز */ }
+  }
+  return out;
+}

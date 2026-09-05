@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { memoryFileSink } from "./sink";
 import { appendTurn } from "./writer";
-import { importSessionFromDisk } from "./parser";
+import { importSessionFromDisk, recoverFromDisk } from "./parser";
 
 const meta = { id: "ab12cd34", title: "عنوان", createdAt: 1, updatedAt: 2, modelIds: ["m"], primaryTarget: null, layoutMode: "vertical" as const, onDisk: true };
 const turnData = {
@@ -30,5 +30,13 @@ describe("parser: استرجاع الجلسة من القرص", () => {
     expect(restored.messages.filter((m) => m.role === "assistant")).toHaveLength(2);
     expect(restored.usageEvents).toHaveLength(2);
     expect(restored.usageEvents[0].inputTokens).toBe(10);
+  });
+  it("recoverFromDisk يستورد كل المجلدات ذات meta.json ويتجاهل غيرها", async () => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, "sessions/one", meta, turnData);
+    await appendTurn(sink, "sessions/two", { ...meta, id: "ff00ee11" }, turnData);
+    await sink.writeFile("sessions/empty/readme.txt", "hi");
+    const got = await recoverFromDisk(sink, "sessions");
+    expect(got.map((g) => g.meta.id).sort()).toEqual(["ab12cd34", "ff00ee11"]);
   });
 });
