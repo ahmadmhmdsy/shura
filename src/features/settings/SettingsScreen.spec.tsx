@@ -1,0 +1,90 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { SettingsScreen } from "./SettingsScreen";
+import { useSettingsStore } from "@/state/settingsStore";
+import { useComposerStore } from "@/state/composerStore";
+import App from "@/App";
+
+function resetStores(): void {
+  useSettingsStore.setState({ providerKeys: {}, primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000, loaded: false });
+  useComposerStore.getState().reset();
+}
+
+beforeEach(resetStores);
+
+describe("SettingsScreen", () => {
+  it("يعرض أربع بطاقات مزودين", () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    // كل تسمية تظهر مرتين على الأقل: بطاقة المزود + خيار قائمة «النموذج الأساسي» — نكفي بوجودها
+    for (const label of ["OpenRouter", "Google Gemini", "MiniMax", "OpenCode Go"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("تعيين النموذج الأساسي يحدث المخزن ويعرض «الحالي»", async () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    const modelSel = screen.getAllByRole("combobox")[1];
+    fireEvent.change(modelSel, { target: { value: "openai/gpt-4o" } });
+    const assign = screen.getByRole("button", { name: "تعيين" });
+    await waitFor(() => expect(assign).toBeEnabled());
+    fireEvent.click(assign);
+    await waitFor(() => expect(useSettingsStore.getState().primaryTarget).toEqual({ providerId: "openrouter", modelId: "openai/gpt-4o" }));
+    expect(screen.getByText(/الحالي: openrouter · openai\/gpt-4o/)).toBeInTheDocument();
+  });
+
+  it("زر تعيين معطّل قبل اختيار نموذج، ومع أهداف فارغة يظهر تحذير «لم تضف نماذج بعد»", () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.getByRole("button", { name: "تعيين" })).toBeDisabled();
+    expect(screen.getByText(/لم تضف نماذج بعد/)).toBeInTheDocument();
+  });
+
+  it("مع وجود أهداف في المُرسِل لا يظهر تحذير «لم تضف نماذج بعد»", () => {
+    useComposerStore.setState({ targets: [{ targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o" }] });
+    render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.queryByText(/لم تضف نماذج بعد/)).not.toBeInTheDocument();
+  });
+
+  it("مسار الحفظ: الافتراضي بلا قيمة محفوظة، والقيمة المحفوظة عند وجودها", () => {
+    const { unmount } = render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.getByDisplayValue("Documents\\Shura (يعمل داخل تطبيق سطح المكتب)")).toBeInTheDocument();
+    unmount();
+    useSettingsStore.setState({ sessionRootDir: "D:\\جلسات شورى" });
+    render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.getByDisplayValue("D:\\جلسات شورى")).toBeInTheDocument();
+  });
+
+  it("المهلة تعرض الثواني وتحديثها يكتب مللي (30 ⇒ 30000)", async () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    const input = screen.getByDisplayValue("120");
+    fireEvent.change(input, { target: { value: "30" } });
+    await waitFor(() => expect(useSettingsStore.getState().timeoutMs).toBe(30_000));
+  });
+
+  it("زر «تم» يعيد التحميل ثم يغلق الشاشة", async () => {
+    let closed = 0;
+    render(<SettingsScreen onClose={() => { closed += 1; }} />);
+    fireEvent.click(screen.getByRole("button", { name: "تم" }));
+    await waitFor(() => expect(useSettingsStore.getState().loaded).toBe(true));
+    expect(closed).toBe(1);
+  });
+
+  it("النقر على الخلفية يغلق والنقر داخل اللوحة لا يغلق", () => {
+    let closed = 0;
+    const { container } = render(<SettingsScreen onClose={() => { closed += 1; }} />);
+    const panel = container.querySelector(".bg-sura-panel")!;
+    fireEvent.click(panel);
+    expect(closed).toBe(0);
+    fireEvent.click(panel.parentElement!);
+    expect(closed).toBe(1);
+  });
+});
+
+describe("App — ربط شاشة الإعدادات", () => {
+  it("فتح الإعدادات من السايدبار يعرض الشاشة الحقيقية بدل العنصر النائب", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "الإعدادات" }));
+    expect(await screen.findByRole("heading", { name: "الإعدادات" })).toBeInTheDocument();
+    expect(screen.getAllByText("OpenRouter").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/المهمة 12/)).not.toBeInTheDocument();
+  });
+});
