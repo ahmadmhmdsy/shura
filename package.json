@@ -2,12 +2,11 @@
   "name": "شورى",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "build": "tsc --noEmit && vite build"
   },
   "keywords": [],
