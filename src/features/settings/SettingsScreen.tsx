@@ -15,6 +15,11 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   const targets = useComposerStore((s) => s.targets);
   const [pSel, setPSel] = useState<ProviderId>("openrouter");
   const [mSel, setMSel] = useState("");
+  // [إصلاح منسق مأذون] التثبيت Math.max على كل ضربة مفتاح كان يفسد الكتابة متعددة الخانات
+  // («120» رقمًا رقمًا ⇒ 10 ثم 102 ثم 1020 ثانية تُحفظ صامتة فورًا). حقل مسودة نصية محلية:
+  // onChange يحدّث المسودة فقط بلا كتابة مخزن، وonBlur يحللها مرة واحدة — صالحة ⇒
+  // setTimeoutMs(بحد أدنى 10ث)؛ غير صالحة ⇒ تصفير المسودة فقط فيستعيد الحقل القيمة الحالية.
+  const [timeoutDraft, setTimeoutDraft] = useState<string | null>(null);
 
   return (
     <div className="fixed inset-0 bg-black/50 grid place-items-center p-4" onClick={onClose}>
@@ -46,8 +51,15 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.timeout}</h3>
-          <Input type="number" min={10} value={Math.round(timeoutMs / 1000)}
-            onChange={(e) => void setTimeoutMs(Math.max(10, Number(e.target.value) || 120) * 1000)} className="w-32" />
+          <Input type="number" min={10} value={timeoutDraft ?? String(Math.round(timeoutMs / 1000))}
+            onChange={(e) => setTimeoutDraft(e.target.value)}
+            onBlur={() => {
+              if (timeoutDraft === null) return;
+              const v = Number(timeoutDraft);
+              if (timeoutDraft.trim() !== "" && Number.isFinite(v)) void setTimeoutMs(Math.max(10, Math.round(v)) * 1000);
+              setTimeoutDraft(null);
+            }}
+            className="w-32" />
         </section>
         <div className="flex justify-end gap-2 border-t border-sura-border pt-3">
           <Button size="sm" onClick={() => { void load(); onClose(); }}>تم</Button>

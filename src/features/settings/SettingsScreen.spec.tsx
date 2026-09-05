@@ -53,11 +53,25 @@ describe("SettingsScreen", () => {
     expect(screen.getByDisplayValue("D:\\جلسات شورى")).toBeInTheDocument();
   });
 
-  it("المهلة تعرض الثواني وتحديثها يكتب مللي (30 ⇒ 30000)", async () => {
+  it("المهلة تعرض الثواني والإلزام عند blur يكتب مللي (30 ⇒ 30000)", async () => {
     render(<SettingsScreen onClose={() => {}} />);
     const input = screen.getByDisplayValue("120");
     fireEvent.change(input, { target: { value: "30" } });
+    fireEvent.blur(input);
     await waitFor(() => expect(useSettingsStore.getState().timeoutMs).toBe(30_000));
+  });
+
+  it("المهلة: كتابة «120» رقمًا رقمًا تبقى مسودة بلا كتابة مخزن لكل ضربة، والإلزام عند blur (انحدار: لا 1020)", async () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    const input = screen.getByDisplayValue("120");
+    fireEvent.change(input, { target: { value: "1" } });
+    // كتابة المخزن لكل ضربة هي الخلل الموثق: «1» ⇒ تثبيت 10ث ثم «102» ⇒ 102ث ثم 1020ث تُحفظ صامتة
+    expect(useSettingsStore.getState().timeoutMs).toBe(120_000);
+    fireEvent.change(input, { target: { value: "12" } });
+    fireEvent.change(input, { target: { value: "120" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(useSettingsStore.getState().timeoutMs).toBe(120_000));
+    expect(screen.getByDisplayValue("120")).toBeInTheDocument();
   });
 
   it("زر «تم» يعيد التحميل ثم يغلق الشاشة", async () => {
