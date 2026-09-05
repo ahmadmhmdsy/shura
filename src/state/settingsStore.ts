@@ -30,7 +30,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   async setProviderKey(id, key) {
     const next = { ...get().providerKeys, [id]: key };
     set({ providerKeys: next });
-    await setSetting(KEY, { ...get(), providerKeys: next, loaded: undefined } as unknown as PersistedSettings);
+    await persistAll(get, set);
   },
   async setPrimaryTarget(t) { set({ primaryTarget: t }); await persistAll(get, set); },
   async setSessionRootDir(p) { set({ sessionRootDir: p }); await persistAll(get, set); },
@@ -38,8 +38,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 }));
 
 async function persistAll(get: () => SettingsState, set: (s: Partial<SettingsState>) => void): Promise<void> {
-  const { loaded: _l, load: _ld, ...data } = get();
-  void _l; void _ld;
-  await setSetting(KEY, data);
+  const s = get();
+  const snapshot: PersistedSettings = { providerKeys: s.providerKeys, primaryTarget: s.primaryTarget, sessionRootDir: s.sessionRootDir, timeoutMs: s.timeoutMs };
+  await setSetting(KEY, snapshot);
   void set;
 }
