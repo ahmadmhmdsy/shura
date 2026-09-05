@@ -26,6 +26,9 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   // أهداف أوقفها المستخدم في التمرّة الجارية: نتيجة الإلغاء تصلف خطأً من dispatch
   // لكن البطاقة تبقى «أُوقف» ولا تتحول إلى خطأ ولا تُطلق تنبيهًا.
   const stopped = useRef(new Set<string>());
+  // [دور إصلاح مأذون — بند 2] حارس إعادة دخول الخلاصة: مرجع متزامن (لا حالة) يغلق ثغرة الإغلاق
+  // القديم بين نقرتين متتاليتين في نفس اللمسة — حالة useState لا تصلح هنا لأن كل نقر يقرأ لقطة قديمة.
+  const extractingRef = useRef(false);
   const sessionTokens = useMemo(() => estimateSessionTokens(messages), [messages]);
 
   const turns = useMemo(() => {
@@ -101,24 +104,43 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   }
 
   async function extractSummary(): Promise<void> {
+    // [دور إصلاح مأذون — بند 2] حارسا إعادة دخول (اختيار موثق: toast معتدل لا تجاهل صامت):
+    // مرجع إعادة الدخول أعلاه + «لا خلاصة فوق خلاصة» حين تكون آخر تمريرة syn-؛
+    // إضافة نتائج جديدة بعدها تعيد فتح الباب لأن آخر تمريرة تصبح عادية.
+    if (extractingRef.current || sending) { toast.warning("جارٍ تنفيذ عملية بالفعل"); return; }
     const last = turns[turns.length - 1];
     if (!last || last[1].results.length === 0) { toast.warning("لا نتائج لاستخلاصها بعد"); return; }
+    if (last[0].startsWith("syn-")) { toast.warning("الخلاصة موجودة بالفعل — لا خلاصة فوق خلاصة"); return; }
     const primary = settings.primaryTarget ?? (targets[0] ? { providerId: targets[0].providerId, modelId: targets[0].modelId } : null);
     if (!primary) { toast.warning("حدد النموذج الأساسي من الإعدادات أولًا"); return; }
     const turnId = "syn-" + last[0];
-    const prompt = buildSummaryPrompt(last[0], last[1].results);
-    await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
     const msgId = newId("m");
     const synthCreatedAt = Date.now() + 1;
-    await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
-    const outcome = (await dispatchTurn({ sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs }))[0];
-    // [دور إصلاح مأذون — انحراف معلن عن كود الخطة بأمر منسق المهمة 13] patchMessage كان يحدّث المخزن
-    // الحي فقط فيبقى صف Dexie فارغًا بـ streaming عند إعادة فتح الجلسة. مسار المهمة 11 نفسه (emit):
-    // appendMessage (put بالمفتاح نفسه يستبدل صف البث) + upsert محلي. الفشل أيضًا يُثبت بحالته.
-    const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage };
-    await appendMessage(finalMsg);
-    upsertMessagesLocal([finalMsg]);
-    if (!outcome.ok) toast.error(outcome.error ?? "فشل");
+    let placeholderWritten = false;
+    extractingRef.current = true;
+    try {
+      const prompt = buildSummaryPrompt(last[0], last[1].results);
+      await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
+      await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
+      placeholderWritten = true;
+      const outcome = (await dispatchTurn({ sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs }))[0];
+      // [دور إصلاح مأذون — انحراف معلن عن كود الخطة بأمر منسق المهمة 13] patchMessage كان يحدّث المخزن
+      // الحي فقط فيبقى صف Dexie فارغًا بـ streaming عند إعادة فتح الجلسة. مسار المهمة 11 نفسه (emit):
+      // appendMessage (put بالمفتاح نفسه يستبدل صف البث) + upsert محلي. الفشل أيضًا يُثبت بحالته.
+      const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage };
+      await appendMessage(finalMsg);
+      upsertMessagesLocal([finalMsg]);
+      if (!outcome.ok) toast.error(outcome.error ?? "فشل");
+    } catch (e) {
+      // [دور إصلاح مأذون — بند 3] كما في حارس persistTurn: toast عربي وإنهاء بطاقة الخلاصة
+      // بوضع خطأ في الطبقتين (المخزن الحي فورًا، وDexie بأفضل جهد) لا رفض وعد معلق مع «يكتب…» أبديًا.
+      const message = e instanceof Error ? e.message : String(e);
+      toast.error(message);
+      if (msgId && placeholderWritten) {
+        patchMessage(msgId, { status: "error", error: message });
+        try { await appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "error", error: message }); } catch { /* الطبقة التخزينية معطلة — تكفي الحالة الحية */ }
+      }
+    } finally { extractingRef.current = false; }
   }
 
   async function onToggleLayout(): Promise<void> {
@@ -144,14 +166,19 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             customPrompts={customPrompts} onToggleLayout={() => void onToggleLayout()}
             onStop={(tid) => { stopped.current.add(tid); aborts.current.get(tid)?.abort(new Error("ألغي بواسطة المستخدم")); patchMessageByTarget(tid, "stopped"); }}
             onRetry={(tid) => {
-              const lastTurn = turns[turns.length - 1]?.[1];
-              const m = lastTurn?.results.find((r) => r.targetId === tid);
+              // [دور إصلاح مأذون — بند 1] كان البحث في turns[last] حصريًا: بعد أول خلاصة تصبح
+              // الأخيرة تمريرة syn- بلا targetId فتصمت أزرار الإعادة في تمريرة المصدر. الخيار
+              // الأنظف: البحث عن التمريرة الحاوية للهدف نفسه (الأحدث أولًا) مهما كان موضعها.
+              const entry = [...turns].reverse().find(([, t]) => t.results.some((r) => r.targetId === tid));
+              if (!entry) return;
+              const turn = entry[1];
+              const m = turn.results.find((r) => r.targetId === tid);
               if (!m) return;
               // [انحراف موثق 7/8 عن كود الخطة] إعادة المحاولة كما في الخطة تبني تمرّة بأسئلة فارغة
               // فيُسقط الهدف (buildTurnTargets) وتولّد رسالة جديدة فتتضاعف البطاقات؛ هنا نعيد
-              // بناء السؤال الموحد/المخصص من رسائل التمرّة الأخيرة ونعيد استخدام معرف النتيجة.
-              const sharedMsg = [...lastTurn.prompts].reverse().find((p) => p.promptKind === "shared");
-              const customMsg = [...lastTurn.prompts].reverse().find((p) => p.promptKind === "custom" && p.targetId === tid);
+              // بناء السؤال الموحد/المخصص من رسائل تمريرة الهدف ونعيد استخدام معرف النتيجة.
+              const sharedMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "shared");
+              const customMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "custom" && p.targetId === tid);
               void persistTurn({ id: m.turnId, sharedPrompt: sharedMsg?.text ?? null, customs: customMsg ? { [tid]: customMsg.text } : {} }, tid, [m], { [tid]: m.id });
             }} />
         ))}

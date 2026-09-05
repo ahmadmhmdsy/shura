@@ -1,15 +1,31 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { setTransportFetch } from "@/lib/transport/transport";
-import { sseMockFetch } from "@/test/mocks/sse";
+import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { createSession, getMessages, getSession } from "@/lib/db/repos";
 import { memoryFileSink, setFileSink } from "@/lib/markdown/sink";
 import type { ComposerTarget } from "@/state/composerStore";
 import type { ChatMessage, SessionMeta } from "@/types";
+
+// خطاف أخطاء داخلية معتمد للاختبارات: appendMessage الحقيقي يمرّ عبره دائمًا،
+// ويمكن للاختبار أن يجعل النداء رقم N يفشل لمحاكاة خطأ طبقة تخزين داخلية.
+const reposHook = vi.hoisted(() => ({ appendCalls: 0, failOnCall: 0 }));
+vi.mock("@/lib/db/repos", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db/repos")>();
+  const realAppend = actual.appendMessage;
+  return {
+    ...actual,
+    appendMessage: async (msg: ChatMessage) => {
+      reposHook.appendCalls += 1;
+      if (reposHook.failOnCall > 0 && reposHook.appendCalls === reposHook.failOnCall) throw new Error("فشل تخزين داخلي");
+      return realAppend(msg);
+    },
+  };
+});
 
 let n = 0;
 async function mkSession(over: Partial<SessionMeta> = {}): Promise<SessionMeta> {
@@ -42,7 +58,7 @@ function doneTurn(session: SessionMeta): ChatMessage[] {
   ];
 }
 
-beforeEach(() => { setTransportFetch(sseMockFetch()); });
+beforeEach(() => { setTransportFetch(sseMockFetch()); reposHook.appendCalls = 0; reposHook.failOnCall = 0; });
 
 describe("ChatScreen — التوصيل الحي", () => {
   it("الإرسال يبث حيًا: السؤال يظهر وبطاقتان بالنص النهائي", async () => {
@@ -139,5 +155,58 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(last.kind).toBe("synthesis");
     expect(last.text.length).toBeGreaterThan(0);
     expect(last.status).toBe("done");
+  });
+
+  // تمريرة مصدر بمعرف هدف مطابق لأهداف المؤلف (بلا لاحقة seed): شرط عمل الإعادة فعليًا
+  function seededTurn(s: SessionMeta): ChatMessage[] {
+    return [
+      { id: "p1", sessionId: s.id, turnId: "tr1", createdAt: 1, role: "user", kind: "prompt", text: "س1", promptKind: "shared", status: "done" },
+      { id: "r1", sessionId: s.id, turnId: "tr1", createdAt: 2, role: "assistant", kind: "result", text: "أهلاً", providerId: "openrouter", modelId: "openai/gpt-4o", targetId: "t1_" + s.id, status: "done" },
+    ];
+  }
+
+  it("إعادة المحاولة تعمل بعد وجود خلاصة: تُعاد من تمريرة المصدر لا من syn- الأخيرة", async () => {
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    // بثّ متمايز: نداء الخلاصة يعيد «أهلاً» ونداء الإعادة يعيد «مُعاد» — الفرق يثبت أن الإعادة نُفذت
+    let calls = 0;
+    setTransportFetch(((...a: unknown[]) => { void a; calls += 1; return sseResponse(calls === 1 ? ["أهلاً"] : ["مُعاد"]); }) as unknown as typeof fetch);
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
+    await waitFor(async () => { const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis"); expect(synth?.status, "synthErr=" + synth?.error).toBe("done"); }, { timeout: 3000 });
+    // الآن «إعادة» على بطاقة تمريرة المصدر — كانت تصمت (آخر تمريرة syn- بلا targetId)
+    fireEvent.click(screen.getByLabelText("إعادة"));
+    expect(await screen.findByText("مُعاد", {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it("ضغط مزدوج على الخلاصة لا يولد تمريرتي خلاصة", async () => {
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    render(<ChatScreen session={s} />);
+    const btn = screen.getByRole("button", { name: /استخرج خلاصة/ });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
+    await waitFor(async () => expect((await getMessages(s.id)).find((m) => m.kind === "synthesis")?.status).toBe("done"), { timeout: 3000 });
+    const rows = await getMessages(s.id);
+    expect(rows.filter((m) => m.kind === "synthesis")).toHaveLength(1);
+    expect(rows.filter((m) => m.role === "user" && m.text === "طلب خلاصة من النموذج الأساسي")).toHaveLength(1);
+  });
+
+  it("خطأ داخلي أثناء الخلاصة: بطاقة خطأ لا بث معلق", async () => {
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    // ترتيب النداءات: رسالة البدء، رسالة البدء للبطاقة، ثم الثبات النهائي — الفشل في الثالث
+    // يحاكي خطأ طبقة تخزين داخليًا بعد اكتمال البث؛ يجب أن تنهي البطاقة حالتها بخطأ ظاهر
+    reposHook.failOnCall = 3;
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    expect(await screen.findByText("فشل تخزين داخلي", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText("يكتب…")).not.toBeInTheDocument();
+    await waitFor(async () => expect((await getMessages(s.id)).find((m) => m.kind === "synthesis")?.status).toBe("error"), { timeout: 3000 });
   });
 });
