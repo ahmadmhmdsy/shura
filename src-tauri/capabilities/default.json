@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://openrouter.ai/*" },
+        { "url": "https://generativelanguage.googleapis.com/*" },
+        { "url": "https://api.minimax.io/*" },
+        { "url": "https://opencode.ai/*" }
+      ]
+    },
+    {
+      "identifier": "fs:default",
+      "allow": [{ "path": "$DOCUMENTS/Shura/**" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$DOCUMENTS/Shura/**" }]
+    }
+  ]
+}
