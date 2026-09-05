@@ -22,7 +22,11 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
   const results = await Promise.all(args.prompts.map(async (p): Promise<DispatchOutcome> => {
     const t0 = Date.now();
     const ac = new AbortController();
-    args.externalSignalFor?.(p.targetId)?.addEventListener("abort", () => ac.abort(new Error("أُلغي بواسطة المستخدم")));
+    const externalSignal = args.externalSignalFor?.(p.targetId);
+    // [سطر مأذون به إضافي — قرار منسق المهمة 11] تمرير سبب الإلغاء الخارجي بدل توليد رسالة خاصة
+    // مشكولة كانت تُهدر سبب externalSignalFor («ألغي بواسطة المستخدم») وتُبطل مطابقة /ألغي/؛
+    // المسار بلا سبب يبقى على الافتراضي في onAbort، ومسار المهلة (abort داخلي من المؤقت) كما هو.
+    externalSignal?.addEventListener("abort", () => ac.abort(externalSignal.reason));
     const timer = setTimeout(() => ac.abort(new Error("انتهت مهلة النداء")), timeout);
     let rawError: unknown;
     let onAbort: () => void = () => {};
