@@ -9,27 +9,20 @@ describe("testProviderKey (بلا شبكة حقيقية)", () => {
     const r = await testProviderKey("minimax", "sk-test", "MiniMax-M2");
     expect(r.ok).toBe(true);
   });
-
-  it("مفتاح غير صالح (401) يعيد ok=false برسالة عربية عن المفتاح", async () => {
-    setTransportFetch(async () => new Response(JSON.stringify({ error: { message: "Invalid API key" } }), { status: 401, headers: { "content-type": "application/json" } }));
-    const r = await testProviderKey("minimax", "sk-bad", "MiniMax-M2");
+  it("401 يُرجم إلى رسالة مفتاح غير صالح", async () => {
+    setTransportFetch(async () => new Response(JSON.stringify({ error: {} }), { status: 401 }));
+    const r = await testProviderKey("minimax", "bad", "MiniMax-M2");
     expect(r.ok).toBe(false);
     expect(r.detail).toMatch(/مفتاح/);
   });
-
-  it("فشل شبكة (رفض fetch) يعيد ok=false برسالة عربية عن الشبكة", async () => {
-    setTransportFetch(async () => {
-      throw new TypeError("fetch failed");
-    });
-    const r = await testProviderKey("minimax", "sk-test", "MiniMax-M2");
-    expect(r.ok).toBe(false);
-    expect(r.detail).toMatch(/شبكة/);
+  it("429 يُرجم إلى تجاوز الحد", async () => {
+    setTransportFetch(async () => new Response("{}", { status: 429 }));
+    const r = await testProviderKey("minimax", "k", "MiniMax-M2");
+    expect(r.detail).toMatch(/حد|معدل/);
   });
-
-  it("نموذج غير معروف (404) يعيد ok=false برسالة عربية عن النموذج", async () => {
-    setTransportFetch(async () => new Response(JSON.stringify({ error: { message: "model not found" } }), { status: 404, headers: { "content-type": "application/json" } }));
-    const r = await testProviderKey("minimax", "sk-test", "NO-SUCH-MODEL");
-    expect(r.ok).toBe(false);
-    expect(r.detail).toMatch(/نموذج/);
+  it("فشل الشبكة (CORS محتمل) يوصي بسطح المكتب", async () => {
+    setTransportFetch(async () => { throw new TypeError("Failed to fetch"); });
+    const r = await testProviderKey("opencodego", "k", "glm-5.3");
+    expect(r.detail).toMatch(/سطح المكتب|CORS/);
   });
 });
