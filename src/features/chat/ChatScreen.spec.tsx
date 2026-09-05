@@ -117,4 +117,27 @@ describe("ChatScreen — التوصيل الحي", () => {
     await waitFor(async () => expect(await sink.exists(dir + "/session.md")).toBe(true), { timeout: 3000 });
     expect(await sink.readFile(dir + "/session.md")).toContain("أهلاً");
   });
+
+  it("الخلاصة تثبت صفها في Dexie عند الاكتمال: إعادة التحميل تعرض النص لا بثًا معلقًا", async () => {
+    const s = await mkSession();
+    seed(s);
+    // تمرّة مكتملة حتى يمر حارس «لا نتائج لاستخلاصها بعد» ويُشتق النموذج الأساسي من targets[0]
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
+    // إعادة التحميل من Dexie بعد الاكتمال: صف الخلاصة بنصه النهائي وحالته done (لا فارغ/streaming)
+    await waitFor(async () => {
+      const rows = await getMessages(s.id);
+      const synth = rows.find((m) => m.kind === "synthesis");
+      expect(synth?.text).toBe("أهلاً");
+      expect(synth?.status).toBe("done");
+    }, { timeout: 3000 });
+    useSessionsStore.setState({ messages: await getMessages(s.id) });
+    const assistants = (await getMessages(s.id)).filter((m) => m.role === "assistant");
+    const last = assistants[assistants.length - 1];
+    expect(last.kind).toBe("synthesis");
+    expect(last.text.length).toBeGreaterThan(0);
+    expect(last.status).toBe("done");
+  });
 });

@@ -11,7 +11,7 @@ import { sendTurn } from "@/lib/chat/chatController";
 import { dispatchTurn } from "@/lib/chat/dispatch";
 import { buildSummaryPrompt } from "@/lib/chat/synthesis";
 import { newId } from "@/lib/id";
-import { updateSession } from "@/lib/db/repos";
+import { appendMessage, updateSession } from "@/lib/db/repos";
 import { isFilePersistActive } from "@/lib/markdown/sink";
 import { sessionFolderName } from "@/lib/markdown/writer";
 import { ar } from "@/i18n/ar";
@@ -109,9 +109,15 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     const prompt = buildSummaryPrompt(last[0], last[1].results);
     await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
     const msgId = newId("m");
-    await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: Date.now() + 1, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
+    const synthCreatedAt = Date.now() + 1;
+    await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
     const outcome = (await dispatchTurn({ sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs }))[0];
-    patchMessage(msgId, { text: outcome.text, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage });
+    // [دور إصلاح مأذون — انحراف معلن عن كود الخطة بأمر منسق المهمة 13] patchMessage كان يحدّث المخزن
+    // الحي فقط فيبقى صف Dexie فارغًا بـ streaming عند إعادة فتح الجلسة. مسار المهمة 11 نفسه (emit):
+    // appendMessage (put بالمفتاح نفسه يستبدل صف البث) + upsert محلي. الفشل أيضًا يُثبت بحالته.
+    const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage };
+    await appendMessage(finalMsg);
+    upsertMessagesLocal([finalMsg]);
     if (!outcome.ok) toast.error(outcome.error ?? "فشل");
   }
 
