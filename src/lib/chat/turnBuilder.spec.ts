@@ -17,6 +17,9 @@ describe("قاعدة التوريث الثلاثية", () => {
     expect(out.prompts.map((p) => p.text)).toEqual(["سؤال موحد", "سؤال موحد", "سؤال موحد"]);
     expect(out.prompts.every((p) => p.hasShared && !p.hasCustom)).toBe(true);
   });
+  it("وضع الربط بموحد فارغ يرمي خطأ عربيًا حتى لو وجد مخصص", () => {
+    expect(() => buildTurnTargets(turn(null, { t1: "خاص مُهمَل" }), [...targets], true)).toThrow(/اكتب سؤالًا موحدًا/);
+  });
   it("موحد + مخصص: المخصص يُلحق بعد الموحد بفاصل", () => {
     const out = buildTurnTargets(turn("السؤال العام", { t2: "تعليمات خاصة لجيميناي" }), [...targets], false);
     const t2 = out.prompts.find((p) => p.targetId === "t2")!;
