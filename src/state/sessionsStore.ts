@@ -11,6 +11,8 @@ interface SessionsState {
   rename(id: string, title: string): Promise<void>;
   remove(id: string): Promise<void>;
   appendMessageLocal(msg: ChatMessage): Promise<void>;
+  /** رفع رسائل إلى القائمة المحلية بلا كتابة Dexie (chatController يكتب Dexie ويعكس هنا) */
+  upsertMessagesLocal(msgs: ChatMessage[]): void;
   patchMessage(id: string, patch: Partial<ChatMessage>): void;
   clearCurrent(): void;
 }
@@ -31,6 +33,13 @@ export const useSessionsStore = create<SessionsState>((set) => ({
     set((s) => ({ sessions: s.sessions.filter((x) => x.id !== id), currentId: s.currentId === id ? null : s.currentId, messages: s.currentId === id ? [] : s.messages }));
   },
   async appendMessageLocal(msg) { await appendMessage(msg); set((s) => ({ messages: [...s.messages, msg] })); },
+  upsertMessagesLocal(msgs) {
+    set((s) => {
+      const byId = new Map(s.messages.map((m) => [m.id, m]));
+      for (const m of msgs) byId.set(m.id, m);
+      return { messages: [...byId.values()] };
+    });
+  },
   patchMessage(id, patch) { set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) })); },
   clearCurrent() { set({ currentId: null, messages: [] }); },
 }));

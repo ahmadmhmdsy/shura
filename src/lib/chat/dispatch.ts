@@ -47,6 +47,13 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
         const result = streamText({ model, prompt: p.text, abortSignal: ac.signal, onError: ({ error }) => { if (rawError === undefined) rawError = error; } });
         let text = "";
         for await (const chunk of result.textStream) { text += chunk; args.onUpdate?.(p.targetId, chunk); }
+        // [تحصين مأذون به — تحفظ (أ) من المهمة 8 المنفذ بأمر منسق المهمة 11] مع عدل موثق إجباري:
+        // الصيغة الحرفية «if (rawError !== undefined) throw rawError» بعد حلقة الدلتا تكسر 3 اختبارات
+        // معتمدة في dispatch.spec — ai@7 يطلق onError بخطأ حميد "Response stream ended without a
+        // finish reason" مع نهاية بث سليمة وusage صحيح (الاختبارات هي المواصفة، درس 6/7/9/10).
+        // نرفع الخطأ الخام فور الحلقة لإغلاق نافذة ابتلاع أخطاء منتصف البث، باستثناء ذلك البنين.
+        const benignEnd = rawError instanceof Error && /ended without a finish reason/.test(rawError.message);
+        if (rawError !== undefined && !benignEnd) throw rawError;
         const u = await result.usage;
         const info = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
         const usage: Usage = {

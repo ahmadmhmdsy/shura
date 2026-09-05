@@ -26,6 +26,8 @@ export interface SessionMeta {
   id: string; title: string; createdAt: number; updatedAt: number;
   modelIds: string[]; primaryTarget: { providerId: ProviderId; modelId: string } | null;
   layoutMode: "vertical" | "horizontal"; onDisk: boolean;
+  /** يُملأ عند أول إرسال في وضع سطح المكتب باسم مجلد الجلسة (ملاحظة الخطة، المهمة 11) */
+  onDiskDir?: string;
 }
 
 export interface ChatMessage {

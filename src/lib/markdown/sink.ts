@@ -18,3 +18,12 @@ export function memoryFileSink(): FileSink & { reset(): void; tree(): string[] }
     tree() { return [...files.keys()]; },
   };
 }
+
+const nullSink: FileSink = {
+  async ensureDir() {}, async writeFile() {}, async readFile() { throw new Error("لا ملفات في وضع الويب"); },
+  async exists() { return false; }, async readDir() { return []; },
+};
+let activeSink: FileSink | null = null;
+export function setFileSink(s: FileSink): void { activeSink = s; }
+export function getFileSink(): FileSink { return activeSink ?? nullSink; }
+export function isFilePersistActive(): boolean { return activeSink !== null; }
