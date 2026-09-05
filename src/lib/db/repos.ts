@@ -30,13 +30,17 @@ export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
 export async function recordUsage(ev: UsageEvent): Promise<void> { await db.usage_events.put(ev); }
 
 export async function getUsageEvents(filter?: { sessionId?: string; providerId?: string; fromTs?: number }): Promise<UsageEvent[]> {
-  const col = db.usage_events.orderBy("ts");
-  const all = await col.toArray();
-  return all.filter((e) =>
-    (filter?.sessionId ? e.sessionId === filter.sessionId : true) &&
-    (filter?.providerId ? e.providerId === filter.providerId : true) &&
-    (filter?.fromTs ? e.ts >= filter.fromTs : true),
-  );
+  const narrow = (list: UsageEvent[]): UsageEvent[] =>
+    list.filter((e) => (filter?.providerId ? e.providerId === filter.providerId : true));
+  if (filter?.sessionId) {
+    const list = await db.usage_events.where("sessionId").equals(filter.sessionId).sortBy("ts");
+    return narrow(list).filter((e) => (filter.fromTs ? e.ts >= filter.fromTs : true));
+  }
+  if (filter?.fromTs) {
+    const list = await db.usage_events.where("ts").aboveOrEqual(filter.fromTs).toArray();
+    return narrow(list);
+  }
+  return narrow(await db.usage_events.orderBy("ts").toArray());
 }
 
 export async function getSetting<T>(key: string): Promise<T | undefined> {
