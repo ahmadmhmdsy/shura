@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { memoryFileSink } from "./sink";
+import { appendTurn } from "./writer";
+import { importSessionFromDisk } from "./parser";
+
+const meta = { id: "ab12cd34", title: "عنوان", createdAt: 1, updatedAt: 2, modelIds: ["m"], primaryTarget: null, layoutMode: "vertical" as const, onDisk: true };
+const turnData = {
+  turn: { id: "t1", sharedPrompt: "س؟", customs: { t2: "خاص" } },
+  prompts: [
+    { targetId: "t1", providerId: "openrouter" as const, modelId: "gpt-4o", text: "س؟", hasShared: true, hasCustom: false },
+    { targetId: "t2", providerId: "google" as const, modelId: "gemini", text: "س؟\nخاص", hasShared: true, hasCustom: true },
+  ],
+  results: [
+    { targetId: "t1", text: "جواب 1", usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, costUSD: 0.001 } },
+    { targetId: "t2", text: "جواب 2", usage: { inputTokens: 8, outputTokens: 3, cachedInputTokens: 0, costUSD: null } },
+  ],
+  status: { t1: "done", t2: "done" },
+  errors: {},
+  createdAt: 1000,
+};
+
+describe("parser: استرجاع الجلسة من القرص", () => {
+  it("يعيد بناء الجلسة والرسائل والأحداث من meta.json", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/abc";
+    await appendTurn(sink, dir, meta, turnData);
+    const restored = await importSessionFromDisk(sink, dir);
+    expect(restored.meta.id).toBe("ab12cd34");
+    expect(restored.messages.filter((m) => m.role === "user")).toHaveLength(2);
+    expect(restored.messages.filter((m) => m.role === "assistant")).toHaveLength(2);
+    expect(restored.usageEvents).toHaveLength(2);
+    expect(restored.usageEvents[0].inputTokens).toBe(10);
+  });
+});
