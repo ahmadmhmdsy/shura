@@ -5,9 +5,10 @@ import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { setTransportFetch } from "@/lib/transport/transport";
+import { toast } from "sonner";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { createSession, getMessages, getSession } from "@/lib/db/repos";
-import { memoryFileSink, setFileSink } from "@/lib/markdown/sink";
+import { memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
 import type { ComposerTarget } from "@/state/composerStore";
 import type { ChatMessage, SessionMeta } from "@/types";
 
@@ -224,12 +225,20 @@ describe("ChatScreen — التوصيل الحي", () => {
     await waitFor(async () => expect(await sink.exists(dir + "/session.md")).toBe(true), { timeout: 3000 });
     const md = await sink.readFile(dir + "/session.md");
     expect(md).toContain("## تمرّة 1");
-    expect(md).toContain("خلاصة النموذج الأساسي (synthesis)");
+    // أرشفة المحتوى لا الشاهد: نص الخلاصة الفعلي مقتبسًا ونتيجة بمدخل نصها (يعيد parser بناءها)
+    expect(md).toContain("> أهلاً");
+    expect(md).toContain("### خلاصة النموذج الأساسي (synthesis)");
+    expect(md).toContain("أهلاً");
     const metaJson = JSON.parse(await sink.readFile(dir + "/meta.json"));
     expect(metaJson.turns).toHaveLength(1);
     expect(metaJson.turns[0].turn.id).toMatch(/^syn-/);
+    expect(metaJson.turns[0].turn.sharedPrompt).toBe("أهلاً");
     expect(metaJson.turns[0].prompts).toEqual([]);
-    expect(metaJson.turns[0].results).toEqual([]);
+    const result0 = metaJson.turns[0].results[0];
+    expect(result0.text).toBe("أهلاً");
+    expect(typeof result0.targetId).toBe("string");
+    expect(result0.usage).toBeTruthy();
+    expect(metaJson.turns[0].status[result0.targetId]).toBe("done");
   });
 
   it("فشل الخلاصة لا يُؤرشف على القرص (قرار: الفشل لا يُؤرشف)", async () => {
@@ -244,5 +253,24 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(await screen.findByText(/مفتاح غير صالح/, {}, { timeout: 3000 })).toBeInTheDocument();
     expect((await getSession(s.id))?.onDiskDir ?? null).toBeFalsy();
     expect(sink.tree().some((t) => t.startsWith("sessions/"))).toBe(false);
+  });
+
+  it("فشل الأرشفة لا يمس صف الخلاصة في Dexie: النص سليم وstatus done مع توست تحذيري", async () => {
+    const base = memoryFileSink();
+    // سينك يرمي عند أول كتابة: appendTurn يفشل بعد اكتمال البث والثبات الناجح
+    const failingSink: FileSink = { ...base, writeFile: async () => { throw new Error("قرص ممتلئ"); } };
+    setFileSink(failingSink);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    const warnSpy = vi.spyOn(toast, "warning");
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await waitFor(async () => { const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis"); expect(synth?.status, "synthErr=" + synth?.error).toBe("done"); }, { timeout: 4000 });
+    // انتظار اكتمال سلسلة الأرشفة (فشلها وتوستها) — قد تحسم بعد ثبات صف Dexie بقليل
+    await waitFor(() => expect(warnSpy).toHaveBeenCalledWith("حُفظت الخلاصة محليًا وفشل أرشفتها على القرص"), { timeout: 3000 });
+    const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+    expect(synth?.text).toBe("أهلاً");
+    warnSpy.mockRestore();
   });
 });

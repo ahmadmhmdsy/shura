@@ -60,9 +60,12 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
   for (const p of data.prompts.filter((p) => p.hasCustom)) section += `\n> **خاص بـ ${p.modelId}:** ${p.text}\n`;
   section += "\n";
   for (const r of data.results) {
-    const prompt = data.prompts.find((p) => p.targetId === r.targetId)!;
+    // [دور إصلاح مأذون — بند 1 من دور الإصلاح الثاني] تمريرة الخلاصة: نتائج بلا مدخل prompt
+    // مطابق (عقد الأرشفة الجديد: النص في sharedPrompt والنتيجة بلا prompts) — تسمية بديلة مقروءة
+    // بدل الانهيار على undefined (كان `find(...)!` يرمي TypeError في هذا الشكل).
+    const prompt = data.prompts.find((p) => p.targetId === r.targetId);
     const st = data.status[r.targetId] ?? "done";
-    section += `\n### ${prompt.providerId} — ${prompt.modelId}\n`;
+    section += `\n### ${prompt ? `${prompt.providerId} — ${prompt.modelId}` : "خلاصة النموذج الأساسي (synthesis)"}\n`;
     if (st === "error") section += `\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
     else section += `\n${r.text}\n`;
     section += "\n" + usageRow(r.usage);
@@ -76,9 +79,9 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
     await sink.writeFile(`${dir}/${tdir}/${resultFileName(i, p.providerId, p.modelId)}`, "## سؤال مخصص\n\n" + p.text + "\n");
   }
   for (const [i, r] of data.results.entries()) {
-    const prompt = data.prompts.find((p) => p.targetId === r.targetId)!;
+    const prompt = data.prompts.find((p) => p.targetId === r.targetId);
     const body = data.status[r.targetId] === "error" ? `⛔ ${data.errors[r.targetId] ?? "خطأ"}` : r.text;
-    await sink.writeFile(`${dir}/${tdir}/${resultFileName(i, prompt.providerId, prompt.modelId)}`, body + "\n\n---\n" + usageRow(r.usage));
+    await sink.writeFile(`${dir}/${tdir}/${resultFileName(i, prompt?.providerId ?? "synthesis", prompt?.modelId ?? "primary")}`, body + "\n\n---\n" + usageRow(r.usage));
   }
   metaJson.turns.push({ ...data, dirName: tdir });
   await sink.writeFile(dir + "/meta.json", JSON.stringify(metaJson, null, 2));

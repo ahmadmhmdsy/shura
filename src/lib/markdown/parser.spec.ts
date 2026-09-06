@@ -39,4 +39,22 @@ describe("parser: استرجاع الجلسة من القرص", () => {
     const got = await recoverFromDisk(sink, "sessions");
     expect(got.map((g) => g.meta.id).sort()).toEqual(["ab12cd34", "ff00ee11"]);
   });
+  it("recoverFromDisk يعيد بناء رسالة الخلاصة بنصها من تمريرة syn-", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/s1";
+    await appendTurn(sink, dir, meta, {
+      turn: { id: "syn-t1", sharedPrompt: "نص الخلاصة الفعلي", customs: {} },
+      prompts: [],
+      results: [{ targetId: "m9", text: "نص الخلاصة الفعلي", usage: { inputTokens: 3, outputTokens: 2, cachedInputTokens: 0, costUSD: null } }],
+      status: { m9: "done" },
+      errors: {},
+      createdAt: 2000,
+    });
+    const restored = await importSessionFromDisk(sink, dir);
+    const synth = restored.messages.find((m) => m.kind === "synthesis");
+    expect(synth?.text).toBe("نص الخلاصة الفعلي");
+    expect(synth?.status).toBe("done");
+    expect(synth?.usage?.inputTokens).toBe(3);
+    expect(restored.messages.filter((m) => m.role === "user")).toHaveLength(0);
+  });
 });

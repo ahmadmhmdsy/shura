@@ -9,6 +9,16 @@ export async function importSessionFromDisk(sink: FileSink, dir: string): Promis
   const messages: ChatMessage[] = [];
   const usageEvents: UsageEvent[] = [];
   for (const t of raw.turns ?? []) {
+    // [دور إصلاح مأذون — بند 1 من دور الإصلاح الثاني] تمريرة الخلاصة (id يبدأ syn-): بلا مدخلات
+    // prompts ونتيجة واحدة نصها الخلاصة — تعاد بناءها برسالة kind="synthesis" بنصها وحالتها
+    // واستهلاكها حتى تظهر عند فقدان القاعدة (الحلقة العامة كانت تنهار على prompt المفقود).
+    if (String(t.turn?.id ?? "").startsWith("syn-")) {
+      for (const r of t.results ?? []) {
+        const st = (t.status?.[r.targetId] ?? "done") as ChatMessage["status"];
+        messages.push({ id: t.turn.id + ":" + r.targetId, sessionId: meta.id, turnId: t.turn.id, createdAt: t.createdAt, role: "assistant", kind: "synthesis", text: r.text, status: st === "error" ? "error" : st, error: t.errors?.[r.targetId], usage: r.usage ?? undefined });
+      }
+      continue;
+    }
     const shared = (t.prompts ?? []).find((p: { hasShared: boolean }) => p.hasShared);
     if (shared) {
       messages.push({ id: t.turn.id + ":shared", sessionId: meta.id, turnId: t.turn.id, createdAt: t.createdAt, role: "user", kind: "prompt", text: shared.text, promptKind: "shared", status: "done" });

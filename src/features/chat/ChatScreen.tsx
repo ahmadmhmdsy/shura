@@ -11,7 +11,7 @@ import { sendTurn } from "@/lib/chat/chatController";
 import { dispatchTurn } from "@/lib/chat/dispatch";
 import { buildSummaryPrompt } from "@/lib/chat/synthesis";
 import { newId } from "@/lib/id";
-import { appendMessage, updateSession } from "@/lib/db/repos";
+import { appendMessage, recordUsage, updateSession } from "@/lib/db/repos";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { appendTurn, sessionFolderName } from "@/lib/markdown/writer";
 import { ar } from "@/i18n/ar";
@@ -131,23 +131,34 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       await appendMessage(finalMsg);
       upsertMessagesLocal([finalMsg]);
       if (!outcome.ok) toast.error(outcome.error ?? "فشل");
-      // [دور إصلاح مأذون — بند 1 من المراجعة الختامية] أرشفة تمريرة الخلاصة على القرص عند النجاح
-      // فقط (قرار منسق: الفشل لا يُؤرشف، وبلا recordUsage — الخلاصة قالب محلي بلا نداء موديل
-      // وصفر استهلاك ليس معلومة). قسم prompts/results فارغ وإشارة synthesis في النص؛ تحققنا أن
-      // appendTurn يتحمل المصفوفات الفارغة بلا تعديل (رأس تمريرة + اقتباس الإشارة في session.md
-      // ومدخل turns في meta.json)؛ ومرحلة الاسترجاع تعيد بناء مدخل التمريرة ورسائل الخلاصة تبقى في Dexie.
+      // [دور إصلاح مأذون — بند 3 من دور الإصلاح الثاني] تصحيح لقرار منسق سابق («بلا recordUsage»):
+      // النداء حقيقي للموديل الأساسي (برهان اختبار 401 في هذه المواصفة) — يُسجل حد استهلاك بمعرف
+      // تمريرة الخلاصة (usage من outcome؛ أصفار وحالة error عند الفشل) بنمط مسار §6 نفسه.
+      await recordUsage({ id: newId("u"), sessionId: session.id, turnId, ts: Date.now(), providerId: primary.providerId, modelId: primary.modelId, inputTokens: outcome.usage?.inputTokens ?? 0, outputTokens: outcome.usage?.outputTokens ?? 0, cachedInputTokens: outcome.usage?.cachedInputTokens ?? 0, costUSD: outcome.usage?.costUSD ?? null, toolCalls: 0, durationMs: outcome.ms, status: outcome.ok ? "ok" : "error" });
+      // [دور إصلاح مأذون — بندا 1/2 من دور الإصلاح الثاني] أرشفة المحتوى لا الشاهد: sharedPrompt =
+      // نص الخلاصة الفعلي (اقتباس مقروء بالبشر) وresults بمدخل النص حتى يعيد parser بناء رسالة
+      // الخلاصة بنصها عند فقدان القاعدة. الأرشفة معزولة بـ try/catch خاص: فشلها لا يمس صف الخلاصة
+      // الناجح في Dexie إطلاقًا (درس (أ)-5: put بالإفراغ كان يمحو النص) — تكفي رسالة تحذير.
       if (outcome.ok && isFilePersistActive()) {
-        let effectiveSession = session;
-        if (!effectiveSession.onDiskDir) {
-          const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
-          await updateSession(effectiveSession.id, { onDiskDir: folder });
-          useSessionsStore.setState((st) => ({ sessions: st.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
-          effectiveSession = { ...effectiveSession, onDiskDir: folder };
+        try {
+          let effectiveSession = session;
+          if (!effectiveSession.onDiskDir) {
+            const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
+            await updateSession(effectiveSession.id, { onDiskDir: folder });
+            useSessionsStore.setState((st) => ({ sessions: st.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
+            effectiveSession = { ...effectiveSession, onDiskDir: folder };
+          }
+          await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
+            turn: { id: turnId, sharedPrompt: outcome.text, customs: {} },
+            prompts: [],
+            results: [{ targetId: msgId, text: outcome.text, usage: outcome.usage ?? null }],
+            status: { [msgId]: "done" },
+            errors: {},
+            createdAt: Date.now(),
+          });
+        } catch {
+          toast.warning("حُفظت الخلاصة محليًا وفشل أرشفتها على القرص");
         }
-        await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
-          turn: { id: turnId, sharedPrompt: "خلاصة النموذج الأساسي (synthesis)", customs: {} },
-          prompts: [], results: [], status: {}, errors: {}, createdAt: Date.now(),
-        });
       }
     } catch (e) {
       // [دور إصلاح مأذون — بند 3] كما في حارس persistTurn: toast عربي وإنهاء بطاقة الخلاصة
