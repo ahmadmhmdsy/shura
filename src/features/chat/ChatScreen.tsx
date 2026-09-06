@@ -12,8 +12,8 @@ import { dispatchTurn } from "@/lib/chat/dispatch";
 import { buildSummaryPrompt } from "@/lib/chat/synthesis";
 import { newId } from "@/lib/id";
 import { appendMessage, updateSession } from "@/lib/db/repos";
-import { isFilePersistActive } from "@/lib/markdown/sink";
-import { sessionFolderName } from "@/lib/markdown/writer";
+import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
+import { appendTurn, sessionFolderName } from "@/lib/markdown/writer";
 import { ar } from "@/i18n/ar";
 import type { ChatMessage, SessionMeta, Turn } from "@/types";
 
@@ -131,6 +131,24 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       await appendMessage(finalMsg);
       upsertMessagesLocal([finalMsg]);
       if (!outcome.ok) toast.error(outcome.error ?? "فشل");
+      // [دور إصلاح مأذون — بند 1 من المراجعة الختامية] أرشفة تمريرة الخلاصة على القرص عند النجاح
+      // فقط (قرار منسق: الفشل لا يُؤرشف، وبلا recordUsage — الخلاصة قالب محلي بلا نداء موديل
+      // وصفر استهلاك ليس معلومة). قسم prompts/results فارغ وإشارة synthesis في النص؛ تحققنا أن
+      // appendTurn يتحمل المصفوفات الفارغة بلا تعديل (رأس تمريرة + اقتباس الإشارة في session.md
+      // ومدخل turns في meta.json)؛ ومرحلة الاسترجاع تعيد بناء مدخل التمريرة ورسائل الخلاصة تبقى في Dexie.
+      if (outcome.ok && isFilePersistActive()) {
+        let effectiveSession = session;
+        if (!effectiveSession.onDiskDir) {
+          const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
+          await updateSession(effectiveSession.id, { onDiskDir: folder });
+          useSessionsStore.setState((st) => ({ sessions: st.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
+          effectiveSession = { ...effectiveSession, onDiskDir: folder };
+        }
+        await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
+          turn: { id: turnId, sharedPrompt: "خلاصة النموذج الأساسي (synthesis)", customs: {} },
+          prompts: [], results: [], status: {}, errors: {}, createdAt: Date.now(),
+        });
+      }
     } catch (e) {
       // [دور إصلاح مأذون — بند 3] كما في حارس persistTurn: toast عربي وإنهاء بطاقة الخلاصة
       // بوضع خطأ في الطبقتين (المخزن الحي فورًا، وDexie بأفضل جهد) لا رفض وعد معلق مع «يكتب…» أبديًا.

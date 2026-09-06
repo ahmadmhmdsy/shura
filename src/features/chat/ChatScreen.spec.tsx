@@ -209,4 +209,40 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(screen.queryByText("يكتب…")).not.toBeInTheDocument();
     await waitFor(async () => expect((await getMessages(s.id)).find((m) => m.kind === "synthesis")?.status).toBe("error"), { timeout: 3000 });
   });
+
+  it("الخلاصة الناجحة تُؤرشف على القرص: تمريرة synthesis في session.md وturns لا Dexie وحده", async () => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
+    await waitFor(async () => expect((await getSession(s.id))?.onDiskDir).toBeTruthy(), { timeout: 3000 });
+    const dir = "sessions/" + (await getSession(s.id))?.onDiskDir;
+    await waitFor(async () => expect(await sink.exists(dir + "/session.md")).toBe(true), { timeout: 3000 });
+    const md = await sink.readFile(dir + "/session.md");
+    expect(md).toContain("## تمرّة 1");
+    expect(md).toContain("خلاصة النموذج الأساسي (synthesis)");
+    const metaJson = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    expect(metaJson.turns).toHaveLength(1);
+    expect(metaJson.turns[0].turn.id).toMatch(/^syn-/);
+    expect(metaJson.turns[0].prompts).toEqual([]);
+    expect(metaJson.turns[0].results).toEqual([]);
+  });
+
+  it("فشل الخلاصة لا يُؤرشف على القرص (قرار: الفشل لا يُؤرشف)", async () => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    setTransportFetch(((input: RequestInfo | URL, init?: RequestInit) => { void input; void init; return new Response("{}", { status: 401 }); }) as unknown as typeof fetch);
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    expect(await screen.findByText(/مفتاح غير صالح/, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect((await getSession(s.id))?.onDiskDir ?? null).toBeFalsy();
+    expect(sink.tree().some((t) => t.startsWith("sessions/"))).toBe(false);
+  });
 });

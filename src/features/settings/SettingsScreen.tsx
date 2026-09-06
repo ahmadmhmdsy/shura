@@ -43,11 +43,11 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.sessionDir}</h3>
-          <div className="flex gap-2">
-            <Input readOnly value={sessionRootDir ?? "Documents\\Shura (يعمل داخل تطبيق سطح المكتب)"} className="text-xs" />
-            <Button size="sm" variant="outline" disabled>تغيير</Button>
-          </div>
-          <p className="text-[11px] text-sura-muted">تغيير المسار متاح داخل غلاف سطح المكتب (نافذة اختيار مجلد).</p>
+          {/* [دور إصلاح مأذون — بند 2 من المراجعة الختامية] الزر «تغيير» المعطل ووعد «نافذة اختيار
+              مجلد» حذفا (قرار منسق): الاختيار خارج نطاق capabilities وسيُحجب بصمت — النص الصادق
+              بديلًا عن الوعد، والمدخل للعرض فقط يبقى. */}
+          <Input readOnly value={sessionRootDir ?? "Documents\\Shura (يعمل داخل تطبيق سطح المكتب)"} className="text-xs" />
+          <p className="text-[11px] text-sura-muted">المسار ثابت في هذه النسخة: Documents\Shura</p>
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.timeout}</h3>

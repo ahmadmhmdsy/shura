@@ -13,6 +13,10 @@ export function buildTurnTargets(
 
   if (syncMode) {
     if (!shared) throw new Error("اكتب سؤالًا موحدًا أولاً — وضع الربط مُفعّل ويُرسل نفس السؤال للجميع");
+    // [دور إصلاح مأذون — بند 4 من المراجعة الختامية] حارس الفرع الموحد: أهداف صفرية كانت تبني
+    // تمريرة فارغة (بلا بطاقات) وتكتبها في Dexie والقرص؛ الرمي برسالة موجّهة يغلق ذلك
+    // (الفرع غير الموحد يرمي أصلًا حين لا يُبنى أي prompt).
+    if (targets.length === 0) throw new Error("أضف نموذجًا واحدًا على الأقل قبل الإرسال");
     return {
       prompts: targets.map((t) => ({ targetId: t.targetId, providerId: t.providerId as BuiltPrompt["providerId"], modelId: t.modelId, text: shared, hasShared: true, hasCustom: false })),
       dropped: [],

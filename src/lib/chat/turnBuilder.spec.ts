@@ -42,4 +42,7 @@ describe("قاعدة التوريث الثلاثية", () => {
     const out = buildTurnTargets(turn("   ", { t2: "  س  " }), [...targets], false);
     expect(out.prompts.map((p) => p.text)).toEqual(["س"]);
   });
+  it("الفرع الموحد بأهداف صفرية يرمي رسالة عربية موجّهة (لا تمريرة فارغة)", () => {
+    expect(() => buildTurnTargets(turn("سؤال موحد", {}), [], true)).toThrow("أضف نموذجًا واحدًا على الأقل قبل الإرسال");
+  });
 });
