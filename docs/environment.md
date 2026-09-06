@@ -81,7 +81,7 @@
 |---|---|
 | `pnpm typecheck` (tsc --noEmit) | PASS |
 | `pnpm lint` (eslint .) | PASS |
-| `pnpm test` (vitest run) | **PASS — 87/87 اختبارًا (18 ملفًا)، Duration ~10.1s** |
+| `pnpm test` (vitest run) | **PASS — 87/87 اختبارًا (18 ملفًا)، Duration ~10.1s** (سجل المهمة 15؛ السلسلة الأخيرة قبل الدمج: 92/92 عبر 18 ملفًا — انظر سجل ما بعد المراجعة الشاملة) |
 | `pnpm build` (tsc --noEmit && vite build) | PASS — vite 8.2.2، `dist` مُنتج |
 
 - التحذيرات القديمة المعلومة بلا مساس صحيح: `act(...)` في `ChatScreen.spec.tsx` (موثقة منذ المهمة 13)، وتحذيرا Vite (`configLoader: 'native'`/`__dirname`، وحجم chunk أكبر من 500kB) — لم يزد شيء.
