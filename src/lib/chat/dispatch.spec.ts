@@ -42,7 +42,7 @@ describe("dispatchTurn", () => {
     setTransportFetch(sseMockFetch());
     const out = await dispatchTurn({ ...baseArgs, prompts });
     expect(out.map((r) => r.targetId).sort()).toEqual(["t1", "t2"]);
-    expect(out.every((r) => r.ok && r.text === "أهلاً")).toBe(true);
+    expect(out.every((r) => r.status === "done" && r.text === "أهلاً")).toBe(true);
   });
   it("عزل الأخطاء: هدف يفشل 401 والبقية تكتمل", async () => {
     const f = sseMockFetch();
@@ -53,9 +53,9 @@ describe("dispatchTurn", () => {
     }) as typeof fetch);
     const out = await dispatchTurn({ ...baseArgs, prompts });
     const t2 = out.find((r) => r.targetId === "t2")!;
-    expect(t2.ok).toBe(false);
+    expect(t2.status).toBe("error");
     expect(t2.error).toMatch(/مفتاح/);
-    expect(out.find((r) => r.targetId === "t1")!.ok).toBe(true);
+    expect(out.find((r) => r.targetId === "t1")!.status).toBe("done");
   });
   it("تسجيل الاستهلاك: usage يُقرأ من النهاية ويُحسب مثله", async () => {
     setTransportFetch(sseMockFetch());
@@ -63,11 +63,12 @@ describe("dispatchTurn", () => {
     expect(out[0].usage?.inputTokens).toBe(7);
     expect(out[0].usage?.outputTokens).toBe(3);
     expect(out[0].usage?.costUSD).not.toBeNull();
+    expect(out[0].status).toBe("done");
   });
   it("مهلة قصيرة جدا تُلغي الهدف", async () => {
     setTransportFetch((() => new Promise<Response>(() => {})) as typeof fetch);
     const out = await dispatchTurn({ ...baseArgs, prompts: [prompts[0]], timeoutMs: 50 });
-    expect(out[0].ok).toBe(false);
+    expect(out[0].status).toBe("error");
     expect(out[0].error).toMatch(/مهلة|ألغي/);
   });
 
@@ -82,7 +83,7 @@ describe("dispatchTurn", () => {
       ...baseArgs, prompts: [prompts[0]],
       historyFor: () => hi,
     });
-    expect(out[0].ok).toBe(true);
+    expect(out[0].status).toBe("done");
     const body = JSON.parse(f.calls[0].body) as { messages: { role: string; content: string }[]; prompt?: unknown };
     expect(body.messages.map((m) => [m.role, m.content])).toEqual([
       ["user", "س-سابق"],
@@ -104,7 +105,7 @@ describe("dispatchTurn", () => {
       contextMode: "stateless",
       historyFor: () => hi,
     });
-    expect(out[0].ok).toBe(true);
+    expect(out[0].status).toBe("done");
     const body = JSON.parse(f.calls[0].body) as { messages: { role: string; content: string }[]; prompt?: unknown };
     expect(body.messages).toEqual([{ role: "user", content: "س1" }]);
     expect(body.prompt).toBeUndefined();
@@ -123,7 +124,7 @@ describe("dispatchTurn", () => {
       ...baseArgs, prompts: [prompts[0]],
       historyFor: () => hi,
     });
-    expect(out[0].ok).toBe(true);
+    expect(out[0].status).toBe("done");
     const body = JSON.parse(f.calls[0].body) as { messages: { role: string; content: string }[]; prompt?: unknown };
     expect(body.messages.map((m) => m.content)).toEqual(["س-لنا", "ج-لنا", "س1"]);
     expect(body.prompt).toBeUndefined();
@@ -140,7 +141,7 @@ describe("dispatchTurn", () => {
     });
     updates.push("sentinel");
     expect(f.calls).toEqual([]);
-    expect(out[0].ok).toBe(false);
+    expect(out[0].status).toBe("error");
     expect(typeof out[0].error).toBe("string");
     expect(out[0].error).toContain("يتجاوز");
     expect(out[0].text).toBe("");
@@ -158,7 +159,7 @@ describe("dispatchTurn", () => {
         modelInfoFor: () => ({ id: "openai/gpt-4o", label: "GPT-4o", contextLength: 128 }),
         externalSignalFor: () => external.signal,
       });
-      expect(out[0].ok).toBe(false);
+      expect(out[0].status).toBe("error");
       expect(out[0].error).toContain("يتجاوز");
       expect(vi.getTimerCount()).toBe(0);
     } finally {
@@ -178,8 +179,8 @@ describe("dispatchTurn", () => {
     });
     const t1ok = out.find((r) => r.targetId === "t1")!;
     const t2ok = out.find((r) => r.targetId === "t2")!;
-    expect(t1ok.ok).toBe(true);
-    expect(t2ok.ok).toBe(true);
+    expect(t1ok.status).toBe("done");
+    expect(t2ok.status).toBe("done");
     expect(ops.filter(([o, t]) => o === "op1" && t === "t1").length).toBeGreaterThan(0);
     expect(ops.filter(([o, t]) => o === "op1" && t === "t2").length).toBeGreaterThan(0);
     expect(ops.every(([o]) => o === "op1")).toBe(true);
