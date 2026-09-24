@@ -9,8 +9,7 @@ import { toast } from "sonner";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { createSession, getMessages, getSession } from "@/lib/db/repos";
 import { memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
-import type { ComposerTarget } from "@/state/composerStore";
-import type { ChatMessage, SessionMeta } from "@/types";
+import type { TargetConfig, ChatMessage, SessionMeta } from "@/types";
 
 // خطاف أخطاء داخلية معتمد للاختبارات: appendMessage الحقيقي يمرّ عبره دائمًا،
 // ويمكن للاختبار أن يجعل النداء رقم N يفشل لمحاكاة خطأ طبقة تخزين داخلية.
@@ -36,19 +35,19 @@ async function mkSession(over: Partial<SessionMeta> = {}): Promise<SessionMeta> 
   return s;
 }
 
-const TWO: ComposerTarget[] = [
-  { targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o" },
-  { targetId: "t2", providerId: "minimax", modelId: "MiniMax-M2" },
+const TWO: TargetConfig[] = [
+  { targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" } },
+  { targetId: "t2", providerId: "minimax", modelId: "MiniMax-M2", modelInfo: { id: "MiniMax-M2", label: "MiniMax M2" } },
 ];
-const ONE: ComposerTarget[] = [{ targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o" }];
+const ONE: TargetConfig[] = [{ targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" } }];
 
-function seed(session: SessionMeta, opts: { targets?: ComposerTarget[]; prompt?: string } = {}): void {
+function seed(session: SessionMeta, opts: { targets?: TargetConfig[]; prompt?: string } = {}): void {
   useSessionsStore.setState({ sessions: [session], currentId: session.id, messages: [] });
   useSettingsStore.setState({ providerKeys: { openrouter: "k", minimax: "k" }, timeoutMs: 5000 });
   // معرفات أهداف فريدة لكل اختبار: عمليات إرسال سابقة معلقة (مؤقتات مهلة) قد تكمل بعد انتهاء
   // اختبارها وتكتب في المخزن العام — التفرد يمنع التطابق الخاطئ في مسار الدلتا الاحتياطي.
   const targets = (opts.targets ?? TWO).map((t) => ({ ...t, targetId: t.targetId + "_" + session.id }));
-  useComposerStore.setState({ targets, syncMode: true, sharedPrompt: opts.prompt ?? "س1", customs: {}, focusTargetId: null });
+  useComposerStore.setState({ drafts: { [session.id]: { targets, syncMode: true, sharedPrompt: opts.prompt ?? "س1", customs: {}, focusTargetId: null } } });
 }
 
 function doneTurn(session: SessionMeta): ChatMessage[] {

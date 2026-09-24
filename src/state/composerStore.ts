@@ -1,29 +1,91 @@
 import { create } from "zustand";
-import type { ProviderId } from "@/types";
+import type { TargetConfig } from "@/types";
 import { newId } from "@/lib/id";
 
-export interface ComposerTarget { targetId: string; providerId: ProviderId; modelId: string; }
-
-interface ComposerState {
-  targets: ComposerTarget[]; syncMode: boolean; sharedPrompt: string; customs: Record<string, string>; focusTargetId: string | null;
-  addTarget(t: Omit<ComposerTarget, "targetId">): void;
-  removeTarget(targetId: string): void;
-  setShared(text: string): void;
-  setCustom(targetId: string, text: string): void;
-  setSyncMode(v: boolean): void;
-  setFocus(targetId: string | null): void;
-  loadForSession(targets: ComposerTarget[]): void;
-  reset(): void;
+/** مسودة المؤلف كاملة لجلسة واحدة: كل أعمدتها افتراضية فلا تجويف لأشكال ناقصة (عقد المرجع حرفيًا). */
+export interface ComposerDraft {
+  targets: TargetConfig[];
+  syncMode: boolean;
+  sharedPrompt: string;
+  customs: Record<string, string>;
+  focusTargetId: string | null;
 }
 
-export const useComposerStore = create<ComposerState>((set) => ({
-  targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null,
-  addTarget(t) { const targetId = newId("tgt"); set((s) => ({ targets: [...s.targets, { ...t, targetId }] })); },
-  removeTarget(targetId) { set((s) => ({ targets: s.targets.filter((t) => t.targetId !== targetId), customs: Object.fromEntries(Object.entries(s.customs).filter(([k]) => k !== targetId)), focusTargetId: s.focusTargetId === targetId ? null : s.focusTargetId })); },
-  setShared(text) { set({ sharedPrompt: text }); },
-  setCustom(targetId, text) { set((s) => ({ customs: { ...s.customs, [targetId]: text } })); },
-  setSyncMode(v) { set({ syncMode: v, focusTargetId: v ? null : null }); },
-  setFocus(targetId) { set({ focusTargetId: targetId }); },
-  loadForSession(targets) { set({ targets, customs: {}, sharedPrompt: "", focusTargetId: null }); },
-  reset() { set({ targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null }); },
+export interface ComposerState {
+  /** مسودات مفهرسة بمعرف الجلسة: مفتاح لكل جلسة، ولا سبيل لقراءة مسودة جلسة أخرى. */
+  drafts: Record<string, ComposerDraft>;
+  /** مسودة الجلسة المطلوبة؛ للجلسة المجهولة كائن فارغ جديد في كل نداء (لا كتابة في المخزن ولا نسخ من مسودة أخرى). */
+  getDraft(sessionId: string): ComposerDraft;
+  /** دمج جزئي على القاعدة الفارغة داخل مسودة الجلسة المحددة حصرًا. */
+  setDraft(sessionId: string, patch: Partial<ComposerDraft>): void;
+  addTarget(sessionId: string, target: Omit<TargetConfig, "targetId">): void;
+  removeTarget(sessionId: string, targetId: string): void;
+  setShared(sessionId: string, text: string): void;
+  setCustom(sessionId: string, targetId: string, text: string): void;
+  setSyncMode(sessionId: string, value: boolean): void;
+  setFocus(sessionId: string, targetId: string | null): void;
+  /** حذف مسودة الجلسة بالكامل (تستدعيه إزالة الجلسة في مخزن الجلسات). */
+  clearSession(sessionId: string): void;
+}
+
+/** مسودة فارغة مرجعية للقراءة: مكوّنات الواجهة تستخدمها بديلًا عن مسودة الجلسة المجهولة. */
+export function emptyComposerDraft(): ComposerDraft {
+  return { targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null };
+}
+
+function withoutKey(record: Record<string, string>, key: string): Record<string, string> {
+  const { [key]: _drop, ...rest } = record;
+  void _drop;
+  return rest;
+}
+
+export const useComposerStore = create<ComposerState>((set, get) => ({
+  drafts: {},
+  getDraft(sessionId) {
+    const d = get().drafts[sessionId];
+    return d ?? emptyComposerDraft();
+  },
+  setDraft(sessionId, patch) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...emptyComposerDraft(), ...s.drafts[sessionId], ...patch } } }));
+  },
+  addTarget(sessionId, target) {
+    set((s) => {
+      const d = s.drafts[sessionId] ?? emptyComposerDraft();
+      return { drafts: { ...s.drafts, [sessionId]: { ...d, targets: [...d.targets, { ...target, targetId: newId("tgt") }] } } };
+    });
+  },
+  removeTarget(sessionId, targetId) {
+    set((s) => {
+      const d = s.drafts[sessionId];
+      if (!d) return {};
+      return { drafts: { ...s.drafts, [sessionId]: { ...d,
+        targets: d.targets.filter((t) => t.targetId !== targetId),
+        customs: withoutKey(d.customs, targetId),
+        focusTargetId: d.focusTargetId === targetId ? null : d.focusTargetId,
+      } } };
+    });
+  },
+  setShared(sessionId, text) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), sharedPrompt: text } } }));
+  },
+  setCustom(sessionId, targetId, text) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: {
+      ...(s.drafts[sessionId] ?? emptyComposerDraft()),
+      customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: text },
+    } } }));
+  },
+  setSyncMode(sessionId, value) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), syncMode: value, focusTargetId: null } } }));
+  },
+  setFocus(sessionId, targetId) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), focusTargetId: targetId } } }));
+  },
+  clearSession(sessionId) {
+    set((s) => {
+      if (!(sessionId in s.drafts)) return {};
+      const { [sessionId]: _drop, ...rest } = s.drafts;
+      void _drop;
+      return { drafts: rest };
+    });
+  },
 }));

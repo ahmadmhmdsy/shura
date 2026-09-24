@@ -7,7 +7,7 @@ import App from "@/App";
 
 function resetStores(): void {
   useSettingsStore.setState({ providerKeys: {}, primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000, loaded: false });
-  useComposerStore.getState().reset();
+  useComposerStore.setState({ drafts: {} });
 }
 
 beforeEach(resetStores);
@@ -39,7 +39,7 @@ describe("SettingsScreen", () => {
   });
 
   it("مع وجود أهداف في المُرسِل لا يظهر تحذير «لم تضف نماذج بعد»", () => {
-    useComposerStore.setState({ targets: [{ targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o" }] });
+    useComposerStore.getState().setDraft("seed", { targets: [{ targetId: "t1", providerId: "openrouter", modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" } }] });
     render(<SettingsScreen onClose={() => {}} />);
     expect(screen.queryByText(/لم تضف نماذج بعد/)).not.toBeInTheDocument();
   });

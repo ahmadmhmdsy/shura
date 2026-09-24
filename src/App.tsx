@@ -12,7 +12,8 @@ export default function App() {
     <div className="h-full flex" dir="rtl">
       <Sidebar onOpenSettings={() => setShowSettings(true)} />
       {currentSession
-        ? <ChatScreen session={currentSession} />
+        // إعادة تركيب حصرية عند تغيير الجلسة: كل حالة المؤلف/التمرة في ChatScreen تُعاد من الصفر، لا سيلان من جلسة إلى أخرى
+        ? <ChatScreen key={currentSession.id} session={currentSession} />
         : <div className="flex-1 grid place-items-center text-sura-muted">{ar.newSession + " ← من السايدبار"}</div>}
       {showSettings && <SettingsScreen onClose={() => setShowSettings(false)} />}
     </div>

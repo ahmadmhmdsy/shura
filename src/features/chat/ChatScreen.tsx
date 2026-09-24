@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { Composer } from "./Composer";
 import { TurnView } from "./TurnView";
 import { useSessionsStore } from "@/state/sessionsStore";
-import { useComposerStore, type ComposerTarget } from "@/state/composerStore";
+import { useComposerStore, emptyComposerDraft } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { estimateSessionTokens } from "@/lib/tokens/estimate";
 import { getProvider } from "@/lib/providers/registry";
@@ -18,10 +19,25 @@ import { ar } from "@/i18n/ar";
 import type { ChatMessage, SessionMeta, Turn } from "@/types";
 
 export function ChatScreen({ session }: { session: SessionMeta }) {
-  const { messages, patchMessage, upsertMessagesLocal, appendMessageLocal } = useSessionsStore();
-  const { targets, syncMode, sharedPrompt, customs } = useComposerStore();
+  // الربط الموقّع: كل القراءات والأكشنات تحمل معرف الجلسة نفسه — لا سطح مؤلف شامل بعد الخطوة 5
+  const sessionId = session.id;
+  const messages = useSessionsStore((s) => s.messages);
+  const patchMessage = useSessionsStore((s) => s.patchMessage);
+  const upsertMessagesLocal = useSessionsStore((s) => s.upsertMessagesLocal);
+  const appendMessageLocal = useSessionsStore((s) => s.appendMessageLocal);
+  const setTargets = useSessionsStore((s) => s.setTargets);
+  const { targets, syncMode, sharedPrompt, customs } = useComposerStore(useShallow((s) => {
+    const d = s.drafts[sessionId] ?? emptyComposerDraft();
+    return { targets: d.targets, syncMode: d.syncMode, sharedPrompt: d.sharedPrompt, customs: d.customs };
+  }));
   const settings = useSettingsStore();
   const [sending, setSending] = useState(false);
+  // تثبيت الأهداف المختارة في بيانات الجلسة (Dexie + القائمة المحلية): فقط عند تغيير مصفوفة الأهداف نفسها
+  // (إضافة/إزالة/تلقيم بذرة) — الكتابة النصية للمؤلف تحفظ مرجع المصفوفة فلا تلمس Dexie.
+  useEffect(() => {
+    setTargets(sessionId, targets);
+  }, [setTargets, sessionId, targets]);
+  // ديدان الاستعارة المتبقية تُهمل هنا: remount عبر key في App يضمن خلو كل مرجع متأخر من جلسة سابقة
   const aborts = useRef(new Map<string, AbortController>());
   // أهداف أوقفها المستخدم في التمرّة الجارية: نتيجة الإلغاء تصلف خطأً من dispatch
   // لكن البطاقة تبقى «أُوقف» ولا تتحول إلى خطأ ولا تُطلق تنبيهًا.
@@ -53,6 +69,9 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     const signalTargets = retryTargetId ? targets.filter((t) => t.targetId === retryTargetId) : targets;
     const turnForTargets: Turn = retryTargetId ? { ...turn, customs: { [retryTargetId]: (customs[retryTargetId] ?? "") } } : turn;
     setSending(true);
+    // حاجز اللمس المتأخر: كل نداء بث/حالة/إلحاق بعدها يتأكد أن جلسته ما تزال هي الجلسة المفتوحة،
+    // فلا تستطيع العملية الخامسة من جلسة قديمة (حتى بعد unmount) أن تحرك الجلسة الحالية.
+    const stillMine = () => (useSessionsStore.getState().currentId === sessionId);
     try {
       // ملاحظة الخطة: onDiskDir يُملأ عند أول إرسال في وضع سطح المكتب فقط (المُنشّط غير مثبت في الويب).
       let effectiveSession = session;
@@ -64,7 +83,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       }
       await sendTurn(
         {
-          session: effectiveSession, turn: turnForTargets, targets: signalTargets.map((t: ComposerTarget) => ({ targetId: t.targetId, providerId: t.providerId, modelId: t.modelId })),
+          session: effectiveSession, turn: turnForTargets, targets: signalTargets.map((t) => ({ targetId: t.targetId, providerId: t.providerId, modelId: t.modelId })),
           syncMode: retryTargetId ? false : syncMode,
           apiKeyFor: (pid) => settings.providerKeys[pid] ?? "",
           sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined),
@@ -77,6 +96,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           // المقفولة في الإغلاق: كود الخطة يجد آخر رسالة في اللقطة القديمة فيسقط دلتا كل
           // الأهداف إلا الأخيرة، ويجمّع نص إعادة المحاولة من نص قديم بدل النص الحي.
           onDelta: (tid, chunk) => {
+            if (!stillMine()) return;
             const live = useSessionsStore.getState().messages;
             const m = baseResults?.find((x) => x.targetId === tid) ?? [...live].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (!m) return;
@@ -84,6 +104,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             patchMessage(m.id, { text: cur.text + chunk, status: "streaming" });
           },
           onStatus: (tid, st, err) => {
+            if (!stillMine()) return;
             const list = baseResults ?? useSessionsStore.getState().messages;
             const m = [...list].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (m) {
@@ -93,7 +114,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             if (st === "error" && err && !stopped.current.has(tid)) toast.error(err);
           },
           onDropped: (ids) => { if (ids.length) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
-          onAppended: (m) => upsertMessagesLocal([m]),
+          onAppended: (m) => { if (stillMine()) upsertMessagesLocal([m]); },
         },
       );
     } catch (e) {
@@ -182,7 +203,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     return (
       <main className="flex-1 flex flex-col h-full min-w-0">
         <div className="flex-1 grid place-items-center text-sura-muted text-sm">أضف نماذج من (+) ثم اكتب سؤالك.</div>
-        <Composer onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => void extractSummary()} sending={sending} sessionTokens={sessionTokens} contextLimit={128000} />
+        <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => void extractSummary()} sending={sending} sessionTokens={sessionTokens} contextLimit={128000} />
       </main>
     );
   }
@@ -213,7 +234,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
         ))}
         {turns.length === 0 && <p className="text-sura-muted text-sm">لا رسائل بعد.</p>}
       </div>
-      <Composer onSend={() => void doSend()} onStop={() => { for (const [tid, a] of aborts.current) { stopped.current.add(tid); a.abort(new Error("ألغي بواسطة المستخدم")); } }}
+      <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => { for (const [tid, a] of aborts.current) { stopped.current.add(tid); a.abort(new Error("ألغي بواسطة المستخدم")); } }}
         onExtractSummary={() => void extractSummary()} sending={sending}
         sessionTokens={sessionTokens}
         contextLimit={getProvider(targets[0]?.providerId ?? "openrouter").staticModels.find((m) => m.id === targets[0]?.modelId)?.contextLength ?? 128000} />

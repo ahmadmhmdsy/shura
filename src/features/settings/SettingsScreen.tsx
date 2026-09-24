@@ -12,7 +12,8 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   // [انحراف موثق على كود الخطة] حُذف تفكيك providerKeys وsetSessionRootDir — غير مستخدمين في متن
   // المكون، وnoUnusedLocals يُفشل السلسلة بهما (الدرس نفسه المطبق في المهمة 11: sessionFolderName).
   const { primaryTarget, setPrimaryTarget, sessionRootDir, timeoutMs, setTimeoutMs, load } = useSettingsStore();
-  const targets = useComposerStore((s) => s.targets);
+  // لا سطح مؤلف شامل بعد الخطوة 5: يكفي وجود هدف واحد في أي مسودة جلسة لصمت تحذير «لم تضف نماذج بعد»
+  const hasAnyTargets = useComposerStore((s) => Object.values(s.drafts).some((d) => d.targets.length > 0));
   const [pSel, setPSel] = useState<ProviderId>("openrouter");
   const [mSel, setMSel] = useState("");
   // [إصلاح منسق مأذون] التثبيت Math.max على كل ضربة مفتاح كان يفسد الكتابة متعددة الخانات
@@ -39,7 +40,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
             <Button size="sm" disabled={!mSel} onClick={() => void setPrimaryTarget({ providerId: pSel, modelId: mSel })}>تعيين</Button>
           </div>
           {primaryTarget && <p className="text-xs text-sura-muted">الحالي: {primaryTarget.providerId} · {primaryTarget.modelId}</p>}
-          {targets.length === 0 && <p className="text-xs text-sura-warn">لم تضف نماذج بعد — الأساسي يُستخدم للخلاصة وللأدوار العادية.</p>}
+          {!hasAnyTargets && <p className="text-xs text-sura-warn">لم تضف نماذج بعد — الأساسي يُستخدم للخلاصة وللأدوار العادية.</p>}
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.sessionDir}</h3>
