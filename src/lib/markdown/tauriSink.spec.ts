@@ -26,7 +26,7 @@ vi.mock("@tauri-apps/api/path", () => {
     join: vi.fn((...parts: string[]) => Promise.resolve(parts.filter((s) => s !== "").join("/"))),
     isAbsolute: vi.fn((p: string) => Promise.resolve(/^[A-Za-z]:[\\/]/.test(p) || p.startsWith("/") || p.startsWith("\\\\") || p.startsWith("$"))),
     normalize: vi.fn((p: string) => Promise.resolve(lexicalNormalize(p))),
-    sep: vi.fn(() => Promise.resolve("/")),
+    sep: vi.fn(() => "/"),
   };
 });
 
@@ -56,14 +56,10 @@ describe("tauri capability scope", () => {
 describe("tauri sink path resolution", () => {
   it("joins a relative path without replacing POSIX separators", async () => {
     const { join } = await import("@tauri-apps/api/path");
-    // [مرة واحدة لكل نداء] desktopRoot يجاور (documentDir, "Shura") أولًا ثم resolvePath يجاور
-    // (الجذر, p) — mockResolvedValue الدائم يفسد نداء الجذر ويُلوّث الكاش للجولة، لذا Once لكل نداء.
-    vi.mocked(join)
-      .mockResolvedValueOnce("/home/user/Documents/Shura")
-      .mockResolvedValueOnce("/home/user/Documents/Shura/sessions/s1");
+    // The default join mock builds the complete path, so this assertion detects a dropped filename.
     await tauriFileSink().writeFile("sessions/s1/meta.json", "{}");
     expect(join).toHaveBeenCalledWith("/home/user/Documents/Shura", "sessions/s1/meta.json");
-    expect(writeTextFile).toHaveBeenCalledWith("/home/user/Documents/Shura/sessions/s1", "{}", { create: true });
+    expect(writeTextFile).toHaveBeenCalledWith("/home/user/Documents/Shura/sessions/s1/meta.json", "{}", { create: true });
   });
 
   it("يحل المطلق داخل الجذر بالتطبيع دون تحويل الفواصل", async () => {

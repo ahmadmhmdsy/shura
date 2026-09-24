@@ -67,8 +67,9 @@ mod tests {
     }
 
     #[test]
-    fn relative_candidate_inside_root_is_allowed() {
-        assert!(is_within_root(Path::new("/root"), Path::new("/root/session/file.md")));
+    fn relative_root_and_candidate_are_matched() {
+        assert!(is_within_root(Path::new("root"), Path::new("root/session/file.md")));
+        assert!(!is_within_root(Path::new("root"), Path::new("rootish/session/file.md")));
     }
 
     #[cfg(windows)]
