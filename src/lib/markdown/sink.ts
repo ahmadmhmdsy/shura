@@ -33,11 +33,20 @@ export function memoryFileSink(): FileSink & { reset(): void; tree(): string[] }
       }
       return [...names].sort();
     },
+    // [إصلاح انحراف المهمة 2 — remove الذاكرة] الغائب صامت idempotent (مطابق لـ plugin-fs)،
+    // لكن المجلد غير الفارغ مع recursive: false يُرفض ENOTEMPTY بدل الحذف الصامت السابق،
+    // وrecursive: true يحذف الشجرة كاملة، والمفتاح الملفي المفرد يحذف عاديًا.
     async remove(p, options) {
       const base = p.replace(/[\\/]+$/, "");
       const prefix = base + "/";
+      if (!options?.recursive) {
+        if (files.has(base)) { files.delete(base); return; }
+        const hasChildren = [...files.keys()].some((k) => k.startsWith(prefix));
+        if (hasChildren) throw new Error("ENOTEMPTY: directory not empty: " + base);
+        return;
+      }
       for (const k of [...files.keys()]) {
-        if (k === base || (options?.recursive === true && k.startsWith(prefix))) files.delete(k);
+        if (k === base || k.startsWith(prefix)) files.delete(k);
       }
     },
     async rename(oldPath, newPath) {

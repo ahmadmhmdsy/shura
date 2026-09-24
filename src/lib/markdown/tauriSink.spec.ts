@@ -130,6 +130,25 @@ describe("memory sink remove/rename", () => {
     expect(await sink.exists("sessions/s2/meta.json")).toBe(false);
   });
 
+  it("remove بدون recursive على مجلد غير فارغ يرفض ENOTEMPTY", async () => {
+    const sink = memoryFileSink();
+    await sink.writeFile("sessions/s1/meta.json", "{}");
+    await expect(sink.remove("sessions/s1")).rejects.toThrow(/ENOTEMPTY/);
+    expect(await sink.exists("sessions/s1/meta.json")).toBe(true);
+  });
+
+  it("remove بـ recursive يحذف الشجرة كاملة والغائب صامت idempotent", async () => {
+    const sink = memoryFileSink();
+    await sink.writeFile("sessions/s1/turns/t1/a.md", "x");
+    await sink.writeFile("sessions/s1/sub/b.md", "y");
+    await sink.writeFile("sessions/s2/meta.json", "{}");
+    await sink.remove("sessions/s1", { recursive: true });
+    expect(await sink.exists("sessions/s1/turns/t1/a.md")).toBe(false);
+    expect(await sink.exists("sessions/s1/sub/b.md")).toBe(false);
+    expect(await sink.exists("sessions/s2/meta.json")).toBe(true);
+    await expect(sink.remove("sessions/absent", { recursive: true })).resolves.toBeUndefined();
+  });
+
   it("rename ينقل الملف وشجرة المجلد ويُخطئ ENOENT للغائب", async () => {
     const sink = memoryFileSink();
     await sink.writeFile("sessions/a/f.txt", "x");
