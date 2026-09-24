@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { dispatchTurn } from "./dispatch";
 import { sseMockFetch } from "@/test/mocks/sse";
 import { setTransportFetch } from "@/lib/transport/transport";
@@ -145,6 +145,25 @@ describe("dispatchTurn", () => {
     expect(out[0].error).toContain("يتجاوز");
     expect(out[0].text).toBe("");
     expect(updates).toEqual(["sentinel"]);
+  });
+
+  it("تجاوز السياق ينظف المؤقت بعد الفشل: صفر مؤقتات معلقة مجدولة", async () => {
+    vi.useFakeTimers();
+    try {
+      setTransportFetch(sseMockFetch());
+      const external = new AbortController();
+      const out = await dispatchTurn({
+        ...baseArgs,
+        prompts: [{ ...prompts[0], text: "س".repeat(410) }],
+        modelInfoFor: () => ({ id: "openai/gpt-4o", label: "GPT-4o", contextLength: 128 }),
+        externalSignalFor: () => external.signal,
+      });
+      expect(out[0].ok).toBe(false);
+      expect(out[0].error).toContain("يتجاوز");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("تمرير عمليات: onUpdate/onStatus تصل بمعرف العملية ومعرف الهدف", async () => {

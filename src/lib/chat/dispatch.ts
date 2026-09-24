@@ -33,7 +33,17 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
     // مشكولة كانت تُهدر سبب externalSignalFor («ألغي بواسطة المستخدم») وتُبطل مطابقة /ألغي/؛
     // المسار بلا سبب يبقى على الافتراضي في onAbort، ومسار المهلة (abort داخلي من المؤقت) كما هو.
     const externalSignal = args.externalSignalFor?.(p.targetId);
-    externalSignal?.addEventListener("abort", () => ac.abort(externalSignal.reason));
+    // المستمع الخارجي مُسمّى ليُزال في cleanup عند كل مسار خروج (منها كتلة catch الخارجية)
+    const externalListener = () => ac.abort(externalSignal!.reason);
+    externalSignal?.addEventListener("abort", externalListener);
+    // [إصلاح تسرب الموارد] تنظيف يُستدعى من finally الداخلية ومن finally الخارجية:
+    // تجاوز السياق يعود من catch الخارجية قبل إنشاء flow لا يصل أبًا لـ finally الداخلية
+    // فبقيت مهلة النداء ومستمع إلغاء الإشارة الداخلي والخارجي معلقة — كل مسارات الخروج تمر هنا.
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      ac.signal.removeEventListener("abort", onAbort);
+      externalSignal?.removeEventListener("abort", externalListener);
+    };
     const status = args.onStatus ? (s: TurnStatus, error?: string) => args.onStatus?.(args.operationId, p.targetId, s, error) : undefined;
     status?.("streaming");
     const timer = setTimeout(() => ac.abort(new Error("انتهت مهلة النداء")), timeout);
@@ -93,8 +103,7 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
           const source = rawError !== undefined ? rawError : e;
           return { targetId: p.targetId, ok: false, text: "", error: ac.signal.aborted && !ac.signal.reason ? "أُلغي النداء" : mapProviderError(source), ms: Date.now() - t0 };
         } finally {
-          clearTimeout(timer);
-          ac.signal.removeEventListener("abort", onAbort);
+          cleanup();
         }
       })();
       const outcome = await Promise.race([flow, abortedOutcome]);
@@ -105,6 +114,8 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       const outcome = flowlessOutcome(e, p.targetId, t0);
       status?.("error", outcome.error);
       return outcome;
+    } finally {
+      cleanup();
     }
   }));
   return results;
