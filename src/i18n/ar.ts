@@ -7,4 +7,11 @@ export const ar = {
   sessionDir: "مجلد حفظ الجلسات", extractSummary: "استخرج خلاصة", vertical: "عمودي", horizontal: "أفقي",
   contextOf: "الكونتيكست", droppedTargets: "نماذج بلا سؤال أُسقطت", streaming: "يكتب…", stopped: "أُوقف",
   desktopRequired: "يتطلب تطبيق سطح المكتب",
+  // [المهمة 4] وضع السياق والمقياس
+  contextMode: "وضع السياق",
+  contextStateful: "بحالة (مع سجل النموذج)",
+  contextStateless: "بلا حالة (مقارنة)",
+  contextModeHint: "اختيار بين إرسال السجل المكتمل أو السؤال وحده",
+  statelessCompare: "مقارنة stateless",
+  contextUnknown: "حد سياق النموذج غير معروف",
 } as const;

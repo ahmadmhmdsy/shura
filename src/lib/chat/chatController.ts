@@ -4,12 +4,13 @@ import { buildTurnTargets } from "./turnBuilder";
 import { dispatchTurn } from "./dispatch";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { appendTurn, writeSessionMeta } from "@/lib/markdown/writer";
-import type { BuiltPrompt, ChatMessage, ProviderId, SessionMeta, Turn } from "@/types";
+import type { BuiltPrompt, ChatMessage, ContextMode, ModelInfo, ProviderId, SessionMeta, Turn } from "@/types";
 
 export interface SendCallbacks {
-  onDelta(targetId: string, chunk: string): void;
-  onStatus(targetId: string, status: ChatMessage["status"], error?: string): void;
-  onDropped(targetIds: string[]): void;
+  // [مرحلة نطاق دائم] كل نداء مرتبط بهوية العملية: operationId أولًا ثم targetId.
+  onDelta(operationId: string, targetId: string, chunk: string): void;
+  onStatus(operationId: string, targetId: string, status: ChatMessage["status"], error?: string): void;
+  onDropped(operationId: string, targetIds: string[]): void;
   // [انحراف موثق 4/8 عن كود الخطة] الخطة تستدعي repos.appendMessage فقط فلا تصل الرسائل
   // إلى واجهة العرض مطلقًا (ChatScreen في كود الخطة يفكك appendMessageLocal ولا يستدعيه).
   // إشعار اختياري بعد كل حفظ تعكس الشاشة به الرسائل إلى المخزن المحلي.
@@ -29,16 +30,22 @@ export interface SendArgs {
   // بدل توليد معرف جديد، فتستبدل النتيجة النهائية الصف القديم (put بالمفتاح نفسه)
   // ولا تتضاعف البطاقات في الواجهة ولا صفوف Dexie.
   assistantIds?: Record<string, string>;
+  // [شريحة المهمة 4 — المتحكم] هوية العملية وسياق الهدف يُمرَّران كما هما إلى dispatchTurn؛
+  // بلا افتراضات قديمة: المتصلون المباشر في الاختبارات حدُثوا، وشاشة الاتصال في الشريحة التالية.
+  operationId: string;
+  contextMode: ContextMode;
+  historyFor(targetId: string): readonly ChatMessage[];
+  modelInfoFor(targetId: string): ModelInfo;
 }
 
-function userMsg(sessionId: string, turnId: string, text: string, promptKind: "shared" | "custom", targetId?: string): ChatMessage {
-  return { id: newId("m"), sessionId, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text, promptKind, targetId, status: "done" };
+function userMsg(sessionId: string, turnId: string, operationId: string, text: string, promptKind: "shared" | "custom", targetId?: string): ChatMessage {
+  return { id: newId("m"), sessionId, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text, promptKind, targetId, status: "done", operationId };
 }
 
 export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatMessage[]> {
   const { session, turn } = args;
   const built = buildTurnTargets(turn, args.targets, args.syncMode);
-  if (built.dropped.length) cb.onDropped(built.dropped);
+  if (built.dropped.length) cb.onDropped(args.operationId, built.dropped);
 
   const sink = getFileSink();
   const dir = args.session.onDiskDir ? `sessions/${args.session.onDiskDir}` : null;
@@ -48,24 +55,30 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
 
   const emit = async (m: ChatMessage): Promise<void> => { await appendMessage(m); cb.onAppended?.(m); };
 
-  if (turn.sharedPrompt?.trim()) await emit(userMsg(session.id, turn.id, turn.sharedPrompt.trim(), "shared"));
+  const opId = args.operationId;
+  if (turn.sharedPrompt?.trim()) await emit(userMsg(session.id, turn.id, opId, turn.sharedPrompt.trim(), "shared"));
   const assistantMsgs: ChatMessage[] = built.prompts.map((p: BuiltPrompt) => ({
     id: args.assistantIds?.[p.targetId] ?? newId("m"),
     sessionId: session.id, turnId: turn.id, createdAt: Date.now(),
     role: "assistant" as const, kind: "result" as const, text: "",
     providerId: p.providerId, modelId: p.modelId, targetId: p.targetId, status: "streaming" as const,
+    operationId: opId,
   }));
   for (const p of built.prompts) {
     if (!p.hasCustom) continue;
-    await emit(userMsg(session.id, turn.id, p.text, "custom", p.targetId));
+    await emit(userMsg(session.id, turn.id, opId, p.text, "custom", p.targetId));
   }
   for (const m of assistantMsgs) await emit(m);
 
   const outcomes = await dispatchTurn({
+    operationId: opId,
     sessionId: session.id, turnId: turn.id, prompts: built.prompts,
     apiKeyFor: args.apiKeyFor, sessionHeaderFor: args.sessionHeaderFor, timeoutMs: args.timeoutMs,
     externalSignalFor: args.externalSignalFor,
-    onUpdate: (targetId, chunk) => cb.onDelta(targetId, chunk),
+    contextMode: args.contextMode,
+    historyFor: args.historyFor,
+    modelInfoFor: args.modelInfoFor,
+    onUpdate: (operationId, targetId, chunk) => cb.onDelta(operationId, targetId, chunk),
   });
 
   for (const o of outcomes) {
@@ -78,7 +91,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     // [انحراف موثق عن كود الخطة] سطر الخطة «void info ? computeCost(...) : null» ميت بنيويًا:
     // TS2873 يجعل «void info» كاذبًا دائمًا فلا يُنفَّذ الفرع أبدًا (والبث يحسب التكلفة أصلًا
     // في dispatch ويحفظها ضمن usage) — حُذف لتصرَّف السلسلة المفروضة (typecheck/lint).
-    cb.onStatus(o.targetId, status, o.error);
+    cb.onStatus(opId, o.targetId, status, o.error);
   }
   // [انحراف موثق 3/8 عن كود الخطة] appendTurn نقلت خارج حلقة النتائج: داخلها كانت تُستدعى
   // مرة لكل هدف فتُنشئ قسم «تمرّة» لكل نتيجة (وتمرّتين في meta.json لإرسالٍ بهدفين) بنفس المحتوى.

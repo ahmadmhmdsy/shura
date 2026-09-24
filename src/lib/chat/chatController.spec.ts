@@ -23,23 +23,29 @@ function baseArgs(session: SessionMeta, over: Partial<SendArgs> = {}): SendArgs 
   return {
     session, turn: { id: "turn1", sharedPrompt: "سؤال مشترك؟", customs: {} },
     targets, syncMode: true,
+    operationId: "op1",
+    contextMode: "stateful",
+    historyFor: () => [],
+    modelInfoFor: () => ({ id: "m", label: "نموذج", contextLength: 128000 }),
     apiKeyFor: () => "k", sessionHeaderFor: () => undefined,
     externalSignalFor: () => undefined, timeoutMs: 5000,
     ...over,
   };
 }
 
-function makeCb(): { c: { deltas: Record<string, string>; statuses: { targetId: string; status: ChatMessage["status"]; error?: string }[]; dropped: string[]; appendedIds: string[] }; cb: SendCallbacks } {
+function makeCb(): { c: { deltas: Record<string, string>; deltaOps: string[]; statuses: { op: string; targetId: string; status: ChatMessage["status"]; error?: string }[]; dropped: string[]; droppedOps: string[]; appendedIds: string[] }; cb: SendCallbacks } {
   const c = {
     deltas: {} as Record<string, string>,
-    statuses: [] as { targetId: string; status: ChatMessage["status"]; error?: string }[],
+    deltaOps: [] as string[],
+    statuses: [] as { op: string; targetId: string; status: ChatMessage["status"]; error?: string }[],
     dropped: [] as string[],
+    droppedOps: [] as string[],
     appendedIds: [] as string[],
   };
   const cb: SendCallbacks = {
-    onDelta: (tid, ch) => { c.deltas[tid] = (c.deltas[tid] ?? "") + ch; },
-    onStatus: (tid, st, err) => { c.statuses.push({ targetId: tid, status: st, error: err }); },
-    onDropped: (ids) => { c.dropped.push(...ids); },
+    onDelta: (op, tid, ch) => { c.deltaOps.push(op); c.deltas[tid] = (c.deltas[tid] ?? "") + ch; },
+    onStatus: (op, tid, st, err) => { c.statuses.push({ op, targetId: tid, status: st, error: err }); },
+    onDropped: (op, ids) => { c.droppedOps.push(op); c.dropped.push(...ids); },
     onAppended: (m) => { c.appendedIds.push(m.id); },
   };
   return { c, cb };
@@ -188,6 +194,49 @@ describe("sendTurn", () => {
     expect(t1.error).toBeTruthy();
     const usage = await getUsageEvents({ sessionId: s.id });
     expect(usage.find((u) => u.status === "error")).toBeTruthy();
+  });
+
+  it("operationId يتدفق عبر مرحّات onDelta/onStatus وكل صف محفوظ", async () => {
+    const s = await mkSession("op");
+    const { c, cb } = makeCb();
+    const msgs = await sendTurn(baseArgs(s), cb);
+    expect(c.deltaOps.length).toBeGreaterThan(0);
+    expect(c.deltaOps.every((o) => o === "op1")).toBe(true);
+    expect(c.statuses).toHaveLength(2);
+    expect(c.statuses.every((x) => x.op === "op1")).toBe(true);
+    expect(c.droppedOps).toEqual([]);
+    const all = await getMessages(s.id);
+    expect(all.length).toBeGreaterThanOrEqual(3);
+    expect(all.every((m) => m.operationId === "op1")).toBe(true);
+    expect(msgs.every((m) => m.operationId === "op1")).toBe(true);
+  });
+
+  it("onDropped يمرر operationId قبل الهويات المُسقَطة", async () => {
+    const s = await mkSession("opdrop");
+    const { c, cb } = makeCb();
+    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: "t", sharedPrompt: null, customs: { t1: "خاص فقط" } } }), cb);
+    expect(c.dropped).toEqual(["t2"]);
+    expect(c.droppedOps).toEqual(["op1"]);
+  });
+
+  it("السياق الحالي: stateful يمرر السجلات السابقة إلى dispatch وstateless يرسل السؤال وحده", async () => {
+    const s = await mkSession("ctx");
+    await sendTurn(baseArgs(s), makeCb().cb);
+    const history = (await getMessages(s.id)).filter((m) => m.sessionId === s.id);
+    const f2 = sseMockFetch();
+    setTransportFetch(f2);
+    const tt = { id: "turn2", sharedPrompt: "سؤال ثانٍ", customs: {} };
+    await sendTurn(baseArgs(s, { turn: tt, historyFor: () => history }), makeCb().cb);
+    const body2 = f2.calls[0]?.body ?? "";
+    expect(body2).toContain("سؤال مشترك؟");
+    expect(body2).toContain("سؤال ثانٍ");
+    const f3 = sseMockFetch();
+    setTransportFetch(f3);
+    await sendTurn(baseArgs(s, { turn: { id: "turn3", sharedPrompt: "سؤال ثالث", customs: {} }, contextMode: "stateless" }), makeCb().cb);
+    const body3 = f3.calls[0]?.body ?? "";
+    expect(body3).toContain("سؤال ثالث");
+    expect(body3).not.toContain("سؤال مشترك؟");
+    expect(body3).not.toContain("سؤال ثانٍ");
   });
 
   it("assistantIds يعيد استخدام معرف الرسالة عند إعادة المحاولة فلا يتكرر الصف", async () => {

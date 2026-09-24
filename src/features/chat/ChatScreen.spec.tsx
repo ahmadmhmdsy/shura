@@ -273,3 +273,49 @@ describe("ChatScreen — التوصيل الحي", () => {
     warnSpy.mockRestore();
   });
 });
+
+describe("المهمة 4 — المقياس الحقيقي، ووضع السياق، وتوصيل الهوية", () => {
+  it("المقياس يستخدم حد التركيز (الاحتياط: أولًا) والحديث لا نسبة مولّدة من السجل", async () => {
+    const s = await mkSession();
+    useSessionsStore.setState({ sessions: [s], currentId: s.id, messages: [{ id: "m1", sessionId: s.id, turnId: "tr1", createdAt: 1, role: "user", kind: "prompt", text: "x".repeat(3999), promptKind: "shared", status: "done" }] });
+    useSettingsStore.setState({ providerKeys: { openrouter: "k", minimax: "k" }, timeoutMs: 5000 });
+    const t1 = { targetId: "t1_" + s.id, providerId: "openrouter" as const, modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" } };
+    const t2 = { targetId: "t2_" + s.id, providerId: "minimax" as const, modelId: "MiniMax-M2", modelInfo: { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 2000 } };
+    useComposerStore.setState({ drafts: { [s.id]: { targets: [t1, t2], syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null } } });
+    render(<ChatScreen session={s} />);
+    // بلا تركيز: الاحتياط هو الهدف الأول (بلا contextLength) → علامة الجهل «؟» لا 128000 المولّدة (0%/1%)
+    expect(screen.getByText("؟")).toBeInTheDocument();
+    expect(screen.queryByText("1%")).toBeNull();
+    expect(screen.queryByText("0%")).toBeNull();
+    // تركيز الهدف الثاني: 1000 رمز تقديرية من 2000 → 50%
+    fireEvent.click(screen.getAllByText(/MiniMax-M2/)[0]);
+    expect(await screen.findByText("50%")).toBeInTheDocument();
+    expect(screen.queryByText("؟")).toBeNull();
+  });
+
+  it("تبديل بلا حالة يُثبت صريحًا (updateSession + الحالة الحية) وتظهر شارة المقارنة في الوضع فقط", async () => {
+    const s = await mkSession();
+    seed(s);
+    render(<ChatScreen session={s} />);
+    const sw = screen.getByRole("switch", { name: "وضع السياق" });
+    expect(sw).not.toBeChecked();
+    expect(screen.queryByText("مقارنة stateless")).toBeNull();
+    fireEvent.click(sw);
+    expect(await screen.findByText("مقارنة stateless")).toBeInTheDocument();
+    await waitFor(async () => expect((await getSession(s.id))?.contextMode).toBe("stateless"));
+    expect(useSessionsStore.getState().sessions.find((x) => x.id === s.id)?.contextMode).toBe("stateless");
+    // العودة إلى stateful أيضًا تُثبت صريحًا في Dexie —لا وضع ضمني
+    fireEvent.click(sw);
+    await waitFor(async () => expect((await getSession(s.id))?.contextMode).toBe("stateful"));
+    expect(useSessionsStore.getState().sessions.find((x) => x.id === s.id)?.contextMode).toBe("stateful");
+    expect(screen.queryByText("مقارنة stateless")).toBeNull();
+  });
+
+  it("جلسة محفوظة stateless تعرض الشارة فور فتحها (الوضع ليس ضمنيًا)", async () => {
+    const s = await mkSession({ contextMode: "stateless" });
+    seed(s);
+    render(<ChatScreen session={s} />);
+    expect(screen.getByText("مقارنة stateless")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "وضع السياق" })).toBeChecked();
+  });
+});

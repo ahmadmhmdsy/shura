@@ -1,20 +1,27 @@
 import { streamText } from "ai";
+import type { ModelMessage } from "ai";
 import { buildLanguageModel, computeCost, getProvider } from "@/lib/providers/registry";
+import { buildContextMessages } from "./context";
 import { getTransportFetch } from "@/lib/transport/transport";
 import { mapProviderError } from "@/lib/providers/keyTest";
-import type { BuiltPrompt, ProviderId, Usage } from "@/types";
+import type { BuiltPrompt, ContextMode, ChatMessage, ModelInfo, ProviderId, TurnStatus, Usage } from "@/types";
 
 export interface DispatchOutcome { targetId: string; ok: boolean; text: string; error?: string; usage?: Usage; ms: number; }
 
 export interface DispatchArgs {
+  operationId: string;
   sessionId: string; turnId: string;
   prompts: readonly BuiltPrompt[];
   apiKeyFor(providerId: ProviderId): string;
   sessionHeaderFor(providerId: ProviderId): Record<string, string> | undefined;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
-  onUpdate?(targetId: string, chunk: string): void;
+  contextMode: ContextMode;
+  historyFor(targetId: string): readonly ChatMessage[];
+  modelInfoFor(targetId: string): ModelInfo;
+  onUpdate?(operationId: string, targetId: string, chunk: string): void;
   externalSignalFor?(targetId: string): AbortSignal | undefined;
+  onStatus?(operationId: string, targetId: string, status: TurnStatus, error?: string): void;
 }
 
 export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[]> {
@@ -22,15 +29,17 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
   const results = await Promise.all(args.prompts.map(async (p): Promise<DispatchOutcome> => {
     const t0 = Date.now();
     const ac = new AbortController();
-    const externalSignal = args.externalSignalFor?.(p.targetId);
     // [سطر مأذون به إضافي — قرار منسق المهمة 11] تمرير سبب الإلغاء الخارجي بدل توليد رسالة خاصة
     // مشكولة كانت تُهدر سبب externalSignalFor («ألغي بواسطة المستخدم») وتُبطل مطابقة /ألغي/؛
     // المسار بلا سبب يبقى على الافتراضي في onAbort، ومسار المهلة (abort داخلي من المؤقت) كما هو.
+    const externalSignal = args.externalSignalFor?.(p.targetId);
     externalSignal?.addEventListener("abort", () => ac.abort(externalSignal.reason));
+    const status = args.onStatus ? (s: TurnStatus, error?: string) => args.onStatus?.(args.operationId, p.targetId, s, error) : undefined;
+    status?.("streaming");
     const timer = setTimeout(() => ac.abort(new Error("انتهت مهلة النداء")), timeout);
     let rawError: unknown;
     let onAbort: () => void = () => {};
-    // [إصلاح موثق على كود الخطة — 2/3] مهلة/إيقاف خارجي فوق نقل لا يرصد الإشارة:
+    // [إصلاح موثق على كود الخطة — 1/3] مهلة/إيقاف خارجي فوق نقل لا يرصد الإشارة:
     // fetch وهمية (وعد لا يُحسم أبدًا) لا ترفض عند abort فيتعلق البث للأبد (الدليل: مهلة vitest 5009ms).
     // السباق على حدث الإشارة يضمن عودة النتيجة فور الإلغاء؛ ومع نقل حقيقي يبقى abort(reject) ساري الأثر.
     const abortedOutcome = new Promise<DispatchOutcome>((resolve) => {
@@ -41,45 +50,70 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       };
       ac.signal.addEventListener("abort", onAbort, { once: true });
     });
-    const flow = (async (): Promise<DispatchOutcome> => {
-      try {
-        const model = buildLanguageModel(p.providerId as ProviderId, args.apiKeyFor(p.providerId as ProviderId), p.modelId, args.fetchImpl ?? getTransportFetch(), args.sessionHeaderFor(p.providerId as ProviderId));
-        // [إصلاح موثق على كود الخطة — 1/3] التقاط الخطأ الخام عبر onError:
-        // عند فشل doStream (مثل 401) يغلق ai@7 البث رشيقًا (بلا رمٍ من textStream) ويرفض result.usage
-        // بـ NoOutputGeneratedError رسالته "No output generated..." تحوي "generated" فتطابق /rate/ خاطئًا
-        // في mapProviderError — الخطأ الخام (APICallError بـ statusCode) هو مصدر الترجمة الصحيحة.
-        const result = streamText({ model, prompt: p.text, abortSignal: ac.signal, onError: ({ error }) => { if (rawError === undefined) rawError = error; } });
-        let text = "";
-        for await (const chunk of result.textStream) { text += chunk; args.onUpdate?.(p.targetId, chunk); }
-        // [تحصين مأذون به — تحفظ (أ) من المهمة 8 المنفذ بأمر منسق المهمة 11] مع عدل موثق إجباري:
-        // الصيغة الحرفية «if (rawError !== undefined) throw rawError» بعد حلقة الدلتا تكسر 3 اختبارات
-        // معتمدة في dispatch.spec — ai@7 يطلق onError بخطأ حميد "Response stream ended without a
-        // finish reason" مع نهاية بث سليمة وusage صحيح (الاختبارات هي المواصفة، درس 6/7/9/10).
-        // نرفع الخطأ الخام فور الحلقة لإغلاق نافذة ابتلاع أخطاء منتصف البث، باستثناء ذلك البنين.
-        const benignEnd = rawError instanceof Error && /ended without a finish reason/.test(rawError.message);
-        if (rawError !== undefined && !benignEnd) throw rawError;
-        const u = await result.usage;
-        const info = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
-        const usage: Usage = {
-          inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0,
-          // [إصلاح موثق على كود الخطة — 3/3] ai@7: LanguageModelUsage لا يملك cachedInputTokens؛
-          // المكسورة في inputTokenDetails.cacheReadTokens (d.ts 320-341 + asLanguageModelUsage)
-          // — u.cachedInputTokens خطأ نوعي وقيمته undefined دائمًا.
-          cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
-          // computeCost يقتصر على Pick<Usage,"inputTokens"|"outputTokens">؛ تمرير cachedInputTokens
-          // كائن حرفي بخاصية زائدة (TS2353) — حرفية الخطة المُزامَنة (296fbb5) بلا cachedInputTokens.
-          costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0 }, info) : null,
-        };
-        return { targetId: p.targetId, ok: true, text, usage, ms: Date.now() - t0 };
-      } catch (e) {
-        const source = rawError !== undefined ? rawError : e;
-        return { targetId: p.targetId, ok: false, text: "", error: ac.signal.aborted && !ac.signal.reason ? "أُلغي النداء" : mapProviderError(source), ms: Date.now() - t0 };
-      } finally {
-        clearTimeout(timer);
-        ac.signal.removeEventListener("abort", onAbort);
-      }
-    })();
-    return await Promise.race([flow, abortedOutcome]);
+    try {
+      const modelInfo = args.modelInfoFor(p.targetId);
+      const history = args.historyFor(p.targetId).filter((row) => row.sessionId === args.sessionId);
+      // [صرامة مأذونة ضمن حقن المهمة 4] buildContextMessages يقيم الحد الآمن (منها 0.8) قبل أي اتصال
+      // — إخلاء سبيلها هنا يعيد فشل DispatchOutcome عاديًا من كتلة catch دون أي نداء شبكة.
+      const modelMessages: ModelMessage[] = buildContextMessages(
+        history, p.text, args.contextMode,
+        modelInfo.contextLength ?? 128000,
+      );
+      const flow = (async (): Promise<DispatchOutcome> => {
+        try {
+          const model = buildLanguageModel(p.providerId as ProviderId, args.apiKeyFor(p.providerId as ProviderId), p.modelId, args.fetchImpl ?? getTransportFetch(), args.sessionHeaderFor(p.providerId as ProviderId));
+          // [إصلاح موثق على كود الخطة — 2/3] التقاط الخطأ الخام عبر onError:
+          // عند فشل doStream (مثل 401) يغلق ai@7 البث رشيقًا (بلا رمٍ من textStream) ويرفض result.usage
+          // بـ NoOutputGeneratedError رسالته "No output generated..." تحوي "generated" فتطابق /rate/ خاطئًا
+          // في mapProviderError — الخطأ الخام (APICallError بـ statusCode) هو مصدر الترجمة الصحيحة.
+          const result = streamText({ model, messages: modelMessages, abortSignal: ac.signal, onError: ({ error }) => { if (rawError === undefined) rawError = error; } });
+          let text = "";
+          for await (const chunk of result.textStream) { text += chunk; args.onUpdate?.(args.operationId, p.targetId, chunk); }
+          // [تحصين مأذون به — تحفظ (أ) من المهمة 8 المنفذ بأمر منسق المهمة 11] مع عدل موثق إجباري:
+          // الصيغة الحرفية «if (rawError !== undefined) throw rawError» بعد حلقة الدلتا تكسر 3 اختبارات
+          // معتمدة في dispatch.spec — ai@7 يطلق onError بخطأ حميد "Response stream ended without a
+          // finish reason" مع نهاية بث سليمة وusage صحيح (الاختبارات هي المواصفة، درس 6/7/9/10).
+          // نرفع الخطأ الخام فور الحلقة لإغلاق نافذة ابتلاع أخطاء منتصف البث، باستثناء ذلك البنين.
+          const benignEnd = rawError instanceof Error && /ended without a finish reason/.test(rawError.message);
+          if (rawError !== undefined && !benignEnd) throw rawError;
+          const u = await result.usage;
+          const info = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
+          const usage: Usage = {
+            inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0,
+            // [إصلاح موثق على كود الخطة — 3/3] ai@7: LanguageModelUsage لا يملك cachedInputTokens؛
+            // المكسورة في inputTokenDetails.cacheReadTokens (d.ts 320-341 + asLanguageModelUsage)
+            // — u.cachedInputTokens خطأ نوعي وقيمته undefined دائمًا.
+            cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
+            // computeCost يقتصر على Pick<Usage,"inputTokens"|"outputTokens">؛ تمرير cachedInputTokens
+            // كائن حرفي بخاصية زائدة (TS2353) — حرفية الخطة المُزامَنة (296fbb5) بلا cachedInputTokens.
+            costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0 }, info) : null,
+          };
+          return { targetId: p.targetId, ok: true, text, usage, ms: Date.now() - t0 };
+        } catch (e) {
+          const source = rawError !== undefined ? rawError : e;
+          return { targetId: p.targetId, ok: false, text: "", error: ac.signal.aborted && !ac.signal.reason ? "أُلغي النداء" : mapProviderError(source), ms: Date.now() - t0 };
+        } finally {
+          clearTimeout(timer);
+          ac.signal.removeEventListener("abort", onAbort);
+        }
+      })();
+      const outcome = await Promise.race([flow, abortedOutcome]);
+      const errorGuard = benignFlowGuard(rawError);
+      status?.(outcome.ok ? (errorGuard ?? "done") : "error", outcome.ok ? undefined : outcome.error);
+      return outcome;
+    } catch (e) {
+      const outcome = flowlessOutcome(e, p.targetId, t0);
+      status?.("error", outcome.error);
+      return outcome;
+    }
   }));
   return results;
+}
+
+function benignFlowGuard(rawError: unknown): "done" | null {
+  return rawError instanceof Error && /ended without a finish reason/.test(rawError.message) ? "done" : null;
+}
+
+function flowlessOutcome(e: unknown, targetId: string, t0: number): DispatchOutcome {
+  return { targetId, ok: false, text: "", error: mapProviderError(e), ms: Date.now() - t0 };
 }

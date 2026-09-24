@@ -7,7 +7,6 @@ import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore, emptyComposerDraft } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { estimateSessionTokens } from "@/lib/tokens/estimate";
-import { getProvider } from "@/lib/providers/registry";
 import { sendTurn } from "@/lib/chat/chatController";
 import { dispatchTurn } from "@/lib/chat/dispatch";
 import { buildSummaryPrompt } from "@/lib/chat/synthesis";
@@ -16,7 +15,7 @@ import { appendMessage, recordUsage, updateSession } from "@/lib/db/repos";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { appendTurn, sessionFolderName } from "@/lib/markdown/writer";
 import { ar } from "@/i18n/ar";
-import type { ChatMessage, SessionMeta, Turn } from "@/types";
+import type { ChatMessage, ContextMode, SessionMeta, Turn } from "@/types";
 
 export function ChatScreen({ session }: { session: SessionMeta }) {
   // الربط الموقّع: كل القراءات والأكشنات تحمل معرف الجلسة نفسه — لا سطح مؤلف شامل بعد الخطوة 5
@@ -26,12 +25,20 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   const upsertMessagesLocal = useSessionsStore((s) => s.upsertMessagesLocal);
   const appendMessageLocal = useSessionsStore((s) => s.appendMessageLocal);
   const setTargets = useSessionsStore((s) => s.setTargets);
-  const { targets, syncMode, sharedPrompt, customs } = useComposerStore(useShallow((s) => {
+  const { targets, syncMode, sharedPrompt, customs, focusTargetId } = useComposerStore(useShallow((s) => {
     const d = s.drafts[sessionId] ?? emptyComposerDraft();
-    return { targets: d.targets, syncMode: d.syncMode, sharedPrompt: d.sharedPrompt, customs: d.customs };
+    return { targets: d.targets, syncMode: d.syncMode, sharedPrompt: d.sharedPrompt, customs: d.customs, focusTargetId: d.focusTargetId };
   }));
   const settings = useSettingsStore();
   const [sending, setSending] = useState(false);
+  // [المهمة 4 - وضع السياق] قراءة حية من مخزن الجلسات (التبديل يعيد الرسم بلا remount):
+  // session.contextMode غائب في الصفوف القديمة بالتالي stateful افتراضي ولا stateless ضمني أبدًا.
+  const liveSession = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId));
+  const contextMode: ContextMode = liveSession?.contextMode ?? session.contextMode ?? "stateful";
+  // [المهمة 4 - المقياس = الإرسال] الهدف محل التركيز (احتياطًا: الهدف الأول) مصدر حد المقياس،
+  // لا نسب مولدة من سجل المزودين ولا 128000 الافتراضي؛ غياب البيانات يظل علامة جهل صادقة.
+  const focusTarget = targets.find((t) => t.targetId === focusTargetId) ?? targets[0] ?? null;
+  const contextLimit: number | null = focusTarget?.modelInfo.contextLength ?? null;
   // تثبيت الأهداف المختارة في بيانات الجلسة (Dexie + القائمة المحلية): فقط عند تغيير مصفوفة الأهداف نفسها
   // (إضافة/إزالة/تلقيم بذرة) — الكتابة النصية للمؤلف تحفظ مرجع المصفوفة فلا تلمس Dexie.
   useEffect(() => {
@@ -80,8 +87,12 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     // [مراجعة المهمة 3 — هوية العملية] الرمز يُملأ هنا متزامنًا قبل أي await: عملية أحدث في
     // الجلسة نفسها تزيد العداد فينسقط كل رمز أقدم — حارس الجلسة السابق يبقى كما هو داخل الفحص.
     const opToken = ++operationRef.current;
+    // [المهمة 4 - توصيل الهوية] معرف عملية صريح (نص) يُنشر في رسائل التمريرة ويُحمل داخل كل نداء:
+    // ردّ يحمل معرفًا مغايرًا يُرفض حتى لو كان الجلسة والرمز شارفيْن.
+    const opId = newId("op");
     // دالة الثبات المشتركة: رمز هذه العملية ما يزال هو الحالي وجلستها هي المفتوحة.
     const isCurrent = () => (useSessionsStore.getState().currentId === sessionId && operationRef.current === opToken);
+    const isSameOperation = (oid: string) => oid === opId;
     // المخلفات المتيمة: إدخالات الإيقاف/الإلغاء لعمليات أقدم منقوضة لا تستحق البقاء — تُطهر
     // قبل تسجيل إشارات هذه العملية؛ تنظيف الأقدم المتأخر في finally مرشّح بـ isCurrent فلا يلمسها.
     aborts.current.clear();
@@ -99,9 +110,20 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
         {
           session: effectiveSession, turn: turnForTargets, targets: signalTargets.map((t) => ({ targetId: t.targetId, providerId: t.providerId, modelId: t.modelId })),
           syncMode: retryTargetId ? false : syncMode,
+          operationId: opId,
+          contextMode,
+          historyFor: () => useSessionsStore.getState().messages,
+          modelInfoFor: (tid) => targets.find((t) => t.targetId === tid)?.modelInfo ?? { id: tid, label: tid },
           apiKeyFor: (pid) => settings.providerKeys[pid] ?? "",
           sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined),
-          externalSignalFor: (tid) => { const ac = new AbortController(); aborts.current.set(tid, ac); return ac.signal; },
+          // [المهمة 4 - حارس الموارد] إشارات الإلغاء مملوكة لعملية واحدة: نداء من عملية منقوضة
+          // لا يسجل إشارة جديدة فوق موارد عملية أحدث (سلوك كان يمكن أن يعطّل زر الإيقاف).
+          externalSignalFor: (tid) => {
+            // [مراجعة المهمة 4] الفحص القديم isSameOperation(opId) كان يقارن الإغلاق بنفسه فيمر دائمًا،
+            // فسمح لعملية منقوضة بتسجيل مرادف فوق مرادف الأحدث في aborts. فحص الثبات الحقيقي هنا هو isCurrent.
+            if (!isCurrent()) return undefined;
+            const ac = new AbortController(); aborts.current.set(tid, ac); return ac.signal;
+          },
           timeoutMs: settings.timeoutMs,
           assistantIds,
         },
@@ -109,16 +131,16 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           // [انحراف موثق 6/8 عن كود الخطة] الرجوع إلى حالة المخزن الحية بدل مصفوفة messages
           // المقفولة في الإغلاق: كود الخطة يجد آخر رسالة في اللقطة القديمة فيسقط دلتا كل
           // الأهداف إلا الأخيرة، ويجمّع نص إعادة المحاولة من نص قديم بدل النص الحي.
-          onDelta: (tid, chunk) => {
-            if (!isCurrent()) return;
+          onDelta: (cbOpId, tid, chunk) => {
+            if (!isCurrent() || !isSameOperation(cbOpId)) return;
             const live = useSessionsStore.getState().messages;
             const m = baseResults?.find((x) => x.targetId === tid) ?? [...live].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (!m) return;
             const cur = live.find((x) => x.id === m.id) ?? m;
             patchMessage(m.id, { text: cur.text + chunk, status: "streaming" });
           },
-          onStatus: (tid, st, err) => {
-            if (!isCurrent()) return;
+          onStatus: (cbOpId, tid, st, err) => {
+            if (!isCurrent() || !isSameOperation(cbOpId)) return;
             const list = baseResults ?? useSessionsStore.getState().messages;
             const m = [...list].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (m) {
@@ -128,7 +150,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             if (st === "error" && err && !stopped.current.has(tid)) toast.error(err);
           },
           // [مراجعة المهمة 3 — هوية العملية] onDropped لا يفحص الجلسة داخليًا — يتحقق بـ isCurrent بنفسه
-          onDropped: (ids) => { if (ids.length && isCurrent()) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
+          onDropped: (cbOpId, ids) => { if (ids.length && isCurrent() && isSameOperation(cbOpId)) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
           onAppended: (m) => { if (isCurrent()) upsertMessagesLocal([m]); },
         },
       );
@@ -164,7 +186,10 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
       await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
       placeholderWritten = true;
-      const outcome = (await dispatchTurn({ sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs }))[0];
+      // [المهمة 4] الخلاصة تعبر نفس العقود: هوية عملية صريحة، وضع سياق، تاريخ وحد النموذج.
+      const summaryOpId = newId("op");
+      const summaryInfo = targets.find((t) => t.providerId === primary.providerId && t.modelId === primary.modelId)?.modelInfo ?? targets[0]?.modelInfo ?? { id: primary.modelId, label: primary.modelId };
+      const outcome = (await dispatchTurn({ operationId: summaryOpId, sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs, contextMode, historyFor: () => useSessionsStore.getState().messages, modelInfoFor: () => summaryInfo }))[0];
       // [دور إصلاح مأذون — انحراف معلن عن كود الخطة بأمر منسق المهمة 13] patchMessage كان يحدّث المخزن
       // الحي فقط فيبقى صف Dexie فارغًا بـ streaming عند إعادة فتح الجلسة. مسار المهمة 11 نفسه (emit):
       // appendMessage (put بالمفتاح نفسه يستبدل صف البث) + upsert محلي. الفشل أيضًا يُثبت بحالته.
@@ -213,6 +238,13 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     } finally { extractingRef.current = false; }
   }
 
+  // [المهمة 4] التبديل يُثبت صريحًا في Dexie (updateSession) وفي الحالة الحية معًا —
+  // كلا الوضعين يُحفظ باسمه حتى لا يصبح stateless ضمنيًا عند إعادة فتح الجلسة.
+  async function onToggleContextMode(next: ContextMode): Promise<void> {
+    await updateSession(session.id, { contextMode: next });
+    useSessionsStore.setState((s) => ({ sessions: s.sessions.map((x) => (x.id === session.id ? { ...x, contextMode: next } : x)) }));
+  }
+
   async function onToggleLayout(): Promise<void> {
     const next = session.layoutMode === "vertical" ? "horizontal" : "vertical";
     await updateSession(session.id, { layoutMode: next });
@@ -223,7 +255,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     return (
       <main className="flex-1 flex flex-col h-full min-w-0">
         <div className="flex-1 grid place-items-center text-sura-muted text-sm">أضف نماذج من (+) ثم اكتب سؤالك.</div>
-        <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => void extractSummary()} sending={sending} sessionTokens={sessionTokens} contextLimit={128000} />
+        <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => {}} onExtractSummary={() => void extractSummary()} sending={sending} sessionTokens={sessionTokens} contextLimit={null} contextMode={contextMode} onContextModeChange={(next) => void onToggleContextMode(next)} />
       </main>
     );
   }
@@ -257,7 +289,9 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => { for (const [tid, a] of aborts.current) { stopped.current.add(tid); a.abort(new Error("ألغي بواسطة المستخدم")); } }}
         onExtractSummary={() => void extractSummary()} sending={sending}
         sessionTokens={sessionTokens}
-        contextLimit={getProvider(targets[0]?.providerId ?? "openrouter").staticModels.find((m) => m.id === targets[0]?.modelId)?.contextLength ?? 128000} />
+        contextLimit={contextLimit}
+        contextMode={contextMode}
+        onContextModeChange={(next) => void onToggleContextMode(next)} />
     </main>
   );
 }

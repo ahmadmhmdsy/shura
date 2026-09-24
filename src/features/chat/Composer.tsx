@@ -10,13 +10,16 @@ import { AddModelDialog } from "./AddModelDialog";
 import { ContextMeter } from "./ContextMeter";
 import { PROVIDERS } from "@/lib/providers/registry";
 import { ar } from "@/i18n/ar";
-import type { ModelInfo, ProviderId } from "@/types";
+import type { ContextMode, ModelInfo, ProviderId } from "@/types";
 
 export interface ComposerProps {
   /** معرف الجلسة التي تنتمي إليها هذه المسودة: كل قراءة وكتابة تمر عبره حصرًا */
   sessionId: string;
   onSend(): void; onStop(): void; onExtractSummary(): void;
   sending: boolean; sessionTokens: number; contextLimit: number | null;
+  // [المهمة 4] وضع السياق صريح دائمًا: stateful افتراضي، وstateless لا يكون ضمنيًا أبدًا
+  contextMode: ContextMode;
+  onContextModeChange(next: ContextMode): void;
 }
 
 export function Composer(props: ComposerProps) {
@@ -45,8 +48,12 @@ export function Composer(props: ComposerProps) {
         <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}><Plus className="size-4" /> {ar.addModel}</Button>
         <label className="flex items-center gap-1 text-xs text-sura-muted"><Link2 className="size-3.5" /> {ar.syncMode}
           <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} /></label>
+        <label className="flex items-center gap-1 text-xs text-sura-muted">
+          <Switch checked={props.contextMode === "stateless"} onCheckedChange={(v) => props.onContextModeChange(v ? "stateless" : "stateful")} aria-label={ar.contextMode} />
+          {props.contextMode === "stateless" ? ar.contextStateless : ar.contextStateful}
+        </label>
         <div className="flex-1" />
-        <ContextMeter used={props.sessionTokens} limit={props.contextLimit ?? 128000} />
+        <ContextMeter used={props.sessionTokens} limit={props.contextLimit} contextMode={props.contextMode} />
       </div>
 
       {!syncMode && (focusTargetId
