@@ -66,3 +66,23 @@ describe("writeSessionMeta", () => {
     expect(parsed.turns).toEqual([]);
   });
 });
+
+describe("المهمة 5 — أرشفة خطأ بنص جزئي", () => {
+  it("خطأ بنص جزئي: يحفظ النص الجزئي ويظهر الخطأ المحدود أيضًا في session.md والملف الفرعي", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/partial-err";
+    await appendTurn(sink, dir, meta, {
+      ...turnData,
+      results: [{ targetId: "t2", text: "نص جزئي واصل قبل الانقطاع", usage: null }],
+      status: { t2: "error" },
+      errors: { t2: "انقطع الاتصال بالبث" },
+    });
+    const md = await sink.readFile(dir + "/session.md");
+    // النص الجزئي لا يُمحى، والخطأ المحدود يُظهر بجانبه
+    expect(md).toContain("نص جزئي واصل قبل الانقطاع");
+    expect(md).toContain("⛔ انقطع الاتصال بالبث");
+    const sub = await sink.readFile(dir + "/turns/t01/01_google__gemini-2.5-pro.md");
+    expect(sub).toContain("نص جزئي واصل قبل الانقطاع");
+    expect(sub).toContain("⛔ انقطع الاتصال بالبث");
+  });
+});

@@ -139,15 +139,14 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             const cur = live.find((x) => x.id === m.id) ?? m;
             patchMessage(m.id, { text: cur.text + chunk, status: "streaming" });
           },
+          // [المهمة 5] DispatchOutcome.status يصل مصنّفًا من dispatch: stopped يبقى stopped لا error،
+          // فلا مجموعة إيقاف تعيد كتابة الحالة، والتوست على خطأ حقيقي فقط.
           onStatus: (cbOpId, tid, st, err) => {
             if (!isCurrent() || !isSameOperation(cbOpId)) return;
             const list = baseResults ?? useSessionsStore.getState().messages;
             const m = [...list].reverse().find((x) => x.targetId === tid && x.role === "assistant");
-            if (m) {
-              const userStopped = stopped.current.has(tid) && st === "error";
-              patchMessage(m.id, { status: userStopped ? "stopped" : st, error: err });
-            }
-            if (st === "error" && err && !stopped.current.has(tid)) toast.error(err);
+            if (m) patchMessage(m.id, { status: st, error: err });
+            if (st === "error" && err) toast.error(err);
           },
           // [مراجعة المهمة 3 — هوية العملية] onDropped لا يفحص الجلسة داخليًا — يتحقق بـ isCurrent بنفسه
           onDropped: (cbOpId, ids) => { if (ids.length && isCurrent() && isSameOperation(cbOpId)) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
@@ -180,32 +179,70 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     const msgId = newId("m");
     const synthCreatedAt = Date.now() + 1;
     let placeholderWritten = false;
+    // [-المهمة 5] معرف محاولة واحد لعملية الخلاصة (هوية إسناد لا سجل TurnAttempt — مهمة 6)
+    const summaryOpId = newId("op");
+    const summaryAttemptId = newId("at");
+    // [-المهمة 5] نقاط حفظ الخلاصة أثناء البث: تراكم وحفظ كل 250مك أو 512 محرفًا بطابور
+    // كتابة تسلسلي؛ الحالة خارج كتلة try حتى يصلها مسار catch وينظف المؤقت مهما رمي النداء.
+    let accum = "";
+    let persistedLen = 0;
+    let streamTerminated = false;
+    let checkpointQueue: Promise<unknown> = Promise.resolve();
+    const checkpointWrite = (text: string): void => {
+      checkpointQueue = checkpointQueue.then(() => {
+        if (streamTerminated) return;
+        return appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text, providerId: primary.providerId, modelId: primary.modelId, status: "streaming", attemptId: summaryAttemptId, operationId: summaryOpId });
+      }).catch(() => { /* فشل نقطة حفظ لا يمس الصف النهائي */ });
+    };
+    const streamTimer = setInterval(() => {
+      if (streamTerminated) return;
+      if (accum.length > persistedLen) { persistedLen = accum.length; checkpointWrite(accum); }
+    }, 250);
+    const settleStream = async (): Promise<void> => {
+      clearInterval(streamTimer);
+      streamTerminated = true;
+      await checkpointQueue;
+    };
+    const onDelta = (cbOpId: string, tid: string, chunk: string): void => {
+      // [-المهمة 5] حرس هوية العملية والهدف قبل أي إعادة توجيه للحالة الحية
+      if (cbOpId !== summaryOpId || tid !== msgId || streamTerminated) return;
+      if (useSessionsStore.getState().currentId !== session.id) return;
+      accum += chunk;
+      patchMessage(msgId, { text: accum, status: "streaming" });
+      if (accum.length - persistedLen >= 512) { persistedLen = accum.length; checkpointWrite(accum); }
+    };
     extractingRef.current = true;
     try {
       const prompt = buildSummaryPrompt(last[0], last[1].results);
-      await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done" });
-      await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming" });
+      await appendMessageLocal({ id: newId("m"), sessionId: session.id, turnId, createdAt: Date.now(), role: "user", kind: "prompt", text: "طلب خلاصة من النموذج الأساسي", promptKind: "shared", status: "done", operationId: summaryOpId, attemptId: summaryAttemptId });
+      await appendMessageLocal({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "streaming", attemptId: summaryAttemptId, operationId: summaryOpId });
       placeholderWritten = true;
-      // [المهمة 4] الخلاصة تعبر نفس العقود: هوية عملية صريحة، وضع سياق، تاريخ وحد النموذج.
-      const summaryOpId = newId("op");
+      // [-المهمة 4] الخلاصة تعبر نفس العقود: هوية عملية صريحة، وضع سياق، تاريخ وحد النموذج.
       const summaryInfo = targets.find((t) => t.providerId === primary.providerId && t.modelId === primary.modelId)?.modelInfo ?? targets[0]?.modelInfo ?? { id: primary.modelId, label: primary.modelId };
-      const outcome = (await dispatchTurn({ operationId: summaryOpId, sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs, contextMode, historyFor: () => useSessionsStore.getState().messages, modelInfoFor: () => summaryInfo }))[0];
-      // [دور إصلاح مأذون — انحراف معلن عن كود الخطة بأمر منسق المهمة 13] patchMessage كان يحدّث المخزن
-      // الحي فقط فيبقى صف Dexie فارغًا بـ streaming عند إعادة فتح الجلسة. مسار المهمة 11 نفسه (emit):
-      // appendMessage (put بالمفتاح نفسه يستبدل صف البث) + upsert محلي. الفشل أيضًا يُثبت بحالته.
-      const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.ok ? "done" : "error", error: outcome.error, usage: outcome.usage };
+      let outcome: Awaited<ReturnType<typeof dispatchTurn>>[number];
+      try {
+        outcome = (await dispatchTurn({ operationId: summaryOpId, sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs, contextMode, historyFor: () => useSessionsStore.getState().messages, modelInfoFor: () => summaryInfo, onUpdate: onDelta }))[0];
+      } finally {
+        // [-المهمة 5] مهما رمي النداء: تنظيف المؤقت وانتظار الكتابات المعلقة أولا — لا بث معلق أبدي
+        await settleStream();
+      }
+      const stale = useSessionsStore.getState().currentId !== session.id;
+      // [-المهمة 5] DispatchOutcome.status مباشرةً: stopped يثبت بنصه الجزئي ولا يُلوَن خطأ،
+      // والصف النهائي يُكتب دائمًا بنص/حالة النتيجة نفسها.
+      const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.status, error: outcome.error, usage: outcome.usage, attemptId: summaryAttemptId, operationId: summaryOpId };
       await appendMessage(finalMsg);
-      upsertMessagesLocal([finalMsg]);
-      if (!outcome.ok) toast.error(outcome.error ?? "فشل");
-      // [دور إصلاح مأذون — بند 3 من دور الإصلاح الثاني] تصحيح لقرار منسق سابق («بلا recordUsage»):
-      // النداء حقيقي للموديل الأساسي (برهان اختبار 401 في هذه المواصفة) — يُسجل حد استهلاك بمعرف
-      // تمريرة الخلاصة (usage من outcome؛ أصفار وحالة error عند الفشل) بنمط مسار §6 نفسه.
-      await recordUsage({ id: newId("u"), sessionId: session.id, turnId, ts: Date.now(), providerId: primary.providerId, modelId: primary.modelId, inputTokens: outcome.usage?.inputTokens ?? 0, outputTokens: outcome.usage?.outputTokens ?? 0, cachedInputTokens: outcome.usage?.cachedInputTokens ?? 0, costUSD: outcome.usage?.costUSD ?? null, toolCalls: 0, durationMs: outcome.ms, status: outcome.ok ? "ok" : "error" });
-      // [دور إصلاح مأذون — بندا 1/2 من دور الإصلاح الثاني] أرشفة المحتوى لا الشاهد: sharedPrompt =
-      // نص الخلاصة الفعلي (اقتباس مقروء بالبشر) وresults بمدخل النص حتى يعيد parser بناء رسالة
-      // الخلاصة بنصها عند فقدان القاعدة. الأرشفة معزولة بـ try/catch خاص: فشلها لا يمس صف الخلاصة
-      // الناجح في Dexie إطلاقًا (درس (أ)-5: put بالإفراغ كان يمحو النص) — تكفي رسالة تحذير.
-      if (outcome.ok && isFilePersistActive()) {
+      if (!stale) upsertMessagesLocal([finalMsg]);
+      if (outcome.status === "error" && !stale) toast.error(outcome.error ?? "فشل");
+      // [-المهمة 5] ثراث الاستهلاك معزول: فشله يضيف تحذيرًا جانبيًا ظاهرًا ولا يمس نص/حالة الخلاصة
+      let sidecar: string | undefined = undefined;
+      try {
+        await recordUsage({ id: newId("u"), sessionId: session.id, turnId, ts: Date.now(), providerId: primary.providerId, modelId: primary.modelId, inputTokens: outcome.usage?.inputTokens ?? 0, outputTokens: outcome.usage?.outputTokens ?? 0, cachedInputTokens: outcome.usage?.cachedInputTokens ?? 0, costUSD: outcome.usage?.costUSD ?? null, toolCalls: 0, durationMs: outcome.ms, status: outcome.status === "error" ? "error" : "ok", attemptId: summaryAttemptId });
+      } catch {
+        sidecar = "تعذر حفظ حدث الاستهلاك";
+      }
+      // [-المهمة 5] الأرشفة ثراث جانبي معزول: النص/الحالة المأرشفة هي الصف النهائي نفسه،
+      // وفشلها لا يمس صف الخلاصة الناجح إطلاقًا (درس (أ)-5).
+      if (outcome.status === "done" && isFilePersistActive()) {
         try {
           let effectiveSession = session;
           if (!effectiveSession.onDiskDir) {
@@ -222,18 +259,30 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             errors: {},
             createdAt: Date.now(),
           });
-        } catch {
-          toast.warning("حُفظت الخلاصة محليًا وفشل أرشفتها على القرص");
-        }
+        } catch { sidecar = sidecar ? sidecar + " ؛ حُفظت الخلاصة محليًا وفشل أرشفتها على القرص" : "حُفظت الخلاصة محليًا وفشل أرشفتها على القرص"; }
+      }
+      if (sidecar) {
+        const warned: ChatMessage = { ...finalMsg, sidecarWarning: sidecar };
+        // [-المهمة 5] كتابة التحذير نفسها معزولة: فشلها لا يعيد تحويل الصف الناجح إلى خطأ
+        try {
+          await appendMessage(warned);
+          if (!stale) upsertMessagesLocal([warned]);
+        } catch { /* الصف الناجح في Dexie سليم — يكفي توست التحذير */ }
+        if (!stale) toast.warning(sidecar);
       }
     } catch (e) {
       // [دور إصلاح مأذون — بند 3] كما في حارس persistTurn: toast عربي وإنهاء بطاقة الخلاصة
       // بوضع خطأ في الطبقتين (المخزن الحي فورًا، وDexie بأفضل جهد) لا رفض وعد معلق مع «يكتب…» أبديًا.
       const message = e instanceof Error ? e.message : String(e);
-      toast.error(message);
-      if (msgId && placeholderWritten) {
+      // [-المهمة 5] حرس الجلسة: فشل متأخر بعد الانتقال لجلسة أخرى لا يلمس المخزن الحي الجديد
+      const staleNow = useSessionsStore.getState().currentId !== session.id;
+      if (!staleNow) toast.error(message);
+      // مهما كان مصدر الرمي: تنظيف مؤقت نقاط الحفظ ولا نص فارغ يُكتب فوق محتوى محفوظ
+      try { await settleStream(); } catch { clearInterval(streamTimer); }
+      if (msgId && placeholderWritten && !staleNow) {
+        const partial = accum;
         patchMessage(msgId, { status: "error", error: message });
-        try { await appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: "", providerId: primary.providerId, modelId: primary.modelId, status: "error", error: message }); } catch { /* الطبقة التخزينية معطلة — تكفي الحالة الحية */ }
+        try { await appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: partial, providerId: primary.providerId, modelId: primary.modelId, status: "error", error: message }); } catch { /* الطبقة التخزينية معطلة — تكفي الحالة الحية */ }
       }
     } finally { extractingRef.current = false; }
   }

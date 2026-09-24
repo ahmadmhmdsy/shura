@@ -66,7 +66,9 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
     const prompt = data.prompts.find((p) => p.targetId === r.targetId);
     const st = data.status[r.targetId] ?? "done";
     section += `\n### ${prompt ? `${prompt.providerId} — ${prompt.modelId}` : "خلاصة النموذج الأساسي (synthesis)"}\n`;
-    if (st === "error") section += `\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
+    // [-المهمة 5] خطأ بنص جزئي: النص يُحفظ ويُظهر الخطأ المحدود بجانبه — لا استبدال
+    if (st === "error" && r.text.trim()) section += `\n${r.text}\n\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
+    else if (st === "error") section += `\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
     else section += `\n${r.text}\n`;
     section += "\n" + usageRow(r.usage);
   }
@@ -80,7 +82,9 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
   }
   for (const [i, r] of data.results.entries()) {
     const prompt = data.prompts.find((p) => p.targetId === r.targetId);
-    const body = data.status[r.targetId] === "error" ? `⛔ ${data.errors[r.targetId] ?? "خطأ"}` : r.text;
+    const body = data.status[r.targetId] === "error" && r.text.trim()
+      ? r.text + "\n\n⛔ " + (data.errors[r.targetId] ?? "خطأ")
+      : data.status[r.targetId] === "error" ? `⛔ ${data.errors[r.targetId] ?? "خطأ"}` : r.text;
     await sink.writeFile(`${dir}/${tdir}/${resultFileName(i, prompt?.providerId ?? "synthesis", prompt?.modelId ?? "primary")}`, body + "\n\n---\n" + usageRow(r.usage));
   }
   metaJson.turns.push({ ...data, dirName: tdir });

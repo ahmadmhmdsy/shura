@@ -319,3 +319,24 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
     expect(screen.getByRole("switch", { name: "وضع السياق" })).toBeChecked();
   });
 });
+
+describe("المهمة 5 — الخلاصة بالحالة الصريحة والنص الجزئي", () => {
+  it("الخلاصة تنقطع وسط البث: يحفظ النص الجزئي بحالة خطأ لا صف فارغ ولا بث معلق", async () => {
+    const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
+    const f = (async () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(line)); setTimeout(() => c.error(new Error("انقطع الاتصال بالبث")), 40); } }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;
+    setTransportFetch(f);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await waitFor(async () => {
+      const rows = await getMessages(s.id);
+      const synth = rows.find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("error");
+      expect(synth?.text).toBe("بداية");
+      expect(synth?.attemptId).toBeTruthy();
+      expect(synth?.operationId).toBeTruthy();
+    }, { timeout: 3000 });
+  }, 10000);
+});

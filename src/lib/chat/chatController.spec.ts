@@ -1,10 +1,26 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendTurn, type SendArgs, type SendCallbacks } from "./chatController";
 import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink } from "@/lib/markdown/sink";
 import { setTransportFetch } from "@/lib/transport/transport";
-import { sseMockFetch } from "@/test/mocks/sse";
+import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { createSession, getMessages, getSession, getUsageEvents } from "@/lib/db/repos";
 import type { ChatMessage, SessionMeta } from "@/types";
+
+// [المهمة 5] خطاف عزل الثراث الجانبية: جعل recordUsage يفشل يثبت أن الصف الأساسي لا يُمحى
+const usageHook = vi.hoisted(() => ({ failUsage: false, calls: 0 }));
+// [المهمة 5] خطاف رفض النداء: dispatchTurn يرمي دومًا فيثبت التنظيف وصف الخطأ النهائي
+const dispatchHook = vi.hoisted(() => ({ reject: false }));
+vi.mock("@/lib/db/repos", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db/repos")>();
+  return {
+    ...actual,
+    recordUsage: async (ev: Parameters<typeof actual.recordUsage>[0]) => {
+      usageHook.calls += 1;
+      if (usageHook.failUsage) throw new Error("فشل حفظ الاستهلاك");
+      return actual.recordUsage(ev);
+    },
+  };
+});
 
 let n = 0;
 async function mkSession(tag: string, over: Partial<SessionMeta> = {}): Promise<SessionMeta> {
@@ -51,7 +67,18 @@ function makeCb(): { c: { deltas: Record<string, string>; deltaOps: string[]; st
   return { c, cb };
 }
 
-beforeEach(() => { setTransportFetch(sseMockFetch()); });
+beforeEach(() => { setTransportFetch(sseMockFetch()); usageHook.failUsage = false; usageHook.calls = 0; dispatchHook.reject = false; });
+
+vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chat/dispatch")>();
+  return {
+    ...actual,
+    dispatchTurn: async (args: Parameters<typeof actual.dispatchTurn>[0]) => {
+      if (dispatchHook.reject) throw new Error("رفض نداء dispatchTurn");
+      return actual.dispatchTurn(args);
+    },
+  };
+});
 
 describe("مُنشّط طبقة الملفات", () => {
   it("افتراضيًا بلا نشاط والقراءة تُفشل، وبعد setFileSink يتفعّل", async () => {
@@ -165,20 +192,32 @@ describe("sendTurn", () => {
     expect(c.statuses).toHaveLength(1);
   });
 
-  it("إلغاء عبر الإشارة الخارجية: النتيجة error ونصها يدل على الإلغاء", async () => {
-    setTransportFetch((() => new Promise<Response>(() => {})) as typeof fetch);
+  it("الإيقاف الخارجي أثناء البث: النتيجة stopped بنص البدء (نص جزئي محفوظ) ولها attemptId", async () => {
+    // بث يُرسل جزءًا أوليًا ثم يتجمّد: الإيقاف لا يعيد وضع خطأ ولا يمحو النص
+    let emitted = false;
+    const hang = (async (input: RequestInfo | URL) => {
+      await new Promise((r) => setTimeout(r, 0));
+      const head = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
+      if (String(input).includes("minimax")) {
+        // الهدف الثاني يُبث النص الجزئي نفسه ثم يتيكم: الإلغاء يحسم نتيجته
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(head)); emitted = true; } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return sseResponse(["أهلاً"]);
+    }) as unknown as typeof fetch;
+    setTransportFetch(hang);
     const s = await mkSession("cancel");
     const ac = new AbortController();
     const { cb } = makeCb();
-    const pending = sendTurn(baseArgs(s, { externalSignalFor: () => ac.signal }), cb);
-    await new Promise((r) => setTimeout(r, 30));
+    const pending = sendTurn(baseArgs(s, { externalSignalFor: () => ac.signal, timeoutMs: 5000 }), cb);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(emitted).toBe(true);
     ac.abort(new Error("ألغي بواسطة المستخدم"));
-    await pending;
-    const t1 = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
-    expect(t1.status).toBe("error");
-    expect(t1.error).toMatch(/المستخدم/);
-    const usage = await getUsageEvents({ sessionId: s.id });
-    expect(usage.find((u) => u.status === "error")).toBeTruthy();
+    const msgs = await pending;
+    const t2 = (await getMessages(s.id)).find((m) => m.targetId === "t2" && m.role === "assistant")!;
+    expect(t2.status).toBe("stopped");
+    expect(t2.text).toBe("بداية");
+    expect(t2.error).toBeUndefined();
+    expect(msgs.find((m) => m.targetId === "t2")?.attemptId).toBe(t2.attemptId);
   });
 
   it("خطأ منتصف البث: يبث الجزء الواصل ثم يفشل النتيجة (تحصين المهمة 8-أ)", async () => {
@@ -192,6 +231,8 @@ describe("sendTurn", () => {
     const t1 = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
     expect(t1.status).toBe("error");
     expect(t1.error).toBeTruthy();
+    // [المهمة 5] النص الجزئي الواصل قبل الانقطاع يُحفظ في الصف النهائي ولا يُمحى
+    expect(t1.text).toBe("بداية");
     const usage = await getUsageEvents({ sessionId: s.id });
     expect(usage.find((u) => u.status === "error")).toBeTruthy();
   });
@@ -249,4 +290,109 @@ describe("sendTurn", () => {
     expect(results).toHaveLength(1);
     expect(results[0].text).toBe("أهلاً");
   });
+});
+
+describe("المهمة 5 — الإسناد الدائم للبث الجزئي", () => {
+  it("attemptId واحد لكل نداء إرسال: يُرفق بصفوف السؤال والبث والنتيجة وحدث الاستهلاك", async () => {
+    const s = await mkSession("attempt");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s), cb);
+    const all = await getMessages(s.id);
+    const ids = new Set(all.map((m) => m.attemptId));
+    expect(ids.size).toBe(1);
+    expect([...ids][0]).toBeTruthy();
+    const usage = await getUsageEvents({ sessionId: s.id });
+    expect(usage.length).toBeGreaterThan(0);
+    expect(usage.every((u) => u.attemptId === [...ids][0])).toBe(true);
+  });
+
+  it("نقطة حفظ أثناء البث: صف بنص جزئي يُكتب قبل النتيجة ثم الصف النهائي بالنص الكامل", async () => {
+    const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
+    const big = "data: " + JSON.stringify({ choices: [{ delta: { content: "x".repeat(600) } }] }) + "\n\n";
+    const f = (async () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(line)); c.enqueue(new TextEncoder().encode(big)); setTimeout(() => c.error(new Error("انقطع الاتصال بالبث")), 80); } }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;
+    setTransportFetch(f);
+    const s = await mkSession("ckpt");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    const t1 = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    // النتيجة النهائية بأحداث خطأ تحفظ النص الكامل المتراكم
+    expect(t1.text).toBe("بداية" + "x".repeat(600));
+    expect(t1.status).toBe("error");
+  });
+
+  it("عزل ثراث الاستهلاك: فشل recordUsage لا يمحو الصف الأساسي ولا يرفض الإرسال ويضيف تحذيرًا", async () => {
+    usageHook.failUsage = true;
+    const s = await mkSession("usagefail");
+    const { cb } = makeCb();
+    const msgs = await sendTurn(baseArgs(s), cb);
+    await new Promise((r) => setTimeout(r, 30));
+    const row = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(row.status).toBe("done");
+    expect(row.text).toBe("أهلاً");
+    expect(row.sidecarWarning).toBeTruthy();
+    expect(msgs[0].text).toBe("أهلاً");
+  });
+
+  it("عزل ثراث الأرشفة: فشل كتابة الملفات لا يمحو الصف الأساسي ويضيف تحذيرًا جانبيًا", async () => {
+    const sink = memoryFileSink();
+    // الفشل في session.md فقط: صف الأولوية هو الدكسي، والأرشفة (appendTurn) ثراث جانبي
+    const failing: typeof sink = { ...sink, writeFile: async (path: string, data: string) => {
+      if (path.endsWith("session.md")) throw new Error("قرص ممتلئ");
+      return sink.writeFile(path, data);
+    } };
+    setFileSink(failing);
+    const s = await mkSession("archfail", { onDiskDir: "archfaildir" });
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s), cb);
+    await new Promise((r) => setTimeout(r, 30));
+    const row = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(row.status).toBe("done");
+    expect(row.text).toBe("أهلاً");
+    expect(row.sidecarWarning).toBeTruthy();
+  });
+});
+
+describe("المهمة 5 — تنظيف نقاط الحفظ وقرض رفض النداء", () => {
+  it("قرض رفض النداء: لا صف بث معلق، وكل هدف يحصل صف خطأ نهائي بنصه المتراكم ومعرف المحاولة", async () => {
+    dispatchHook.reject = true;
+    const s = await mkSession("reject");
+    const { cb } = makeCb();
+    const msgs = await sendTurn(baseArgs(s), cb);
+    await new Promise((r) => setTimeout(r, 300));
+    const all = (await getMessages(s.id)).filter((m) => m.role === "assistant");
+    expect(all.length).toBe(2);
+    expect(all.every((m) => m.status === "error")).toBe(true);
+    expect(all.every((m) => (m.error ?? "").includes("رفض نداء dispatchTurn"))).toBe(true);
+    // لا صف بث متدلٍ: كل هدف صف واحد فقط (الكتابات تحل محلها put بالمفتاح نفسه)
+    const t1rows = all.filter((m) => m.targetId === "t1");
+    expect(t1rows).toHaveLength(1);
+    expect(msgs[0].attemptId).toBeTruthy();
+    // تنظيف المؤقتات: لا نقاط حفظ تفتح بعد الحسم (لا صفوف إضافية)
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await getMessages(s.id).then((rows) => rows.filter((m) => m.role === "assistant"))).toHaveLength(2);
+  });
+
+  it("نقطة حفظ المرصودة أثناء البث: صف بث بنص جزئي يظهر قبل النتيجة النهائية (كل 250مك/512 محرف)", async () => {
+        const hold = (async () => new Response(new ReadableStream({
+      async start(c) {
+        const enc = new TextEncoder();
+        const send = (text: string) => enc.encode("data: " + JSON.stringify({ choices: [{ delta: { content: text } }] }) + "\n\n");
+        c.enqueue(send("بداية"));
+        c.enqueue(send("x".repeat(600)));
+        // تعليق البث بعد المحارف: نقطة الحفظ العتبة تُطلق أثناء التعليق
+        await new Promise(() => {});
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;
+    setTransportFetch(hold);
+    const s = await mkSession("ckptobs");
+    const ac = new AbortController();
+    const { cb } = makeCb();
+    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], externalSignalFor: () => ac.signal }), cb);
+    await new Promise((r) => setTimeout(r, 120));
+    const mid = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    // نقطة الحفظ المرصودة: نفس معرف الرسالة، نص جزئي محفوظ(case للتدفق جزئي قبل الحسم)
+    expect([mid.status, mid.text.includes("بداية")]).toEqual(["streaming", true]);
+    ac.abort(new Error("ألغي بواسطة المستخدم"));
+    await pending;
+  }, 10000);
 });

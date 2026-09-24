@@ -113,8 +113,8 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     await waitFor(() => { void 0; });
     await new Promise((r) => setTimeout(r, 50));
     expect(useSessionsStore.getState().messages.some((m) => m.id === "mGhost")).toBe(false);
-    // حارس الإيقاف ما يزال حيًا: ردّ حالة الأحدث يرى stopped → «أُوقف» بلا توست خطأ
-    sendProbe.calls[1].cb.onStatus(sendProbe.calls[1].operationId, "t1_" + s.id, "error", "ألغي بواسطة المستخدم");
+    // [-المهمة 5] dispatch يصنّف الإيقاف: onStatus يصل "stopped" مباشرة فيبقى «أُوقف» بلا توست خطأ
+    sendProbe.calls[1].cb.onStatus(sendProbe.calls[1].operationId, "t1_" + s.id, "stopped");
     const r1b = useSessionsStore.getState().messages.find((m) => m.id === "r1");
     expect(r1b?.status).toBe("stopped");
     expect(errSpy).not.toHaveBeenCalledWith("ألغي بواسطة المستخدم");

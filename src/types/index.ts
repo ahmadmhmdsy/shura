@@ -46,6 +46,8 @@ export interface ChatMessage {
   providerId?: ProviderId; modelId?: string; targetId?: string;
   promptKind?: PromptKind;
   status: MessageStatus; error?: string; usage?: Usage;
+  /** [المهمة 5] تحذير ثراث جانبي غير نهائي: فشل الاستهلاك/الأرشفة لا يمس النص ولا الحالة */
+  sidecarWarning?: string;
   /** حقول المخطط v2: اختيارية للصفوف القديمة فقط؛ كل سجل جديد يملؤها */
   attemptId?: string;
   operationId?: string;
