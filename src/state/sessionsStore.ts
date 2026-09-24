@@ -22,7 +22,7 @@ interface SessionsState {
   rename(id: string, title: string): Promise<void>;
   remove(id: string): Promise<void>;
   /** تثبيت بيانات الأهداف المختارة في بيانات جلسة (Dexie + القائمة المحلية)؛ يُتجاهل إن لم يتغير شيء */
-  setTargets(id: string, targets: TargetConfig[]): void;
+  setTargets(id: string, targets: TargetConfig[]): Promise<void>;
   appendMessageLocal(msg: ChatMessage): Promise<void>;
   /** رفع رسائل إلى القائمة المحلية بلا كتابة Dexie (chatController يكتب Dexie ويعكس هنا) */
   upsertMessagesLocal(msgs: ChatMessage[]): void;
@@ -35,9 +35,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   async load() {
     const gen = get().loadGeneration + 1;
     set({ loadGeneration: gen, loading: true });
-    const sessions = await listSessions();
-    if (get().loadGeneration !== gen) return;
-    set({ sessions, loading: false });
+    try {
+      const sessions = await listSessions();
+      if (get().loadGeneration !== gen) return;
+      set({ sessions, loading: false });
+    } finally {
+      // رفض الطلب الحالي يستحق رفع الحاجب؛ الطلب العتيق (تجاوزه جيل أحدث) لا يلمس الحاجب
+      if (get().loadGeneration === gen && get().loading) set({ loading: false });
+    }
   },
   async newSession() {
     const gen = get().openGeneration + 1;
@@ -58,10 +63,16 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     if (meta?.targets?.length && !(id in useComposerStore.getState().drafts)) {
       useComposerStore.getState().setDraft(id, { targets: meta.targets });
     }
-    const msgs = await getMessages(id);
-    // التثبيت يقتضي بقاء الجيل والهوية المطلوبين — حمولة سباقة خسرت السباق تُرمى
-    if (get().openGeneration !== gen || get().currentId !== id) return;
-    set({ messages: msgs, loading: false });
+    try {
+      const msgs = await getMessages(id);
+      // التثبيت يقتضي بقاء الجيل والهوية المطلوبين — حمولة سباقة خسرت السباق تُرمى
+      if (get().openGeneration !== gen || get().currentId !== id) return;
+      set({ messages: msgs, loading: false });
+    } finally {
+      // رفض هذا الفتح يرفع الحاجب إن كان ما زال صاحب الجيل والهوية؛
+      // فتح عتيق (تجاوزه جيل/جلسة أحدث) لا يلمس الحاجب ولا رسائل الطلب الأحدث
+      if (get().openGeneration === gen && get().currentId === id && get().loading) set({ loading: false });
+    }
   },
   async rename(id, title) { await updateSession(id, { title }); set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title } : x)) })); },
   async remove(id) {
@@ -73,12 +84,27 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     if (get().openGeneration !== gen) return;
     set((s) => ({ sessions: s.sessions.filter((x) => (x.id !== id)), currentId: s.currentId === id ? null : s.currentId, messages: s.currentId === id ? [] : s.messages }));
   },
-  setTargets(id, targets) {
+  // المرجع: .superpowers/sdd/hardening-task-3-target-fix.md — عقد async قابل للرصد:
+  // تحديث تفاؤلي للقائمة المحلية فورًا، وعند فشل updateSession تراجع فقط إن بقيت القيمة الحية
+  // هي القيمة المجرَّبة نفسها (فرفض طلب قديم لا يطغى على اختيار أهداف أحدث)، ثم إعادة رمي الفشل.
+  async setTargets(id, targets) {
     // مقارنة قيمية: نفس الأهداف (اقتباسًا أعاد ChatScreen رصد التغيير) لا تثير كتابة Dexie صامتة تُزيح updatedAt
     const cur = get().sessions.find((x) => (x.id === id))?.targets;
     if (JSON.stringify(cur) === JSON.stringify(targets)) return;
-    void updateSession(id, { targets }).catch(() => { /* الطبقة التخزينية معطلة: القائمة المحلية تبقى مصدر الصواب */ });
     set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, targets } : x)) }));
+    try {
+      await updateSession(id, { targets });
+    } catch (e) {
+      set((s) => ({
+        sessions: s.sessions.map((x) => {
+          // التراجع مسموح فقط إن بقيت القيمة الحية هي القيمة المجرَّبة للطلب الفاشل
+          if (x.id !== id || JSON.stringify(x.targets) !== JSON.stringify(targets)) return x;
+          if (cur === undefined) { const { targets: _t, ...rest } = x; return { ...rest }; }
+          return { ...x, targets: cur };
+        }),
+      }));
+      throw e;
+    }
   },
   // الكتابة في Dexie دائمًا (بيانات الجلسة منشورة)؛ الانعكاس في القائمة المحلية فقط إذا ظل أصحابها مفتوحين
   async appendMessageLocal(msg) {

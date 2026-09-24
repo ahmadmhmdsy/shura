@@ -35,13 +35,21 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   // تثبيت الأهداف المختارة في بيانات الجلسة (Dexie + القائمة المحلية): فقط عند تغيير مصفوفة الأهداف نفسها
   // (إضافة/إزالة/تلقيم بذرة) — الكتابة النصية للمؤلف تحفظ مرجع المصفوفة فلا تلمس Dexie.
   useEffect(() => {
-    setTargets(sessionId, targets);
+    // المرجع: .superpowers/sdd/hardening-task-3-target-fix.md — فشل حفظ الأهداف يُبتر تاريخًا
+    // ظاهريًا: تحذير عام بلا تفاصيل التخزين/المسار/المفاتيح، والأهداف تبقى محليًا في المخزن.
+    setTargets(sessionId, targets).catch(() => {
+      toast.warning("تعذر حفظ الأهداف في بيانات الجلسة — ستبقى محليًا فحسب");
+    });
   }, [setTargets, sessionId, targets]);
   // ديدان الاستعارة المتبقية تُهمل هنا: remount عبر key في App يضمن خلو كل مرجع متأخر من جلسة سابقة
   const aborts = useRef(new Map<string, AbortController>());
   // أهداف أوقفها المستخدم في التمرّة الجارية: نتيجة الإلغاء تصلف خطأً من dispatch
   // لكن البطاقة تبقى «أُوقف» ولا تتحول إلى خطأ ولا تُطلق تنبيهًا.
   const stopped = useRef(new Set<string>());
+  // [مراجعة المهمة 3 — هوية العملية] لكل نداء persistTurn رقم فريد: انطلاق عملية أحدث في
+  // الجلسة نفسها ينقض العمليات الأقدم — تقاطع بندا الدالة (الجلسة + الرمز) هو فحص الثبات
+  // الوحيد المسموح له بتحريك الحالة الحية/التوست/تنظيف الموارد ما دام الرمز والجلسة شارفيْن.
+  const operationRef = useRef(0);
   // [دور إصلاح مأذون — بند 2] حارس إعادة دخول الخلاصة: مرجع متزامن (لا حالة) يغلق ثغرة الإغلاق
   // القديم بين نقرتين متتاليتين في نفس اللمسة — حالة useState لا تصلح هنا لأن كل نقر يقرأ لقطة قديمة.
   const extractingRef = useRef(false);
@@ -69,9 +77,15 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     const signalTargets = retryTargetId ? targets.filter((t) => t.targetId === retryTargetId) : targets;
     const turnForTargets: Turn = retryTargetId ? { ...turn, customs: { [retryTargetId]: (customs[retryTargetId] ?? "") } } : turn;
     setSending(true);
-    // حاجز اللمس المتأخر: كل نداء بث/حالة/إلحاق بعدها يتأكد أن جلسته ما تزال هي الجلسة المفتوحة،
-    // فلا تستطيع العملية الخامسة من جلسة قديمة (حتى بعد unmount) أن تحرك الجلسة الحالية.
-    const stillMine = () => (useSessionsStore.getState().currentId === sessionId);
+    // [مراجعة المهمة 3 — هوية العملية] الرمز يُملأ هنا متزامنًا قبل أي await: عملية أحدث في
+    // الجلسة نفسها تزيد العداد فينسقط كل رمز أقدم — حارس الجلسة السابق يبقى كما هو داخل الفحص.
+    const opToken = ++operationRef.current;
+    // دالة الثبات المشتركة: رمز هذه العملية ما يزال هو الحالي وجلستها هي المفتوحة.
+    const isCurrent = () => (useSessionsStore.getState().currentId === sessionId && operationRef.current === opToken);
+    // المخلفات المتيمة: إدخالات الإيقاف/الإلغاء لعمليات أقدم منقوضة لا تستحق البقاء — تُطهر
+    // قبل تسجيل إشارات هذه العملية؛ تنظيف الأقدم المتأخر في finally مرشّح بـ isCurrent فلا يلمسها.
+    aborts.current.clear();
+    stopped.current.clear();
     try {
       // ملاحظة الخطة: onDiskDir يُملأ عند أول إرسال في وضع سطح المكتب فقط (المُنشّط غير مثبت في الويب).
       let effectiveSession = session;
@@ -96,7 +110,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           // المقفولة في الإغلاق: كود الخطة يجد آخر رسالة في اللقطة القديمة فيسقط دلتا كل
           // الأهداف إلا الأخيرة، ويجمّع نص إعادة المحاولة من نص قديم بدل النص الحي.
           onDelta: (tid, chunk) => {
-            if (!stillMine()) return;
+            if (!isCurrent()) return;
             const live = useSessionsStore.getState().messages;
             const m = baseResults?.find((x) => x.targetId === tid) ?? [...live].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (!m) return;
@@ -104,7 +118,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             patchMessage(m.id, { text: cur.text + chunk, status: "streaming" });
           },
           onStatus: (tid, st, err) => {
-            if (!stillMine()) return;
+            if (!isCurrent()) return;
             const list = baseResults ?? useSessionsStore.getState().messages;
             const m = [...list].reverse().find((x) => x.targetId === tid && x.role === "assistant");
             if (m) {
@@ -113,15 +127,21 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             }
             if (st === "error" && err && !stopped.current.has(tid)) toast.error(err);
           },
-          onDropped: (ids) => { if (ids.length) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
-          onAppended: (m) => { if (stillMine()) upsertMessagesLocal([m]); },
+          // [مراجعة المهمة 3 — هوية العملية] onDropped لا يفحص الجلسة داخليًا — يتحقق بـ isCurrent بنفسه
+          onDropped: (ids) => { if (ids.length && isCurrent()) toast.warning(ar.droppedTargets + " (" + ids.length + ")"); },
+          onAppended: (m) => { if (isCurrent()) upsertMessagesLocal([m]); },
         },
       );
     } catch (e) {
       // حارس الإرسال بلا سؤال (تحفظ تنفيذي موجّه لهذه المهمة من مراجعة المهمة 4):
       // buildTurnTargets يرمي رسالة عربية موجّهة للمستخدم — نعرضها بدل رفض وعد صامت.
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally { setSending(false); aborts.current.clear(); stopped.current.clear(); }
+      // [مراجعة المهمة 3 — هوية العملية] توست الفشل الملتقط مرشّح أيضًا: عملية منقوضة لا توست
+      if (isCurrent()) toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      // [مراجعة المهمة 3 — هوية العملية] التنظيف محصور بالعملية الحالية: عملية أقدم منقوضة
+      // لا تطفئ sending ولا تطهر aborts/stopped الخاصة بعملية أحدث ما تزال حية في الجلسة نفسها.
+      if (isCurrent()) { setSending(false); aborts.current.clear(); stopped.current.clear(); }
+    }
   }
 
   async function extractSummary(): Promise<void> {

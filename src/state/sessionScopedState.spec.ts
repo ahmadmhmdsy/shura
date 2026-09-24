@@ -3,7 +3,7 @@ import { useSessionsStore } from "./sessionsStore";
 import { useComposerStore } from "./composerStore";
 import * as repos from "@/lib/db/repos";
 import { chatMessage } from "@/test/helpers";
-import type { ChatMessage, TargetConfig } from "@/types";
+import type { ChatMessage, SessionMeta, TargetConfig } from "@/types";
 
 // المرجع: .superpowers/sdd/hardening-task-3-brief.md الخطوتان 1 و4 —
 // مسودة الجلسة المعزولة، وحمولة getMessages الخاسرة للسباق تُرمى بحسب الجيل،
@@ -11,8 +11,9 @@ import type { ChatMessage, TargetConfig } from "@/types";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => { resolve = res; });
-  return { promise, resolve };
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 /** الوسيط الثاني (sessionId) مطلوب في chatMessage — الاختبار يهتم بالمعرّف فقط */
@@ -38,14 +39,45 @@ describe("setTargets persists into SessionMeta", () => {
   it("writes Dexie and the local meta only when targets actually change", async () => {
     useSessionsStore.setState({ sessions: [{ id: "s", title: "", createdAt: 0, updatedAt: 0, modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false }] });
     const updateSpy = vi.spyOn(repos, "updateSession").mockResolvedValue(undefined);
-    useSessionsStore.getState().setTargets("s", [target]);
+    await useSessionsStore.getState().setTargets("s", [target]);
     const meta = useSessionsStore.getState().sessions.find((x) => x.id === "s")!;
     expect(meta.targets).toEqual([target]);
     expect(updateSpy).toHaveBeenCalledWith("s", { targets: [target] });
     updateSpy.mockClear();
     // نفس القيمة قيميًا ⇒ لا كتابة Dexie صامتة (لا تزيح updatedAt في كل رندر)
-    useSessionsStore.getState().setTargets("s", [{ ...target }]);
+    await useSessionsStore.getState().setTargets("s", [{ ...target }]);
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejection propagates and the local meta rolls back when it still holds the attempted value", async () => {
+    useSessionsStore.setState({ sessions: [{ id: "s", title: "", createdAt: 0, updatedAt: 0, modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false }] });
+    const attempted = [{ ...target, targetId: "attempted" }] as TargetConfig[];
+    vi.spyOn(repos, "updateSession").mockRejectedValue(new Error("تخزين معطل"));
+    await expect(useSessionsStore.getState().setTargets("s", attempted)).rejects.toThrow("تخزين معطل");
+    // التراجع المحلي يجرد القيمة التي فشل حفظها — لا يبدو النجاح زائفًا
+    const meta = useSessionsStore.getState().sessions.find((x) => x.id === "s")!;
+    expect(meta.targets).toBeUndefined();
+  });
+
+  it("an older rejected setTargets does not clobber a newer target selection", async () => {
+    useSessionsStore.setState({ sessions: [{ id: "s", title: "", createdAt: 0, updatedAt: 0, modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false, targets: [target] }] });
+    const attempted = [{ ...target, targetId: "attempted" }] as TargetConfig[];
+    const stale = deferred<void>();
+    const newer = deferred<void>();
+    vi.spyOn(repos, "updateSession")
+      .mockReturnValueOnce(stale.promise as never)
+      .mockReturnValueOnce(newer.promise as never);
+    const first = useSessionsStore.getState().setTargets("s", attempted);
+    const newerTargets = [{ ...target, targetId: "newer" }] as TargetConfig[];
+    const second = useSessionsStore.getState().setTargets("s", newerTargets);
+    stale.reject(new Error("قديم فشل"));
+    await expect(first).rejects.toThrow("قديم فشل");
+    // القيمة الحية لم تعد القيمة التي فشل عليها الطلب القديم — لا تراجع يطغى على الاختيار الأحدث
+    const meta = useSessionsStore.getState().sessions.find((x) => x.id === "s")!;
+    expect(meta.targets).toEqual(newerTargets);
+    newer.resolve(undefined);
+    await second;
+    expect(meta.targets).toEqual(newerTargets);
   });
 });
 
@@ -126,5 +158,59 @@ describe("late local operations are scoped to the open session", () => {
     expect(useSessionsStore.getState().messages.find((m) => m.id === "k2")?.text).toBe("");
     useSessionsStore.getState().patchMessage("k1", { text: "محلي" });
     expect(useSessionsStore.getState().messages.find((m) => m.id === "k1")?.text).toBe("\u0645\u062D\u0644\u064A");
+  });
+});
+describe("rejected loads clear loading (hardening task 3)", () => {
+  // المرجع: .superpowers/sdd/hardening-task-3-loading-fix.md — فشل الطلب الحالي
+  // يستحق رفع الحاجب، والفشل العتيق لا يُسقط حاجب طلب أحدث ما زال جاريًا.
+
+  it("load() rejection propagates and loading returns to false", async () => {
+    vi.spyOn(repos, "listSessions").mockRejectedValue(new Error("قاعدة القوائم معطلة"));
+    await expect(useSessionsStore.getState().load()).rejects.toThrow("قاعدة القوائم معطلة");
+    expect(useSessionsStore.getState().loading).toBe(false);
+  });
+
+  it("a rejected stale load() does not clobber a newer in-flight load()", async () => {
+    const stale = deferred<SessionMeta[]>();
+    const newer = deferred<SessionMeta[]>();
+    vi.spyOn(repos, "listSessions")
+      .mockReturnValueOnce(stale.promise as never)
+      .mockReturnValueOnce(newer.promise as never);
+    const first = useSessionsStore.getState().load();
+    const second = useSessionsStore.getState().load();
+    stale.reject(new Error("stale"));
+    await expect(first).rejects.toThrow("stale");
+    // الطلب الأحدث ما زال جاريًا — الرفض العتيق لا يُسقط الحاجب بدلًا منه
+    expect(useSessionsStore.getState().loading).toBe(true);
+    newer.resolve([]);
+    await second;
+    expect(useSessionsStore.getState().loading).toBe(false);
+    expect(useSessionsStore.getState().sessions).toEqual([]);
+  });
+
+  it("open() rejection propagates and loading returns to false", async () => {
+    vi.spyOn(repos, "getMessages").mockRejectedValue(new Error("قاعدة الرسائل معطلة"));
+    const opening = useSessionsStore.getState().open("a");
+    await expect(opening).rejects.toThrow("قاعدة الرسائل معطلة");
+    expect(useSessionsStore.getState().loading).toBe(false);
+  });
+
+  it("a rejected stale open() does not clobber a newer open()", async () => {
+    const stale = deferred<ChatMessage[]>();
+    const newer = deferred<ChatMessage[]>();
+    vi.spyOn(repos, "getMessages")
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(newer.promise);
+    const openA = useSessionsStore.getState().open("a");
+    const openB = useSessionsStore.getState().open("b");
+    stale.reject(new Error("stale"));
+    await expect(openA).rejects.toThrow("stale");
+    // فتح أحدث ("b") ما زال جاريًا — الرفض العتيق لا يلمس الحاجب ولا الرسائل
+    expect(useSessionsStore.getState().currentId).toBe("b");
+    expect(useSessionsStore.getState().loading).toBe(true);
+    newer.resolve([message("b2")]);
+    await openB;
+    expect(useSessionsStore.getState().loading).toBe(false);
+    expect(useSessionsStore.getState().messages).toEqual([message("b2")]);
   });
 });
