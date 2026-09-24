@@ -16,11 +16,27 @@
     },
     {
       "identifier": "fs:default",
-      "allow": [{ "path": "$DOCUMENTS/Shura/**" }]
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$DOCUMENTS/Shura/**" }]
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
+    },
+    {
+      "identifier": "fs:allow-rename",
+      "allow": [{ "path": "$DOCUMENT/Shura/**" }]
     }
   ]
 }

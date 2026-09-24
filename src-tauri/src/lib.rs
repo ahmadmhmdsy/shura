@@ -1,3 +1,6 @@
+// [المهمة 2] سياسة المسار الأصلية (احتواء معجمي + اختبارات بلا لمس قرص المستخدم).
+pub mod path_policy;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
