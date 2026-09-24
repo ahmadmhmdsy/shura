@@ -61,10 +61,14 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
     };
     const status = args.onStatus ? (s: TurnStatus, error?: string) => args.onStatus?.(args.operationId, p.targetId, s, error) : undefined;
     status?.("streaming");
-    const timer = setTimeout(() => ac.abort(new Error("انتهت مهلة النداء")), timeout);
+    // [تصحيح المهمة 5] سبب المهلة كائن ملتقط واحد: التصنيف بمطابقة الهوية (r === timeoutReason) بدل regex الرسالة
+    const timeoutReason = new Error("انتهت مهلة النداء");
+    const timer = setTimeout(() => ac.abort(timeoutReason), timeout);
     let rawError: unknown;
     // [المهمة 5] المراكم مشترك وخارج السباق: الإيقاف/المهلة/فشل المزود كلها تحفظ النص الجزئي
     const acc: Accumulator = { text: "" };
+    // [تصحيح المهمة 5] بوابة الحسم: يجبود توقف تراكم النص وonUpdate بعد إغلاق السباق
+    let terminal = false;
     let onAbort: () => void = () => {};
     // [إصلاح موثق على كود الخطة — 1/3] مهلة/إيقاف خارجي فوق نقل لا يرصد الإشارة:
     // fetch وهمية (وعد لا يُحسم أبدًا) لا ترفض عند abort فيتعلق البث للأبد (الدليل: مهلة vitest 5009ms).
@@ -72,9 +76,10 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
     const abortedOutcome = new Promise<DispatchOutcome>((resolve) => {
       onAbort = () => {
         const r: unknown = ac.signal.reason;
-        // [المهمة 5] المهلة (abort داخلي من المؤقت) تصنف error؛ إلغاء المستخدم الخارجي يبقى stopped
-        // — وكلاهما يُثري النتيجة بالنص المتراكم خارج السباق
-        const isTimeout = r instanceof Error && /انتهت مهلة/.test(r.message);
+        // [المهمة 5/تصحيح] المهلة تصنف error بمطابقة هوية السبب الملتقط؛ إلغاء المستخدم الخارجي يبقى stopped
+        // — وكلاهما يُثري النتيجة بالنص المتراكم خارج السباق ويجود البوابة قبل الوصول إلى resolve
+        const isTimeout = r === timeoutReason;
+        terminal = true;
         const reason = r instanceof Error ? r : new Error(typeof r === "string" && r ? r : "ألغي النداء");
         resolve({
           targetId: p.targetId, operationId: args.operationId,
@@ -103,7 +108,12 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
           // بـ NoOutputGeneratedError رسالته "No output generated..." تحوي "generated" فتطابق /rate/ خاطئًا
           // في mapProviderError — الخطأ الخام (APICallError بـ statusCode) هو مصدر الترجمة الصحيحة.
           const result = streamText({ model, messages: modelMessages, abortSignal: ac.signal, onError: ({ error }) => { if (rawError === undefined) rawError = error; } });
-          for await (const chunk of result.textStream) { acc.text += chunk; args.onUpdate?.(args.operationId, p.targetId, chunk); }
+          for await (const chunk of result.textStream) {
+            // [تصحيح المهمة 5] ما بعد السباق: نقل يتجاهل abort لا يجبود المراكم ولا النداءات
+            if (terminal) break;
+            acc.text += chunk;
+            args.onUpdate?.(args.operationId, p.targetId, chunk);
+          }
           // [تحصين مأذون به — تحفظ (أ) من المهمة 8 المنفذ بأمر منسق المهمة 11] مع عدل موثق إجباري:
           // الصيغة الحرفية «if (rawError !== undefined) throw rawError» بعد حلقة الدلتا تكسر 3 اختبارات
           // معتمدة في dispatch.spec — ai@7 يطلق onError بخطأ حميد "Response stream ended without a
@@ -111,10 +121,13 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
           // نرفع الخطأ الخام فور الحلقة لإغلاق نافذة ابتلاع أخطاء منتصف البث، باستثناء ذلك البنين.
           const benignEnd = rawError instanceof Error && /ended without a finish reason/.test(rawError.message);
           if (rawError !== undefined && !benignEnd) throw rawError;
-          // [المهمة 5] تصنيف النهاية صريحًا: سبب نهاية غير حميد لا يُرحّح نجاحًا
-          const finishReason = (await result.finishReason) as unknown;
-          if (rawError === undefined && !benignEnd && (typeof finishReason !== "string" || !["stop", "length", "tool-calls", "unknown"].includes(finishReason))) {
-            throw new Error("نهاية غير معروفة: " + String(finishReason));
+          // [المهمة 5/تصحيح] تصنيف النهاية صريحًا. دليل الكود: ai FinishReason = 'stop'|'length'|
+          // 'content-filter'|'tool-calls'|'error'|'other' — لا وجود لـ'unknown' كسبب صالح، والسبب
+          // غير الصالح من المزود يُعمم إليه (raw إضافي) فلا نقبل إلا أسباب النجاح والباقي خطأ.
+          const fr = (await result.finishReason) as unknown;
+          const finishReason: string | undefined = typeof fr === "string" ? fr : undefined;
+          if (rawError === undefined && !benignEnd && (finishReason === undefined || !["stop", "length", "tool-calls"].includes(finishReason))) {
+            throw new Error("نهاية غير معروفة: " + String(finishReason ?? ""));
           }
           const u = await result.usage;
           const info = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
@@ -127,7 +140,9 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
             // كائن حرفي بخاصية زائدة (TS2353) — حرفية الخطة المُزامَنة (296fbb5) بلا cachedInputTokens.
             costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0 }, info) : null,
           };
-          return { targetId: p.targetId, operationId: args.operationId, status: "done" as const, text: acc.text, usage, ms: Date.now() - t0, finishReason: String(finishReason) };
+          // النافذة الحميدة: إغلاق بلا سبب نهاية لكن بUsage سليم — تعامل معروف في dispatch.spec؛
+          // finishReason يتم آمطه تمامًا (لا "error" ولا String(undefined))
+          return { targetId: p.targetId, operationId: args.operationId, status: "done" as const, text: acc.text, usage, ms: Date.now() - t0, ...(!benignEnd && finishReason !== undefined ? { finishReason } : {}) };
         } catch (e) {
           const source = rawError !== undefined ? rawError : e;
           return { targetId: p.targetId, operationId: args.operationId, status: "error" as const, text: acc.text, error: ac.signal.aborted && !ac.signal.reason ? "أُلغي النداء" : mapProviderError(source), ms: Date.now() - t0 };
