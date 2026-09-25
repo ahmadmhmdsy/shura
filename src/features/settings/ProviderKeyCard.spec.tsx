@@ -92,19 +92,22 @@ describe("ProviderKeyCard", () => {
     await waitFor(() => expect(btn).toBeEnabled());
   });
 
-  it("نجاح الاختبار الحي: «المفتاح يعمل ✓» بلون النجاح ونداء بالنموذج الأول للمزود", async () => {
-    let body = "";
+  it("live test: success text is styled as success and no generation is requested", async () => {
+    const urls: string[] = [];
     setTransportFetch((async (input: RequestInfo | URL, init?: RequestInit) => {
-      void input;
-      body = String(init?.body ?? "");
-      return new Response(JSON.stringify(okCompletion()), { status: 200, headers: { "content-type": "application/json" } });
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch);
     useSettingsStore.setState({ providerKeys: { [id]: "sk-1" } });
     render(<ProviderKeyCard id={id} />);
     fireEvent.click(screen.getByRole("button", { name: /اختبار/ }));
     const result = await screen.findByText("المفتاح يعمل ✓", {}, { timeout: 3000 });
     expect(result).toHaveClass("text-sura-accent");
-    expect(JSON.parse(body).model).toBe("MiniMax-M2");
+    // A key test must not spend generation quota, so it must never reach the
+    // completions endpoint no matter which provider model is selected.
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).not.toMatch(/chat\/completions/);
   });
 
   it("يختبر المفتاح المحفوظ لا المسودة غير المحفوظة", async () => {

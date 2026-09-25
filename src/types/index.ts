@@ -15,6 +15,14 @@ export interface ProviderConfig {
   staticModels: ModelInfo[];
   modelsSource: "live" | "static";
   liveModelsUrl?: string;
+  /**
+   * A free, non-generating endpoint used to prove a key is accepted.
+   * Key validation must never spend generation quota, so this deliberately points at a
+   * listing endpoint rather than a completion endpoint.
+   */
+  keyCheckUrl?: string;
+  /** How the key travels: "bearer" sends an Authorization header, "query" appends ?key=. */
+  keyCheckAuth?: "bearer" | "query";
 }
 
 export type MessageStatus = "pending" | "streaming" | "done" | "error" | "stopped";

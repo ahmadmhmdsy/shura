@@ -64,3 +64,55 @@ describe("testProviderKey (بلا شبكة حقيقية)", () => {
     expect(r.detail).not.toContain("sk-super-secret-value");
   });
 });
+
+describe('testProviderKey does not consume generation quota', () => {
+  it('makes only a non-generating key call, never chat completions', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+
+    const r = await testProviderKey('minimax', 'sk-test', 'MiniMax-M2');
+
+    expect(r.ok).toBe(true);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).not.toMatch(/chat\/completions/);
+  });
+
+  it('passes a Google key as a query parameter, not a header', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      return new Response(JSON.stringify({ models: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+
+    const r = await testProviderKey('google', 'AIza-test', 'gemini-2.5-pro');
+
+    expect(r.ok).toBe(true);
+    expect(urls[0]).toMatch(/key=AIza-test/);
+  });
+
+  it('falls back to a generation call when the provider has no key endpoint', async () => {
+    let calls = 0;
+    setTransportFetch(async (input, init) => {
+      calls += 1;
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.url.includes('/models')) return new Response('not found', { status: 404 });
+      return new Response(JSON.stringify(okCompletion()), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+
+    const r = await testProviderKey('opencodego', 'sk-test', 'glm-5.3');
+
+    expect(r.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it('a 429 on the key endpoint is reported as a rate limit, not a bad key', async () => {
+    setTransportFetch(async () => new Response('{}', { status: 429 }));
+    const r = await testProviderKey('minimax', 'k', 'MiniMax-M2');
+    expect(r.detail).toMatch(/حد|معدل/);
+  });
+});
