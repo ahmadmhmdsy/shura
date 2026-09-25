@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useComposerStore } from "./composerStore";
+import { renderHook } from "@testing-library/react";
+import { useShallow } from "zustand/react/shallow";
+import { EMPTY_COMPOSER_DRAFT, useComposerStore } from "./composerStore";
 import type { TargetConfig } from "@/types";
 
 // المرجع: .superpowers/sdd/hardening-task-3-brief.md الخطوة 3 — عقد المخزن الموقّع بمعرف الجلسة.
@@ -28,6 +30,22 @@ describe("composerStore — مسودة موقّعة بمعرف الجلسة", ()
     // كائن جديد في كل نداء (لا نسخ من مسودة أخرى ولا مرجع مشترك)
     expect(useComposerStore.getState().getDraft("unknown")).not.toBe(first);
     expect(useComposerStore.getState().drafts["unknown"]).toBeUndefined();
+  });
+
+  it("محدد المسودة المجهولة يبقى ثابتًا بين reread المتجر", () => {
+    const { result, rerender } = renderHook(() => useComposerStore(useShallow((state) => {
+      const draft = state.drafts["unknown-ui"] ?? EMPTY_COMPOSER_DRAFT;
+      return {
+        targets: draft.targets,
+        syncMode: draft.syncMode,
+        sharedPrompt: draft.sharedPrompt,
+        customs: draft.customs,
+        focusTargetId: draft.focusTargetId,
+      };
+    })));
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
   });
 
   it("setDraft يبني مسودة كاملة على القاعدة الفارغة", () => {

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { useComposerStore, emptyComposerDraft } from "@/state/composerStore";
+import { useComposerStore, EMPTY_COMPOSER_DRAFT } from "@/state/composerStore";
 import { AddModelDialog } from "./AddModelDialog";
 import { ContextMeter } from "./ContextMeter";
 import { PROVIDERS } from "@/lib/providers/registry";
@@ -16,7 +16,7 @@ export interface ComposerProps {
   /** معرف الجلسة التي تنتمي إليها هذه المسودة: كل قراءة وكتابة تمر عبره حصرًا */
   sessionId: string;
   onSend(): void; onStop(): void; onExtractSummary(): void;
-  sending: boolean; sessionTokens: number; contextLimit: number | null;
+  sending: boolean; cancellable?: boolean; sessionTokens: number; contextLimit: number | null;
   // [المهمة 4] وضع السياق صريح دائمًا: stateful افتراضي، وstateless لا يكون ضمنيًا أبدًا
   contextMode: ContextMode;
   onContextModeChange(next: ContextMode): void;
@@ -25,7 +25,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const sessionId = props.sessionId;
   const { targets, syncMode, sharedPrompt, customs, focusTargetId } = useComposerStore(useShallow((s) => {
-    const d = s.drafts[sessionId] ?? emptyComposerDraft();
+    const d = s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT;
     return { targets: d.targets, syncMode: d.syncMode, sharedPrompt: d.sharedPrompt, customs: d.customs, focusTargetId: d.focusTargetId };
   }));
   const addTarget = useComposerStore((s) => s.addTarget);
@@ -73,9 +73,9 @@ export function Composer(props: ComposerProps) {
       <Textarea value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} placeholder={ar.sharedPlaceholder} className="min-h-20" />
 
       <div className="flex items-center gap-2 justify-end">
-        <Button size="sm" variant="ghost" onClick={props.onExtractSummary}><Sparkles className="size-4" /> {ar.extractSummary}</Button>
+        <Button size="sm" variant="ghost" disabled={props.sending} onClick={props.onExtractSummary}><Sparkles className="size-4" /> {ar.extractSummary}</Button>
         {props.sending
-          ? <Button size="sm" variant="destructive" onClick={props.onStop}><Square className="size-4" /> {ar.stop}</Button>
+          ? <Button size="sm" variant="destructive" disabled={props.cancellable === false} onClick={props.onStop}><Square className="size-4" /> {ar.stop}</Button>
           : <Button size="sm" onClick={props.onSend}><Send className="size-4" /> {ar.send}</Button>}
       </div>
 

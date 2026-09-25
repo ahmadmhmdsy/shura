@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, TargetConfig, TargetSnapshot } from "@/types";
 
 export function buildSummaryPrompt(turnId: string, results: ChatMessage[]): string {
   const blocks = results.map((r) => `### ${r.providerId} — ${r.modelId}\n${r.text || "(بلا نتيجة)"}`).join("\n\n");
@@ -8,4 +8,15 @@ export function buildSummaryPrompt(turnId: string, results: ChatMessage[]): stri
     `معرّف التمرّة: ${turnId}`,
     "\n---\n" + blocks,
   ].join("\n");
+}
+
+export function buildSummaryTargetSnapshot(target: TargetConfig, promptText: string): TargetSnapshot {
+  return {
+    ...target,
+    sharedPrompt: promptText,
+    customPrompt: null,
+    promptText,
+    hasShared: true,
+    hasCustom: false,
+  };
 }

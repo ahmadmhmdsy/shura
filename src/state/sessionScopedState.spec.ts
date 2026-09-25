@@ -136,10 +136,15 @@ describe("open-generation race guards", () => {
 describe("late local operations are scoped to the open session", () => {
   it("appendMessageLocal for another session mirrors only Dexie, not the open list", async () => {
     await useSessionsStore.getState().open("current");
-    const other = chatMessage("m1", "other");
+    // This suite isolates open-session scoping. Use admissible legacy rows so
+    // Task 6 canonical-attempt validation does not reject the durable write first.
+    const legacy = (id: string, sessionId: string): ChatMessage => chatMessage(id, sessionId, {
+      operationId: undefined, attemptId: undefined, attempt: undefined,
+    });
+    const other = legacy("m1", "other");
     await useSessionsStore.getState().appendMessageLocal(other);
     expect(useSessionsStore.getState().messages).toEqual([]);
-    const mine = chatMessage("m2", "current");
+    const mine = legacy("m2", "current");
     await useSessionsStore.getState().appendMessageLocal(mine);
     expect(useSessionsStore.getState().messages).toEqual([mine]);
   });

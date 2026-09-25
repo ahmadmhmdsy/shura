@@ -8,6 +8,9 @@ export interface TurnFileData {
   status: Record<string, string>;
   errors: Record<string, string>;
   createdAt: number;
+  /** Durable operation identity for replay/reconciliation metadata. */
+  attemptId?: string;
+  operationId?: string;
 }
 
 const ILLEGAL = /[<>:"/\\|?*]/g;

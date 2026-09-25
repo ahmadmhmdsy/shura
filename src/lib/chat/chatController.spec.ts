@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendTurn, type SendArgs, type SendCallbacks } from "./chatController";
+import type { DispatchOutcome } from "./dispatch";
 import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
 import { setTransportFetch } from "@/lib/transport/transport";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
-import { createSession, getMessages, getSession, getUsageEvents } from "@/lib/db/repos";
+import { createSession, getMessages, getSession, getTurn, getUsageEvents, reconcileInterruptedTurns } from "@/lib/db/repos";
+import { db } from "@/lib/db/db";
 import type { ChatMessage, SessionMeta } from "@/types";
 
 // [المهمة 5] خطاف عزل الثراث الجانبية: جعل recordUsage يفشل يثبت أن الصف الأساسي لا يُمحى
@@ -11,9 +13,23 @@ const usageHook = vi.hoisted(() => ({ failUsage: false, calls: 0 }));
 // [المهمة 5] خطاف رفض النداء: dispatchTurn يرمي دومًا فيثبت التنظيف وصف الخطأ النهائي
 const dispatchHook = vi.hoisted(() => ({
   reject: false,
+  rejectAfterDispatch: false,
   lateUpdateTarget: null as string | null,
   lateUpdateChunk: "",
   lateUpdateFired: false,
+  calls: 0,
+  overrideOutcomes: false,
+  outcomes: null as DispatchOutcome[] | null,
+}));
+const persistenceHook = vi.hoisted(() => ({
+  holdLookup: false,
+  lookupGate: null as Promise<void> | null,
+  onLookupStart: null as (() => void) | null,
+  holdAttempt: false,
+  holdAttemptTurnId: "",
+  holdAttemptOperationId: "",
+  attemptGate: null as Promise<void> | null,
+  onAttemptStart: null as (() => void) | null,
 }));
 const appendHook = vi.hoisted(() => ({
   streamingCalls: 0,
@@ -21,15 +37,48 @@ const appendHook = vi.hoisted(() => ({
   holdTarget: "",
   holdGate: null as Promise<void> | null,
   onHoldStart: null as (() => void) | null,
+  onCheckpoint: null as (() => void) | null,
+  failFinal: false,
+  failFinalOnce: false,
+  holdFinal: false,
+  holdFinalGate: null as Promise<void> | null,
+  onFinalHoldStart: null as (() => void) | null,
+  failFinalCount: 0,
+  failWarning: false,
+  failPromptCount: 0,
+  failPlaceholderCount: 0,
 }));
+const attemptHook = vi.hoisted(() => ({ failCount: 0, calls: 0 }));
 vi.mock("@/lib/db/repos", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/db/repos")>();
   return {
     ...actual,
+    getTurn: async (turnId: string) => {
+      if (persistenceHook.holdLookup && persistenceHook.lookupGate) {
+        persistenceHook.onLookupStart?.();
+        await persistenceHook.lookupGate;
+      }
+      return actual.getTurn(turnId);
+    },
+    persistTurnAttempt: async (...args: Parameters<typeof actual.persistTurnAttempt>) => {
+      if (persistenceHook.holdAttempt && persistenceHook.attemptGate && (!persistenceHook.holdAttemptTurnId || args[1] === persistenceHook.holdAttemptTurnId) && (!persistenceHook.holdAttemptOperationId || args[2]?.operationId === persistenceHook.holdAttemptOperationId)) {
+        persistenceHook.onAttemptStart?.();
+        await persistenceHook.attemptGate;
+      }
+      return actual.persistTurnAttempt(...args);
+    },
     recordUsage: async (ev: Parameters<typeof actual.recordUsage>[0]) => {
       usageHook.calls += 1;
       if (usageHook.failUsage) throw new Error("فشل حفظ الاستهلاك");
       return actual.recordUsage(ev);
+    },
+    updateTurnAttemptStatus: async (...args: Parameters<typeof actual.updateTurnAttemptStatus>) => {
+      attemptHook.calls += 1;
+      if (attemptHook.failCount > 0) {
+        attemptHook.failCount -= 1;
+        throw new Error("فشل تحديث المحاولة");
+      }
+      return actual.updateTurnAttemptStatus(...args);
     },
     appendMessage: async (msg: Parameters<typeof actual.appendMessage>[0]) => {
       if (msg.status === "streaming") {
@@ -41,7 +90,31 @@ vi.mock("@/lib/db/repos", async (importOriginal) => {
           await appendHook.holdGate;
         }
       }
-      return actual.appendMessage(msg);
+      if (appendHook.failPromptCount > 0 && msg.role === "user") {
+        appendHook.failPromptCount -= 1;
+        throw new Error("فشل حفظ السؤال المحاولة");
+      }
+      if (appendHook.failPlaceholderCount > 0 && msg.role === "assistant" && msg.status === "streaming") {
+        appendHook.failPlaceholderCount -= 1;
+        throw new Error("فشل حفظ بطاقة البث");
+      }
+      if (appendHook.failFinalOnce && msg.role === "assistant" && msg.status !== "streaming") {
+        appendHook.failFinalOnce = false;
+        throw new Error("فشل عابر في حفظ النتيجة الأساسية");
+      }
+      if (appendHook.failFinalCount > 0 && msg.role === "assistant" && msg.status !== "streaming") {
+        appendHook.failFinalCount -= 1;
+        throw new Error("فشل عابر في حفظ النتيجة الأساسية");
+      }
+      if (appendHook.holdFinal && msg.role === "assistant" && msg.status !== "streaming" && appendHook.holdFinalGate) {
+        appendHook.onFinalHoldStart?.();
+        await appendHook.holdFinalGate;
+      }
+      if (appendHook.failFinal && msg.role === "assistant" && msg.status !== "streaming") throw new Error("فشل حفظ النتيجة الأساسية");
+      if (appendHook.failWarning && msg.sidecarWarning) throw new Error("فشل حفظ تحذير النتيجة");
+      const result = await actual.appendMessage(msg);
+      if (msg.status === "streaming" && msg.text.length > 0) appendHook.onCheckpoint?.();
+      return result;
     },
   };
 });
@@ -60,52 +133,88 @@ const targets = [
 ];
 
 function baseArgs(session: SessionMeta, over: Partial<SendArgs> = {}): SendArgs {
+  const operationSignal = new AbortController().signal;
   return {
-    session, turn: { id: "turn1", sharedPrompt: "سؤال مشترك؟", customs: {} },
+    session, turn: { id: `turn-${session.id}`, sharedPrompt: "سؤال مشترك؟", customs: {} },
     targets, syncMode: true,
     operationId: "op1",
+    operationSignal,
     contextMode: "stateful",
     historyFor: () => [],
     modelInfoFor: () => ({ id: "m", label: "نموذج", contextLength: 128000 }),
     apiKeyFor: () => "k", sessionHeaderFor: () => undefined,
-    externalSignalFor: () => undefined, timeoutMs: 5000,
+    externalSignalFor: () => operationSignal, timeoutMs: 5000,
     ...over,
   };
 }
 
-function makeCb(): { c: { deltas: Record<string, string>; deltaOps: string[]; statuses: { op: string; targetId: string; status: ChatMessage["status"]; error?: string }[]; dropped: string[]; droppedOps: string[]; appendedIds: string[] }; cb: SendCallbacks } {
+function makeCb(): { c: { deltas: Record<string, string>; deltaOps: string[]; attemptIds: string[]; statuses: { op: string; targetId: string; status: ChatMessage["status"]; error?: string; attemptId: string }[]; dropped: string[]; droppedOps: string[]; appendedIds: string[]; warnings: string[] }; cb: SendCallbacks } {
   const c = {
     deltas: {} as Record<string, string>,
     deltaOps: [] as string[],
-    statuses: [] as { op: string; targetId: string; status: ChatMessage["status"]; error?: string }[],
+    attemptIds: [] as string[],
+    statuses: [] as { op: string; targetId: string; status: ChatMessage["status"]; error?: string; attemptId: string }[],
     dropped: [] as string[],
     droppedOps: [] as string[],
     appendedIds: [] as string[],
+    warnings: [] as string[],
   };
   const cb: SendCallbacks = {
-    onDelta: (op, tid, ch) => { c.deltaOps.push(op); c.deltas[tid] = (c.deltas[tid] ?? "") + ch; },
-    onStatus: (op, tid, st, err) => { c.statuses.push({ op, targetId: tid, status: st, error: err }); },
-    onDropped: (op, ids) => { c.droppedOps.push(op); c.dropped.push(...ids); },
+    onDelta: (op, tid, ch, attemptId) => { c.deltaOps.push(op); c.attemptIds.push(attemptId); c.deltas[tid] = (c.deltas[tid] ?? "") + ch; },
+    onStatus: (op, tid, st, err, attemptId) => { c.statuses.push({ op, targetId: tid, status: st, error: err, attemptId }); },
+    onDropped: (op, ids, attemptId) => { c.droppedOps.push(op); c.dropped.push(...ids); if (!attemptId) throw new Error("missing attempt id"); },
     onAppended: (m) => { c.appendedIds.push(m.id); },
+    onWarning: (message) => { c.warnings.push(message); },
   };
   return { c, cb };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await db.sessions.clear();
+  await db.messages.clear();
+  await db.usage_events.clear();
+  await db.turns.clear();
+  await db.tombstones.clear();
+  await db.settings.clear();
+  await db.operation_leases.clear();
   // Reset the module-global sink between tests without changing production APIs.
   setFileSink(null as unknown as FileSink);
   setTransportFetch(sseMockFetch());
   usageHook.failUsage = false;
   usageHook.calls = 0;
   dispatchHook.reject = false;
+  dispatchHook.rejectAfterDispatch = false;
   dispatchHook.lateUpdateTarget = null;
   dispatchHook.lateUpdateChunk = "";
   dispatchHook.lateUpdateFired = false;
+  dispatchHook.calls = 0;
+  dispatchHook.overrideOutcomes = false;
+  dispatchHook.outcomes = null;
+  persistenceHook.holdLookup = false;
+  persistenceHook.lookupGate = null;
+  persistenceHook.onLookupStart = null;
+  persistenceHook.holdAttempt = false;
+  persistenceHook.holdAttemptTurnId = "";
+  persistenceHook.holdAttemptOperationId = "";
+  persistenceHook.attemptGate = null;
+  persistenceHook.onAttemptStart = null;
   appendHook.streamingCalls = 0;
   appendHook.holdAt = 0;
   appendHook.holdTarget = "";
   appendHook.holdGate = null;
   appendHook.onHoldStart = null;
+  appendHook.onCheckpoint = null;
+  appendHook.failFinal = false;
+  appendHook.failFinalOnce = false;
+  appendHook.holdFinal = false;
+  appendHook.holdFinalGate = null;
+  appendHook.onFinalHoldStart = null;
+  appendHook.failFinalCount = 0;
+  appendHook.failWarning = false;
+  appendHook.failPromptCount = 0;
+  appendHook.failPlaceholderCount = 0;
+  attemptHook.failCount = 0;
+  attemptHook.calls = 0;
 });
 
 afterEach(() => {
@@ -117,8 +226,11 @@ vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
   return {
     ...actual,
     dispatchTurn: async (args: Parameters<typeof actual.dispatchTurn>[0]) => {
+      dispatchHook.calls += 1;
       if (dispatchHook.reject) throw new Error("رفض نداء dispatchTurn");
+      if (dispatchHook.overrideOutcomes) return dispatchHook.outcomes ?? [];
       const outcomes = await actual.dispatchTurn(args);
+      if (dispatchHook.rejectAfterDispatch) throw new Error("رفض بعد الإرسال");
       if (dispatchHook.lateUpdateTarget !== null) {
         const targetId = dispatchHook.lateUpdateTarget;
         const chunk = dispatchHook.lateUpdateChunk;
@@ -142,6 +254,241 @@ describe("مُنشّط طبقة الملفات", () => {
 });
 
 describe("sendTurn", () => {
+  it("إلغاء أثناء انتظار placeholder لا يصل إلى dispatchTurn", async () => {
+    let release!: () => void;
+    let held!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    appendHook.holdAt = 1;
+    appendHook.holdGate = gate;
+    appendHook.onHoldStart = held;
+    const s = await mkSession("cancel-before-dispatch");
+    const ac = new AbortController();
+    const pending = sendTurn(baseArgs(s, {
+      targets: [targets[0]],
+      operationSignal: ac.signal,
+      externalSignalFor: () => ac.signal,
+    }), makeCb().cb);
+    await heldPromise;
+    ac.abort(new Error("ألغي العملية"));
+    release();
+    await pending;
+    expect(dispatchHook.calls).toBe(0);
+    expect((await getTurn(`turn-${s.id}`))?.attempts[0]?.status).toBe("stopped");
+  });
+  it("إلغاء أثناء حفظ النتيجة النهائية يبقي الحالة الطرفية متسقة", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    appendHook.holdFinal = true;
+    appendHook.holdFinalGate = gate;
+    appendHook.onFinalHoldStart = held;
+    const s = await mkSession("cancel-during-final");
+    const ac = new AbortController();
+    const pending = sendTurn(baseArgs(s, {
+      targets: [targets[0]],
+      operationSignal: ac.signal,
+      externalSignalFor: () => ac.signal,
+    }), makeCb().cb);
+    await heldPromise;
+    ac.abort(new Error("ألغي العملية"));
+    release();
+    await pending;
+    const row = (await getMessages(s.id)).find((message) => message.role === "assistant");
+    const turn = await getTurn("turn-" + s.id);
+    expect(row?.status).toBe("done");
+    expect(turn?.attempts[0]?.status).toBe("done");
+    expect(usageHook.calls).toBe(0);
+  });
+
+  it("استبدال A أثناء انتظار حفظ المحاولة يبقي B هو المحاولة الوحيدة", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    const s = await mkSession("integrated-replacement");
+    const turnId = "turn-" + s.id;
+    persistenceHook.holdAttempt = true;
+    persistenceHook.holdAttemptTurnId = turnId;
+    persistenceHook.holdAttemptOperationId = "opA";
+    persistenceHook.attemptGate = gate;
+    persistenceHook.onAttemptStart = held;
+    const acA = new AbortController();
+    const pendingA = sendTurn(baseArgs(s, {
+      targets: [targets[0]],
+      operationId: "opA",
+      operationSignal: acA.signal,
+      externalSignalFor: () => acA.signal,
+    }), makeCb().cb);
+    await heldPromise;
+    acA.abort(new Error("ألغي A"));
+    const acB = new AbortController();
+    const { cb: cbB } = makeCb();
+    await sendTurn(baseArgs(s, {
+      targets: [targets[0]],
+      operationId: "opB",
+      operationSignal: acB.signal,
+      externalSignalFor: () => acB.signal,
+    }), cbB);
+    release();
+    await pendingA;
+    expect(dispatchHook.calls).toBe(1);
+    const record = await getTurn(turnId);
+    expect(record?.attempts).toHaveLength(1);
+    expect(record?.attempts[0]?.operationId).toBe("opB");
+    expect(record?.attempts[0]?.attempt).toBe(1);
+    const messages = (await getMessages(s.id)).filter((message) => message.role === "assistant");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.operationId).toBe("opB");
+    expect(messages[0]?.attempt).toBe(record?.attempts[0]?.attempt);
+    expect(messages[0]?.status).toBe("done");
+  });
+
+  it("إلغاء أثناء حفظ هدف نهائي لا يبدأ حفظ هدف لاحق", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    appendHook.holdFinal = true;
+    appendHook.holdFinalGate = gate;
+    appendHook.onFinalHoldStart = held;
+    const s = await mkSession("cancel-during-one-final");
+    const ac = new AbortController();
+    const { cb } = makeCb();
+    const pending = sendTurn(baseArgs(s, { operationSignal: ac.signal, externalSignalFor: () => ac.signal }), cb);
+    await heldPromise;
+    ac.abort(new Error("ألغي العملية"));
+    release();
+    await pending;
+    const rows = (await getMessages(s.id)).filter((message) => message.role === "assistant");
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => row.status === "done")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "stopped")).toHaveLength(1);
+    expect(usageHook.calls).toBe(0);
+  });
+
+  it("لا يبدأ dispatch عندما تكون الإشارة الخارجية مُلغاة مسبقًا", async () => {
+    const s = await mkSession("pre-aborted");
+    const external = new AbortController();
+    external.abort(new Error("إلغاء قبل البدء"));
+    await sendTurn(baseArgs(s, { targets: [targets[0]], externalSignalFor: () => external.signal }), makeCb().cb);
+    expect(dispatchHook.calls).toBe(0);
+    expect((await getMessages(s.id)).filter((m) => m.role === "assistant")).toHaveLength(0);
+  });
+
+  it("إلغاء أثناء انتظار سجل Turn لا ينشئ placeholder أو محاولة أو dispatch", async () => {
+    let release!: () => void;
+    let held!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    persistenceHook.holdLookup = true;
+    persistenceHook.lookupGate = gate;
+    persistenceHook.onLookupStart = held;
+    const s = await mkSession("cancel-lookup");
+    const ac = new AbortController();
+    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], operationSignal: ac.signal, externalSignalFor: () => ac.signal }), makeCb().cb);
+    await heldPromise;
+    ac.abort(new Error("إلغاء أثناء قراءة السجل"));
+    release();
+    await pending;
+    expect(dispatchHook.calls).toBe(0);
+    expect((await getMessages(s.id)).filter((m) => m.role === "assistant")).toHaveLength(0);
+    expect((await getTurn(`turn-${s.id}`))?.attempts ?? []).toHaveLength(0);
+  });
+
+  it("إلغاء أثناء انتظار حفظ المحاولة لا ينشئ placeholder أو dispatch", async () => {
+    let release!: () => void;
+    let held!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    persistenceHook.holdAttempt = true;
+    persistenceHook.attemptGate = gate;
+    persistenceHook.onAttemptStart = held;
+    const s = await mkSession("cancel-attempt");
+    const ac = new AbortController();
+    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], operationSignal: ac.signal, externalSignalFor: () => ac.signal }), makeCb().cb);
+    await heldPromise;
+    ac.abort(new Error("إلغاء أثناء حفظ المحاولة"));
+    release();
+    await pending;
+    expect(dispatchHook.calls).toBe(0);
+    expect((await getMessages(s.id)).filter((m) => m.role === "assistant")).toHaveLength(0);
+    expect((await getTurn(`turn-${s.id}`))?.attempts ?? []).toHaveLength(0);
+  });
+
+  it("يصل إلى حالة طرفية صريحة عند فشل النتيجة وتحديث المحاولة معًا", async () => {
+    appendHook.failFinalCount = 2;
+    attemptHook.failCount = 1;
+    usageHook.failUsage = true;
+    const s = await mkSession("combined-final-gate");
+    const { c, cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+
+    const row = (await getMessages(s.id)).find((message) => message.role === "assistant");
+    const turn = await getTurn("turn-" + s.id);
+    expect(row).toMatchObject({ status: "error", error: "تعذر حفظ النتيجة الأساسية" });
+    expect(turn?.attempts[0]?.status).toBe("error");
+    expect(usageHook.calls).toBe(0);
+    expect(c.warnings.some((warning) => warning.includes("تعذر تثبيت"))).toBe(true);
+  });
+
+  it("لا يبدأ sidecars عند فشل النتيجة الأساسية ويبلغ عن حالة طرفية صريحة", async () => {
+    appendHook.failFinal = true;
+    usageHook.failUsage = true;
+    const s = await mkSession("final-gate");
+    const { c, cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    expect(usageHook.calls).toBe(0);
+    expect(c.warnings.some((warning) => warning.includes("تعذر تثبيت"))).toBe(true);
+    expect(c.statuses.some((status) => status.status === "error")).toBe(true);
+  });
+
+  it("يعيد بناء البطاقة الأساسية كحالة خطأ ح，明确 من محاولة طرفية عند فشل الحفظ النهائي", async () => {
+    appendHook.failFinal = true;
+    const s = await mkSession("reconcile-final-error");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    const before = (await getMessages(s.id)).find((message) => message.role === "assistant");
+    const turnBefore = await getTurn("turn-" + s.id);
+    expect(before?.status).toBe("streaming");
+    expect(turnBefore?.attempts[0]?.status).toBe("error");
+
+    expect(await reconcileInterruptedTurns(new Set())).toBe(1);
+    const after = (await getMessages(s.id)).find((message) => message.role === "assistant");
+    expect(after).toMatchObject({ status: "error", text: before?.text });
+    expect(after?.error).toBeTruthy();
+  });
+
+  it("يكتشف عقد outcomes غير مكتمل أو مكرر ولا يترك بطاقة بث أو sidecar نجاح", async () => {
+    const cases: DispatchOutcome[][] = [
+      [],
+      [{ targetId: "wrong", operationId: "op1", status: "done", text: "wrong", ms: 1 }],
+      [
+        { targetId: "t1", operationId: "op1", status: "done", text: "one", ms: 1 },
+        { targetId: "t1", operationId: "op1", status: "done", text: "duplicate", ms: 1 },
+      ],
+      [
+        { targetId: "t1", operationId: "op1", status: "done", text: "one", ms: 1 },
+        { targetId: "unknown", operationId: "op1", status: "done", text: "unknown", ms: 1 },
+      ],
+      [{ targetId: "t1", operationId: "op1", status: "done", text: "one", ms: 1 }],
+      [{ targetId: "t1", operationId: "other", status: "done", text: "wrong operation", ms: 1 }],
+    ];
+    for (const [index, outcomes] of cases.entries()) {
+      const s = await mkSession("outcome-contract-" + index);
+      dispatchHook.overrideOutcomes = true;
+      dispatchHook.outcomes = outcomes;
+      const { c, cb } = makeCb();
+      await sendTurn(baseArgs(s, { targets }), cb);
+      const rows = (await getMessages(s.id)).filter((m) => m.role === "assistant");
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.status === "error")).toBe(true);
+      expect(usageHook.calls).toBe(0);
+      expect(c.warnings.some((warning) => warning.includes("تعذر"))).toBe(true);
+    }
+  });
+
   it("إرسال موحد: يحفظ السؤال والنتائج النهائية ويسجل الاستهلاك ويبث الدلتا", async () => {
     const s = await mkSession("ok");
     const { c, cb } = makeCb();
@@ -160,11 +507,16 @@ describe("sendTurn", () => {
     const usage = await getUsageEvents({ sessionId: s.id });
     expect(usage).toHaveLength(2);
     expect(usage.every((u) => u.status === "ok" && u.inputTokens === 7 && u.outputTokens === 3)).toBe(true);
+    expect(usage.every((u) => u.operationId === "op1" && u.attemptId === c.attemptIds[0])).toBe(true);
+    const persistedTurn = await getTurn("turn-" + s.id);
+    expect(persistedTurn?.attempts).toHaveLength(1);
+    expect(c.attemptIds.every((attemptId) => attemptId === persistedTurn?.attempts[0]?.id)).toBe(true);
+    expect(c.statuses.every((status) => status.attemptId === persistedTurn?.attempts[0]?.id)).toBe(true);
   });
 
   it("السؤال المخصص يُحفظ رسالة مستخدم promptKind=custom مرتبطة بالهدف", async () => {
     const s = await mkSession("custom");
-    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: "turn1", sharedPrompt: "مشترك", customs: { t1: "خاص" } } }), makeCb().cb);
+    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: `turn-${s.id}`, sharedPrompt: "مشترك", customs: { t1: "خاص" } } }), makeCb().cb);
     const all = await getMessages(s.id);
     const custom = all.find((m) => m.promptKind === "custom");
     expect(custom?.targetId).toBe("t1");
@@ -207,8 +559,16 @@ describe("sendTurn", () => {
     expect(await sink.exists(dir + "/turns/t01/00_shared-prompt.md")).toBe(true);
     const meta = JSON.parse(await sink.readFile(dir + "/meta.json"));
     expect(meta.turns).toHaveLength(1);
+    const persistedAttempt = (await getTurn("turn-" + s.id))?.attempts[0];
+    // Non-vacuous: the archive identity is only meaningful if the durable attempt was
+    // actually found, otherwise both sides could be undefined and the check would pass.
+    expect(persistedAttempt, "the archived turn must have a durable attempt record").toBeDefined();
+    expect(persistedAttempt?.operationId).toBe("op1");
+    expect(meta.turns[0].operationId).toBe("op1");
+    expect(meta.turns[0].attemptId).toBe(persistedAttempt?.id);
+    expect(meta.turns[0].attemptId).toEqual(expect.any(String));
     expect((await getSession(s.id))?.onDisk).toBe(true);
-    await sendTurn(baseArgs({ ...s, onDisk: true }, { turn: { id: "turn2", sharedPrompt: "سؤال ثانٍ", customs: {} } }), makeCb().cb);
+    await sendTurn(baseArgs({ ...s, onDisk: true }, { operationId: "op2-disk", turn: { id: `turn2-${s.id}`, sharedPrompt: "سؤال ثانٍ", customs: {} } }), makeCb().cb);
     const md2 = await sink.readFile(dir + "/session.md");
     expect((md2.match(/## تمرّة/g) || []).length).toBe(2);
     expect(JSON.parse(await sink.readFile(dir + "/meta.json")).turns).toHaveLength(2);
@@ -237,7 +597,7 @@ describe("sendTurn", () => {
   it("هدف بلا سؤال يُسقط مع onDropped والبقية تُرسل", async () => {
     const s = await mkSession("drop");
     const { c, cb } = makeCb();
-    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: "t", sharedPrompt: null, customs: { t1: "خاص فقط" } } }), cb);
+    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: `t-${s.id}`, sharedPrompt: null, customs: { t1: "خاص فقط" } } }), cb);
     expect(c.dropped).toEqual(["t2"]);
     const results = (await getMessages(s.id)).filter((m) => m.role === "assistant");
     expect(results.map((r) => r.targetId)).toEqual(["t1"]);
@@ -270,6 +630,76 @@ describe("sendTurn", () => {
     expect(t2.text).toBe("بداية");
     expect(t2.error).toBeUndefined();
     expect(msgs.find((m) => m.targetId === "t2")?.attemptId).toBe(t2.attemptId);
+  });
+
+  it("فشل حفظ السؤال الموحد بعد المحاولة يترك حالة طرفية صريحة", async () => {
+    appendHook.failPromptCount = 1;
+    setTransportFetch((() => sseResponse(["لا"]) ) as unknown as typeof fetch);
+    const s = await mkSession("prompt-fail");
+    const { c, cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb).catch(() => undefined);
+    const turn = await getTurn("turn-" + s.id);
+    expect(turn?.attempts[0]?.status, "a persisted attempt must never stay streaming after a setup failure").toBe("error");
+    expect((await getMessages(s.id)).some((m) => m.status === "streaming")).toBe(false);
+    expect(c.statuses.every((x) => x.status !== "streaming")).toBe(true);
+  });
+
+  it("فشل حفظ السؤال المخصص بعد المحاولة يترك حالة طرفية صريحة", async () => {
+    appendHook.failPromptCount = 1;
+    setTransportFetch((() => sseResponse(["لا"])) as unknown as typeof fetch);
+    const s = await mkSession("custom-fail");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, {
+      targets: [targets[0]],
+      syncMode: false,
+      turn: { id: "turn-" + s.id, sharedPrompt: "سؤال مشترك؟", customs: { t1: "سؤال مخصص" } },
+    }), cb).catch(() => undefined);
+    const turn = await getTurn("turn-" + s.id);
+    expect(turn?.attempts[0]?.status).toBe("error");
+    expect((await getMessages(s.id)).some((m) => m.status === "streaming")).toBe(false);
+  });
+
+  it("فشل حفظ بطاقة البث بعد المحاولة يترك حالة طرفية صريحة", async () => {
+    appendHook.failPlaceholderCount = 1;
+    setTransportFetch((() => sseResponse(["لا"])) as unknown as typeof fetch);
+    const s = await mkSession("placeholder-fail");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb).catch(() => undefined);
+    const turn = await getTurn("turn-" + s.id);
+    expect(turn?.attempts[0]?.status, "a placeholder failure must not strand a streaming attempt").toBe("error");
+    expect((await getMessages(s.id)).some((m) => m.status === "streaming")).toBe(false);
+  });
+
+  it("فشل تحديث حالة المحاولة عند الإيقاف يُبقي الصف متوقفًا وينبّه بحدود", async () => {
+    // The stopped primary row is accepted, but every attempt-status update fails.
+    // The terminal message must survive and the inconsistency must be reported.
+    attemptHook.failCount = 99;
+    let emitted = false;
+    const hang = (async (input: RequestInfo | URL) => {
+      await new Promise((r) => setTimeout(r, 0));
+      const head = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
+      if (String(input).includes("minimax")) {
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(head)); emitted = true; } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return sseResponse(["أهلاً"]);
+    }) as unknown as typeof fetch;
+    setTransportFetch(hang);
+    const s = await mkSession("cancel-attempt");
+    const ac = new AbortController();
+    const { c, cb } = makeCb();
+    const pending = sendTurn(baseArgs(s, { operationSignal: ac.signal, timeoutMs: 5000 }), cb);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(emitted).toBe(true);
+    ac.abort(new Error("ألغي بواسطة المستخدم"));
+    await pending;
+    const t2 = (await getMessages(s.id)).find((m) => m.targetId === "t2" && m.role === "assistant")!;
+    expect(t2.status, "the terminal primary row must survive a failed attempt update").toBe("stopped");
+    expect(t2.error).toBeUndefined();
+    expect(c.warnings).toContain("تعذر تحديث حالة المحاولة بعد الإيقاف");
+    // The failed attempt update must not be reported as success: the attempt record is
+    // still streaming, and the warning is the only bounded signal of that inconsistency.
+    const turn = await getTurn("turn-" + s.id);
+    expect(turn?.attempts.some((a) => a.status === "streaming")).toBe(true);
   });
 
   it("خطأ منتصف البث: يبث الجزء الواصل ثم يفشل النتيجة (تحصين المهمة 8-أ)", async () => {
@@ -307,7 +737,7 @@ describe("sendTurn", () => {
   it("onDropped يمرر operationId قبل الهويات المُسقَطة", async () => {
     const s = await mkSession("opdrop");
     const { c, cb } = makeCb();
-    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: "t", sharedPrompt: null, customs: { t1: "خاص فقط" } } }), cb);
+    await sendTurn(baseArgs(s, { syncMode: false, turn: { id: `t-${s.id}`, sharedPrompt: null, customs: { t1: "خاص فقط" } } }), cb);
     expect(c.dropped).toEqual(["t2"]);
     expect(c.droppedOps).toEqual(["op1"]);
   });
@@ -318,14 +748,14 @@ describe("sendTurn", () => {
     const history = (await getMessages(s.id)).filter((m) => m.sessionId === s.id);
     const f2 = sseMockFetch();
     setTransportFetch(f2);
-    const tt = { id: "turn2", sharedPrompt: "سؤال ثانٍ", customs: {} };
-    await sendTurn(baseArgs(s, { turn: tt, historyFor: () => history }), makeCb().cb);
+    const tt = { id: `turn2-${s.id}`, sharedPrompt: "سؤال ثانٍ", customs: {} };
+    await sendTurn(baseArgs(s, { operationId: "op2-context", turn: tt, historyFor: () => history }), makeCb().cb);
     const body2 = f2.calls[0]?.body ?? "";
     expect(body2).toContain("سؤال مشترك؟");
     expect(body2).toContain("سؤال ثانٍ");
     const f3 = sseMockFetch();
     setTransportFetch(f3);
-    await sendTurn(baseArgs(s, { turn: { id: "turn3", sharedPrompt: "سؤال ثالث", customs: {} }, contextMode: "stateless" }), makeCb().cb);
+    await sendTurn(baseArgs(s, { operationId: "op3-context", turn: { id: `turn3-${s.id}`, sharedPrompt: "سؤال ثالث", customs: {} }, contextMode: "stateless" }), makeCb().cb);
     const body3 = f3.calls[0]?.body ?? "";
     expect(body3).toContain("سؤال ثالث");
     expect(body3).not.toContain("سؤال مشترك؟");
@@ -336,8 +766,9 @@ describe("sendTurn", () => {
     const s = await mkSession("retry");
     const one = [targets[0]];
     const first = await sendTurn(baseArgs(s, { targets: one }), makeCb().cb);
-    const reused = await sendTurn(baseArgs(s, { targets: one, assistantIds: { t1: first[0].id } }), makeCb().cb);
+    const reused = await sendTurn(baseArgs(s, { operationId: "op2-retry", targets: one, assistantIds: { t1: first[0].id }, assistantCreatedAts: { t1: first[0].createdAt } }), makeCb().cb);
     expect(reused[0].id).toBe(first[0].id);
+    expect(reused[0].createdAt).toBe(first[0].createdAt);
     const results = (await getMessages(s.id)).filter((m) => m.role === "assistant");
     expect(results).toHaveLength(1);
     expect(results[0].text).toBe("أهلاً");
@@ -358,7 +789,7 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     expect(usage.every((u) => u.attemptId === [...ids][0])).toBe(true);
   });
 
-  it("يصرّف نقاط الحفظ المسجلة قبل الإغلاق قبل الصف النهائي", async () => {
+  it("لا يصرّف نقطة حفظ موضوعة في الطابور بعد الإلغاء", async () => {
     let release!: () => void;
     const holdGate = new Promise<void>((resolve) => { release = resolve; });
     let started!: () => void;
@@ -383,7 +814,7 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     ac.abort(new Error("ألغي بواسطة المستخدم"));
     release();
     await pending;
-    expect(appendHook.streamingCalls).toBe(3);
+    expect(appendHook.streamingCalls).toBe(2);
     const row = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
     expect(row.status).toBe("stopped");
     expect(row.text).toBe("بداية" + "x".repeat(600) + "y".repeat(600));
@@ -511,6 +942,19 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     expect(archived.results.every((r: { text: string }) => r.text === "نص نهائي")).toBe(true);
   });
 
+  it("يعيد محاولة حفظ النتيجة الأساسية العابرة ثم يبقي المسار والثراثات متسقة", async () => {
+    appendHook.failFinalOnce = true;
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    const s = await mkSession("transient-final", { onDiskDir: "transient-final" });
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    const row = (await getMessages(s.id)).find((m) => m.role === "assistant");
+    expect(row).toMatchObject({ status: "done", text: "أهلاً" });
+    expect(usageHook.calls).toBe(1);
+    expect(sink.tree().some((path) => path.startsWith("sessions/transient-final/turns/"))).toBe(true);
+  });
+
   it("عزل ثراث الاستهلاك: فشل recordUsage لا يمحو الصف الأساسي ولا يرفض الإرسال ويضيف تحذيرًا", async () => {
     usageHook.failUsage = true;
     const s = await mkSession("usagefail");
@@ -522,6 +966,15 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     expect(row.text).toBe("أهلاً");
     expect(row.sidecarWarning).toBeTruthy();
     expect(msgs[0].text).toBe("أهلاً");
+  });
+
+  it("يسقط إلى onWarning إذا فشل حفظ صف تحذير sidecar نفسه", async () => {
+    usageHook.failUsage = true;
+    appendHook.failWarning = true;
+    const s = await mkSession("warning-fallback");
+    const { c, cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    expect(c.warnings.some((warning) => warning.includes("تعذر حفظ"))).toBe(true);
   });
 
   it("عزل ثراث الأرشفة: فشل كتابة الملفات لا يمحو الصف الأساسي ويضيف تحذيرًا جانبيًا", async () => {
@@ -578,12 +1031,21 @@ describe("المهمة 5 — تنظيف نقاط الحفظ وقرض رفض ال
     const s = await mkSession("ckptobs");
     const ac = new AbortController();
     const { cb } = makeCb();
-    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], externalSignalFor: () => ac.signal }), cb);
-    await new Promise((r) => setTimeout(r, 120));
+    dispatchHook.rejectAfterDispatch = true;
+    let checkpointWritten!: () => void;
+    const checkpointCommitted = new Promise<void>((resolve) => { checkpointWritten = resolve; });
+    appendHook.onCheckpoint = checkpointWritten;
+    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], operationSignal: ac.signal, externalSignalFor: () => ac.signal }), cb);
+    await checkpointCommitted;
+    appendHook.onCheckpoint = null;
     const mid = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
     // نقطة الحفظ المرصودة: نفس معرف الرسالة، نص جزئي محفوظ(case للتدفق جزئي قبل الحسم)
     expect([mid.status, mid.text.includes("بداية")]).toEqual(["streaming", true]);
     ac.abort(new Error("ألغي بواسطة المستخدم"));
     await pending;
+    const final = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(final.status).toBe("stopped");
+    expect(final.text).toContain("بداية");
+    expect(final.text).toContain("x".repeat(600));
   }, 10000);
 });

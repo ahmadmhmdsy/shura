@@ -33,6 +33,9 @@ export function emptyComposerDraft(): ComposerDraft {
   return { targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null };
 }
 
+/** Stable read-only fallback for selectors; getDraft intentionally keeps its historical fresh-object API. */
+export const EMPTY_COMPOSER_DRAFT: ComposerDraft = emptyComposerDraft();
+
 function withoutKey(record: Record<string, string>, key: string): Record<string, string> {
   const { [key]: _drop, ...rest } = record;
   void _drop;

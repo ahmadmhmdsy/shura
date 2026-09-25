@@ -43,7 +43,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   kind: "prompt" | "result" | "synthesis";
   text: string;
-  providerId?: ProviderId; modelId?: string; targetId?: string;
+  providerId?: ProviderId; modelId?: string; targetId?: string; modelInfo?: ModelInfo;
   promptKind?: PromptKind;
   status: MessageStatus; error?: string; usage?: Usage;
   /** [المهمة 5] تحذير ثراث جانبي غير نهائي: فشل الاستهلاك/الأرشفة لا يمس النص ولا الحالة */
@@ -63,6 +63,7 @@ export interface UsageEvent {
   costUSD: number | null; toolCalls: number; durationMs: number; status: "ok" | "error";
   /** اختياري للصفوف القديمة فقط؛ كل حدث جديد يملؤه */
   attemptId?: string;
+  operationId?: string;
 }
 
 export interface Turn { id: string; sharedPrompt: string | null; customs: Record<string, string>; }
@@ -93,7 +94,24 @@ export interface TurnAttempt {
   kind: "send" | "retry" | "summary";
   createdAt: number;
   status: TurnStatus;
+  operationId?: string;
+  superseded?: boolean;
+  /**
+   * Explicit durable association to the pre-identity message this attempt was
+   * backfilled from. A legacy row has no operationId/attemptId of its own, so the
+   * link must be recorded by the backfill itself instead of being guessed later.
+   */
+  sourceMessageId?: string;
   targets: TargetSnapshot[];
+}
+
+export interface OperationLease {
+  sessionId: string;
+  operationId: string;
+  turnId: string;
+  generation: number;
+  status: "active" | "finished" | "cancelled";
+  updatedAt: number;
 }
 
 export interface TurnRecord {

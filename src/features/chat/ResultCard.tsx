@@ -23,10 +23,13 @@ async function copyText(text: string): Promise<void> {
 
 export interface ResultCardProps {
   msg: ChatMessage; customPrompt: string | null; horizontal: boolean;
-  onStop(targetId: string): void; onRetry(targetId: string): void;
+  onStop(message: ChatMessage): void; onRetry(message: ChatMessage): void;
+  disabled?: boolean;
+  stopDisabled?: boolean | ((message: ChatMessage) => boolean);
 }
 
-export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry }: ResultCardProps) {
+export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, disabled = false, stopDisabled = false }: ResultCardProps) {
+  const cardStopDisabled = typeof stopDisabled === "function" ? stopDisabled(msg) : stopDisabled;
   const [openCustom, setOpenCustom] = useState(false);
   const label = msg.providerId ? PROVIDERS[msg.providerId].label : "—";
   const usage = msg.usage;
@@ -38,8 +41,8 @@ export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry }: R
         <div className="flex-1" />
         <Button size="icon" variant="ghost" aria-label="نسخ" onClick={() => { void copyText(msg.text); }}><Copy className="size-3.5" /></Button>
         {msg.status === "streaming"
-          ? <Button size="icon" variant="ghost" aria-label={ar.stop} onClick={() => onStop(msg.targetId!)}><Square className="size-3.5" /></Button>
-          : <Button size="icon" variant="ghost" aria-label="إعادة" onClick={() => onRetry(msg.targetId!)}><RotateCcw className="size-3.5" /></Button>}
+          ? <Button size="icon" variant="ghost" aria-label={ar.stop} disabled={cardStopDisabled} onClick={() => onStop(msg)}><Square className="size-3.5" /></Button>
+          : <Button size="icon" variant="ghost" aria-label="إعادة" disabled={disabled} onClick={() => onRetry(msg)}><RotateCcw className="size-3.5" /></Button>}
       </div>
       {customPrompt && (
         <div className="border-b border-sura-border px-3 py-1.5">
