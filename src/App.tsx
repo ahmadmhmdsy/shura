@@ -6,6 +6,7 @@ import { ChatScreen } from "@/features/chat/ChatScreen";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { Button } from "@/components/ui/button";
 import { ar } from "@/i18n/ar";
+import { StatusAnnouncer } from "@/features/chat/StatusAnnouncer";
 
 // The intended dark theme must be on the root element before the first paint, not
 // applied after React mounts.
@@ -50,6 +51,8 @@ export default function App() {
           ? <ChatScreen key={currentSession.id} session={currentSession} />
           : <div className="flex-1 grid place-items-center text-sura-muted p-4 text-center">{ar.newSession + " ← من السايدبار"}</div>}
       </main>
+
+      <StatusAnnouncer />
 
       {showSettings && <SettingsScreen onClose={() => setShowSettings(false)} />}
     </div>
