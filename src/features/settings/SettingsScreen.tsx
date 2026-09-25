@@ -24,18 +24,17 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   const selectProvider = (next: ProviderId) => { setPSel(next); setMSel(""); };
   const invalidPrimary = primaryTarget != null && !PROVIDERS[primaryTarget.providerId]?.staticModels.some((m) => m.id === primaryTarget.modelId);
   const [timeoutDraft, setTimeoutDraft] = useState<string | null>(null);
-  // Radix restores focus only when it can still see the trigger; capturing the opener
-  // here makes focus restoration deterministic for any trigger.
+  // The opener must be captured during render, not in an effect: Radix focuses the dialog
+  // content in a mount effect, so by the time a useEffect runs the active element is
+  // already inside the dialog and focus would return to body instead of the trigger.
   const openerRef = useRef<Element | null>(null);
-  useEffect(() => {
-    openerRef.current = document.activeElement;
-    return () => (openerRef.current as HTMLElement | null)?.focus();
-  }, []);
+  if (openerRef.current === null) openerRef.current = document.activeElement;
+  useEffect(() => () => (openerRef.current as HTMLElement | null)?.focus(), []);
 
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" dir="rtl">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" dir="rtl" closeLabel="إغلاق">
         <DialogHeader>
           <DialogTitle>{ar.settings}</DialogTitle>
           <DialogDescription className="sr-only">إعدادات المزودين والنموذج الأساسي والمجلد والمهلة</DialogDescription>
