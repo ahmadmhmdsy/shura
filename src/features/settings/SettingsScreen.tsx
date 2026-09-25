@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useComposerStore } from "@/state/composerStore";
@@ -23,11 +24,22 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   const selectProvider = (next: ProviderId) => { setPSel(next); setMSel(""); };
   const invalidPrimary = primaryTarget != null && !PROVIDERS[primaryTarget.providerId]?.staticModels.some((m) => m.id === primaryTarget.modelId);
   const [timeoutDraft, setTimeoutDraft] = useState<string | null>(null);
+  // Radix restores focus only when it can still see the trigger; capturing the opener
+  // here makes focus restoration deterministic for any trigger.
+  const openerRef = useRef<Element | null>(null);
+  useEffect(() => {
+    openerRef.current = document.activeElement;
+    return () => (openerRef.current as HTMLElement | null)?.focus();
+  }, []);
+
 
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-center p-4" onClick={onClose}>
-      <div className="bg-sura-panel border border-sura-border rounded-xl p-4 w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-4" onClick={(e) => e.stopPropagation()} dir="rtl">
-        <h2 className="text-lg font-semibold">{ar.settings}</h2>
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" dir="rtl">
+        <DialogHeader>
+          <DialogTitle>{ar.settings}</DialogTitle>
+          <DialogDescription className="sr-only">إعدادات المزودين والنموذج الأساسي والمجلد والمهلة</DialogDescription>
+        </DialogHeader>
         <section className="space-y-2">{listProviderIds().map((id) => <ProviderKeyCard key={id} id={id} />)}</section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.primaryModel}</h3>
@@ -68,7 +80,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
         <div className="flex justify-end gap-2 border-t border-sura-border pt-3">
           <Button size="sm" onClick={() => { void load(); onClose(); }}>تم</Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
