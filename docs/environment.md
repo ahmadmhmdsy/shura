@@ -86,3 +86,90 @@
 
 - التحذيرات القديمة المعلومة بلا مساس صحيح: `act(...)` في `ChatScreen.spec.tsx` (موثقة منذ المهمة 13)، وتحذيرا Vite (`configLoader: 'native'`/`__dirname`، وحجم chunk أكبر من 500kB) — لم يزد شيء.
 - بلا شبكة في الاختبارات؛ `git status` نظيف قبل كتابة وثائق هذه المهمة.
+
+## 8. بوابة الإصدار (المهمة 11) — ما هي وما نتيجتها
+
+أوامر البوابة المضافة في `package.json`:
+
+| الأمر | ما يفعله |
+|---|---|
+| `pnpm typecheck` | `tsc --noEmit` ثم `tsc --noEmit -p tsconfig.node.json` (المشروع الثاني يشمل `vite.config.ts` و`playwright.config.ts` و`e2e/**`) |
+| `pnpm lint` | `eslint .` على الشيفرة فقط (dist و coverage و test-results مستثناة) |
+| `pnpm test:coverage` | Vitest + تغطية v8 بعتبة 80/75/80/80 |
+| `pnpm build` | فحص الأنواع ثم `vite build` |
+| `pnpm check:all` | typecheck + lint + coverage + build |
+| `pnpm test:e2e` | Playwright (Chromium) على بناء الإنتاج عبر منفذ preview ثابت 4317 |
+| `pnpm tauri:build:windows` | `pnpm tauri build --bundles nsis` |
+
+**أدوات البوابة المثبتة:** `@playwright/test` 1.63.0، `@axe-core/playwright` 4.13.0،
+`@vitest/coverage-v8` 5.0.1، `@types/node` 26.6.2. متصفح Chromium (playwright v1243 /
+Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-playwright` فلم يحتج تحميلًا جديدًا.
+
+**نتائج مقيسة فعلًا على هذا الجهاز:**
+
+| الفحص | الأمر | النتيجة |
+|---|---|---|
+| تثبيت بقفل مجمّد | `pnpm install --frozen-lockfile` | PASS (exit 0) |
+| البوابة الكاملة | `pnpm check:all` | PASS (exit 0) |
+| تغطية | ضمن `check:all` | 44 ملفًا / 502 اختبارًا — 87.11% statements، 80.96% branches، 85.42% functions، 92.31% lines (العتبة 80/75/80/80 لم تُخفَّض) |
+| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية 1,195.17 kB (gzip 344.67 kB) |
+| متصفح | `pnpm test:e2e` | PASS — 12/12 خلال 25.0s، بمزوّد وهمي داخل الصفحة |
+| تدقيق JS | `pnpm audit --json` | PASS — صفر ثغرة (0 info/low/moderate/high/critical)، exit 0 |
+| تنسيق Rust | `cargo fmt --check --manifest-path src-tauri/Cargo.toml` | PASS (exit 0) |
+| فحص Rust | `cargo check --locked --manifest-path src-tauri/Cargo.toml` | PASS (exit 0) |
+| اختبارات Rust | `cargo test --locked --manifest-path src-tauri/Cargo.toml` | PASS — 11 اختبارًا (path_policy + credentials)، صفر فاشل |
+
+### ميزانية الحزمة (الحد 1200 kB)
+
+| الملف | الحجم | gzip |
+|---|---|---|
+| `dist/assets/index-*.js` (الحزمة الأساسية) | **1,195.17 kB** | 344.67 kB |
+| `dist/assets/index-*.css` | 41.22 kB | 7.83 kB |
+| `dist/assets/credentialStore-*.js` | 2.07 kB | 0.98 kB |
+| `dist/assets/dist-js-*.js` | 1.87 kB | 0.85 kB |
+| `dist/index.html` | 0.40 kB | 0.28 kB |
+
+**تحذير صادق:** الهامش بين الحزمة الأساسية والحدّ 1,200 kB هو **نحو 4.8 kB فقط** (0.4%).
+أي إضافة صغيرة تكسر الحدّ. هذه حالة «تمرّ لكنها هشّة» لا «مريحة»، والتوصية: قبل أي إضافة
+إمّا تُقسَّم الحزمة (فصل حزمة `ai` والمزوّدين) أو يُرفع الحدّ بقرار موثّق — ولا يُرفع الحدّ
+لمجرد تجاوز الفشل.
+
+تحذيرات Vite المعروفة بلا أثر: `INEFFECTIVE_DYNAMIC_IMPORT` (استيراد ديناميكي لا ينقل وحدة
+لأنها مستوردة ساكنًا في مكان آخر) — تظهر لكل من `src/lib/db/db.ts` و`@tauri-apps/api/core.js`.
+
+## 9. وصف تنفيذ اختبار المتصفح (E2E) — لا مفتاح ولا شبكة
+
+- `playwright.config.ts` يشغّل **بناء الإنتاج** (`vite preview` على `127.0.0.1:4317` بمنفذ
+  ثابت `--strictPort`) لا خادم التطوير، ويرفض التشغيل إن لم يكن `dist/index.html` موجودًا.
+- `e2e/mock-provider.ts` يثبّت قبل تنفيذ أي كود للتطبيق دالة تعترض `window.fetch` لأصول المزودين
+  الأربعة (OpenRouter، Gemini، MiniMax، OpenCode Go) وتعيد بثّ SSE ثابتًا، وتسجّل جسم كل طلب.
+  لا مفتاح حقيقي ولا حساب ولا إنفاق: ما في الاختبار سلسلة وهمية قصيرة.
+- شبكة أمان ثانية: `page.route("**/*")` يمرّر طلبات `127.0.0.1:4317` فقط، ويسجّل ويُلغي أي
+  طلب لعنوان خارجي. اختبار «لا يخرج أي طلب من الجهاز» يقرأ هذا السجل مباشرة.
+- 12 سيناريو: عزل المسودة بين جلستين، إيقاف جزئي ينجو من إعادة التحميل، إعادة محاولة بسؤال
+  مخصص تاريخي لا بمسودة الحالية، إرسال stateful يحمل السجل، الإعدادات بمفتاح وDialog
+  (Escape واستعادة التركيز)، تنقّل بلوحة المفاتيح، 390px بلا تمرير أفقي، حجب موارد Markdown
+  البعيدة، عدم عودة جلسة محذوفة، غياب المفتاح من سجل الإعدادات المحفوظ، تدقيق axe، وغياب أي
+  طلب خارجي.
+
+## 10. عيوب حقيقية كشفتها بوابة الإصدار (وأُصلحت)
+
+1. **سؤال المستخدم كان يختفي من المحادثة بعد وصول الرد**، وأي إرسال تالٍ في الجلسة نفسها كان
+   يذهب **بلا سياق إطلاقًا** رغم أن الوضع stateful. السبب: `onAppended` في `ChatScreen.tsx` كان
+   ينشر الصفوف المعتمدة على أنها بطاقات مساعد فقط، فصفّ سؤال المستخدم كان يُكتب في IndexedDB
+   ولا يصل إلى المخزن الحي. الإصلاح: نشر صفّ المستخدم أيضًا. **لم تكشفه اختبارات الوحدة**
+   لأنها كانت تهيّئ مخزن الحالة بالصفوف مسبقًا.
+2. **نصّ إجابة مرئي كان يُمحى عند الإيقاف السريع.** المسار `finalizeCancelled` في
+   `chatController.ts` كان يكتب آخر نقطة حفظ (دورة كل 250ms) فينحسر النص المتراكم خلال تلك
+   النافذة. الإصلاح: الكتابة من النص المتراكم. ومسار النجاح يكتب المتراكم منذ الأصل.
+3. **ثلاثة حقول بلا اسم ميسَّر في شاشة الإعدادات** (قائمة اختيار الموديل، حقل المهلة، حقل
+   المجلد) — كشفها axe في متصفح حقيقي. الإصلاح: `aria-label` لكل منها.
+4. **`pnpm lint` كان يفشل في HEAD** بخطأ `no-unused-vars` في `startupRecovery.spec.ts`، وكان
+   `eslint .` يمرّ على مخرجات `coverage/` المولّدة. الإصلاح: سطر واحد في الاختبار + إضافة
+   `coverage` إلى قائمة الاستثناءات في `eslint.config.js`.
+
+## 11. حالة بناء NSIS على هذا الجهاز
+
+نتيجة تنفيذ `pnpm tauri:build:windows` موثّقة في
+`.superpowers/sdd/hardening-task-11-report.md` (المهمة 11) و
+`.superpowers/sdd/hardening-task-12-report.md` (المهمة 12).
