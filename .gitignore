@@ -5,3 +5,10 @@ src-tauri/target/
 .env
 *.local
 DS_Store
+
+# Local scratch and build pollution. The %SystemDrive% tree is copied Windows cache
+# data left behind by a build step, not project content; it must never be committed.
+review-artifacts/
+report.tmp
+docs/reviews/
+%SystemDrive%/
