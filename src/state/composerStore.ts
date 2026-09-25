@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { TargetConfig } from "@/types";
 import { newId } from "@/lib/id";
+import { LIMITS } from "@/lib/limits";
 
 /** مسودة المؤلف كاملة لجلسة واحدة: كل أعمدتها افتراضية فلا تجويف لأشكال ناقصة (عقد المرجع حرفيًا). */
 export interface ComposerDraft {
@@ -69,12 +70,12 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
     });
   },
   setShared(sessionId, text) {
-    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), sharedPrompt: text } } }));
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), sharedPrompt: text.slice(0, LIMITS.sharedPromptMax) } } }));
   },
   setCustom(sessionId, targetId, text) {
     set((s) => ({ drafts: { ...s.drafts, [sessionId]: {
       ...(s.drafts[sessionId] ?? emptyComposerDraft()),
-      customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: text },
+      customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: text.slice(0, LIMITS.customPromptMax) },
     } } }));
   },
   setSyncMode(sessionId, value) {

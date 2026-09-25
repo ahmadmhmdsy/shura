@@ -1,6 +1,7 @@
 import type { FileSink } from "./sink";
 import { quarantineDirOf, readDiskTombstones, RESERVED_ARCHIVE_DIRS } from "./archivePaths";
 import { redactExternalError } from "@/lib/security/redact";
+import { LIMITS } from "@/lib/limits";
 import { buildRecoveredUsageEvent } from "./recoveryUsage";
 import { ArchiveValidationError, readArchiveManifest, renderSessionMarkdown, type ArchiveManifest, type ArchiveTurn } from "./writer";
 import type { ChatMessage, ContextMode, ProviderId, SessionMeta, TurnAttempt, TurnRecord, TurnStatus, UsageEvent } from "@/types";
@@ -271,6 +272,12 @@ export async function recoverFromDisk(sink: FileSink, rootDir: string, options: 
     let restored: RestoredSession;
     let manifest: ArchiveManifest;
     try {
+      // A folder past the hard archive ceiling is quarantined rather than parsed, so a
+      // runaway or hostile file cannot exhaust memory during recovery.
+      const manifestBytes = await sink.readFile(dir + "/meta.json");
+      if (manifestBytes.length > LIMITS.archiveMaxChars) {
+        throw new Error("حجم الأرشيف يتجاوز الحد المسموح");
+      }
       manifest = (await readArchiveManifest(sink, dir))!;
       restored = await importSessionFromDisk(sink, dir);
     } catch (error) {

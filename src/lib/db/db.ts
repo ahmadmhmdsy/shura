@@ -9,6 +9,8 @@ export class ShuraDB extends Dexie {
   turns!: Dexie.Table<TurnRecord, string>;
   tombstones!: Dexie.Table<SessionTombstone, string>;
   operation_leases!: Dexie.Table<OperationLease, string>;
+  // [المهمة 9] مفاتيح المزودين مشفّرة على الويب؛ لا تُخزَّن إلا الشيفرة و‎IV.
+  credentials!: Dexie.Table<{ providerId: string; iv: string; ciphertext: ArrayBuffer }, string>;
 
   // The optional name is only for isolated migration tests; production uses "shura".
   constructor(name = "shura") {
@@ -49,6 +51,7 @@ export class ShuraDB extends Dexie {
       turns: "id, sessionId, createdAt, status",
       tombstones: "id, deletedAt",
       operation_leases: "sessionId, operationId, status, updatedAt",
+      credentials: "providerId",
     });
   }
 }
