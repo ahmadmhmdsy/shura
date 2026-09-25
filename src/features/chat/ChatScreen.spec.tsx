@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
 import { useSessionsStore } from "@/state/sessionsStore";
@@ -13,7 +13,16 @@ import type { TargetConfig, ChatMessage, SessionMeta } from "@/types";
 
 // خطاف أخطاء داخلية معتمد للاختبارات: appendMessage الحقيقي يمرّ عبره دائمًا،
 // ويمكن للاختبار أن يجعل النداء رقم N يفشل لمحاكاة خطأ طبقة تخزين داخلية.
-const reposHook = vi.hoisted(() => ({ appendCalls: 0, failOnCall: 0 }));
+const reposHook = vi.hoisted(() => ({
+  appendCalls: 0,
+  streamingCalls: 0,
+  failOnCall: 0,
+  holdOnCall: 0,
+  holdGate: null as Promise<void> | null,
+  holdFinalSummary: false,
+  failFinalSummary: false,
+  onHoldStart: null as (() => void) | null,
+}));
 vi.mock("@/lib/db/repos", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/db/repos")>();
   const realAppend = actual.appendMessage;
@@ -21,8 +30,42 @@ vi.mock("@/lib/db/repos", async (importOriginal) => {
     ...actual,
     appendMessage: async (msg: ChatMessage) => {
       reposHook.appendCalls += 1;
-      if (reposHook.failOnCall > 0 && reposHook.appendCalls === reposHook.failOnCall) throw new Error("فشل تخزين داخلي");
+      if (msg.status === "streaming") reposHook.streamingCalls += 1;
+      const holdFinalSummary = reposHook.holdFinalSummary && msg.kind === "synthesis" && msg.status !== "streaming";
+      if (reposHook.holdOnCall > 0 && reposHook.appendCalls === reposHook.holdOnCall && reposHook.holdGate) {
+        reposHook.onHoldStart?.();
+        await reposHook.holdGate;
+      } else if (holdFinalSummary && reposHook.holdGate) {
+        reposHook.holdFinalSummary = false;
+        reposHook.onHoldStart?.();
+        await reposHook.holdGate;
+      }
+      const failFinalSummary = reposHook.failFinalSummary && msg.kind === "synthesis" && msg.status !== "streaming";
+      if (failFinalSummary) reposHook.failFinalSummary = false;
+      if ((reposHook.failOnCall > 0 && reposHook.appendCalls === reposHook.failOnCall) || failFinalSummary) throw new Error("فشل تخزين داخلي");
       return realAppend(msg);
+    },
+  };
+});
+
+const summaryDispatchHook = vi.hoisted(() => ({
+  forceStatus: null as "done" | "stopped" | "error" | null,
+  forceError: undefined as string | undefined,
+}));
+vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chat/dispatch")>();
+  return {
+    ...actual,
+    dispatchTurn: async (args: Parameters<typeof actual.dispatchTurn>[0]) => {
+      const outcomes = await actual.dispatchTurn(args);
+      if (summaryDispatchHook.forceStatus === null) return outcomes;
+      const [head, ...tail] = outcomes;
+      if (!head) return outcomes;
+      return [{
+        ...head,
+        status: summaryDispatchHook.forceStatus,
+        ...(summaryDispatchHook.forceError === undefined ? {} : { error: summaryDispatchHook.forceError }),
+      }, ...tail];
     },
   };
 });
@@ -58,7 +101,31 @@ function doneTurn(session: SessionMeta): ChatMessage[] {
   ];
 }
 
-beforeEach(() => { setTransportFetch(sseMockFetch()); reposHook.appendCalls = 0; reposHook.failOnCall = 0; });
+const realPatchMessage = useSessionsStore.getState().patchMessage;
+
+beforeEach(() => {
+  // A thrown patch mock can be copied into a later Zustand state object; restore the real
+  // observer before each test so the persistence regressions do not leak across cases.
+  useSessionsStore.setState({ patchMessage: realPatchMessage });
+  // Reset the module-global sink between tests without changing production APIs.
+  setFileSink(null as unknown as FileSink);
+  setTransportFetch(sseMockFetch());
+  reposHook.appendCalls = 0;
+  reposHook.streamingCalls = 0;
+  reposHook.failOnCall = 0;
+  reposHook.holdOnCall = 0;
+  reposHook.holdGate = null;
+  reposHook.holdFinalSummary = false;
+  reposHook.failFinalSummary = false;
+  reposHook.onHoldStart = null;
+  summaryDispatchHook.forceStatus = null;
+  summaryDispatchHook.forceError = undefined;
+});
+
+afterEach(() => {
+  setFileSink(null as unknown as FileSink);
+  vi.restoreAllMocks();
+});
 
 describe("ChatScreen — التوصيل الحي", () => {
   it("الإرسال يبث حيًا: السؤال يظهر وبطاقتان بالنص النهائي", async () => {
@@ -200,14 +267,96 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    // ترتيب النداءات: رسالة البدء، رسالة البدء للبطاقة، ثم الثبات النهائي — الفشل في الثالث
-    // يحاكي خطأ طبقة تخزين داخليًا بعد اكتمال البث؛ يجب أن تنهي البطاقة حالتها بخطأ ظاهر
-    reposHook.failOnCall = 3;
+    // الفشل يقتصر على صف الخلاصة النهائي، لا نقطة حفظ المؤقتة.
+    reposHook.failFinalSummary = true;
     render(<ChatScreen session={s} />);
     fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
     expect(await screen.findByText("فشل تخزين داخلي", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.queryByText("يكتب…")).not.toBeInTheDocument();
     await waitFor(async () => expect((await getMessages(s.id)).find((m) => m.kind === "synthesis")?.status).toBe("error"), { timeout: 3000 });
+  });
+
+  it("فشل حفظ الخلاصة بعد تبديل الجلسة يثبت الخطأ النهائي في الجلسة الأصلية بهويتي المحاولة والعملية", async () => {
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    reposHook.holdFinalSummary = true;
+    reposHook.failFinalSummary = true;
+    reposHook.holdGate = holdGate;
+    reposHook.onHoldStart = held;
+    setTransportFetch((() => sseResponse(["نص جزئي محفوظ"])) as unknown as typeof fetch);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: seededTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await heldPromise;
+    const other = await mkSession();
+    useSessionsStore.setState((state) => ({ sessions: [...state.sessions, other], currentId: other.id }));
+    release();
+    await waitFor(async () => {
+      const rows = await getMessages(s.id);
+      const synth = rows.find((m) => m.kind === "synthesis");
+      const prompt = rows.find((m) => m.kind === "prompt" && m.text === "طلب خلاصة من النموذج الأساسي");
+      expect(synth?.status).toBe("error");
+      expect(synth?.text).toBe("نص جزئي محفوظ");
+      expect(synth?.error).toBe("فشل تخزين داخلي");
+      expect(synth?.attemptId).toBe(prompt?.attemptId);
+      expect(synth?.operationId).toBe(prompt?.operationId);
+      expect(synth?.usage).toBeTruthy();
+      expect(synth?.attemptId).toBeTruthy();
+      expect(synth?.operationId).toBeTruthy();
+    }, { timeout: 3000 });
+  });
+
+  it("تبديل الجلسة أثناء البث لا يقطع تجميع النص الأصلي ولا يفقد أرشيف خطأ الكتابة النهائية", async () => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    let release!: () => void;
+    const releaseGate = new Promise<void>((resolve) => { release = resolve; });
+    const chunk = (value: string) => new TextEncoder().encode("data: " + JSON.stringify({ choices: [{ delta: { content: value } }] }) + "\n\n");
+    setTransportFetch((() => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(chunk("قبل"));
+        void releaseGate.then(() => {
+          controller.enqueue(chunk("بعد"));
+          controller.close();
+        });
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch);
+    reposHook.failFinalSummary = true;
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await vi.waitFor(() => {
+      const synth = useSessionsStore.getState().messages.find((m) => m.kind === "synthesis");
+      expect(synth?.text).toBe("قبل");
+    }, { timeout: 3000 });
+    const other = await mkSession();
+    useSessionsStore.setState((state) => ({ sessions: [...state.sessions, other], currentId: other.id }));
+    release();
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("error");
+      expect(synth?.text).toBe("قبلبعد");
+    }, { timeout: 3000 });
+    await waitFor(async () => expect((await getSession(s.id))?.onDiskDir).toBeTruthy(), { timeout: 3000 });
+    const dir = "sessions/" + (await getSession(s.id))?.onDiskDir;
+    await waitFor(async () => expect(await sink.exists(dir + "/meta.json")).toBe(true), { timeout: 3000 });
+    const sessionMd = await sink.readFile(dir + "/session.md");
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_synthesis__primary.md");
+    const archived = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    const archivedResult = archived.turns[0].results[0];
+    expect(sessionMd).toContain("قبلبعد");
+    expect(resultFile).toContain("قبلبعد");
+    expect(archived.turns[0].results[0].text).toBe("قبلبعد");
+    expect(archived.turns[0].status[archivedResult.targetId]).toBe("error");
+    expect(archived.turns[0].errors[archivedResult.targetId]).toBe("فشل تخزين داخلي");
+    expect(sessionMd).toContain("⛔ فشل تخزين داخلي");
+    expect(resultFile).toContain("⛔ فشل تخزين داخلي");
   });
 
   it("الخلاصة الناجحة تُؤرشف على القرص: تمريرة synthesis في session.md وturns لا Dexie وحده", async () => {
@@ -240,18 +389,40 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(metaJson.turns[0].status[result0.targetId]).toBe("done");
   });
 
-  it("فشل الخلاصة لا يُؤرشف على القرص (قرار: الفشل لا يُؤرشف)", async () => {
+  it.each([
+    { status: "error" as const, error: "خطأ الأرشفة التجريبي" },
+    { status: "stopped" as const, error: undefined },
+  ])("نتيجة الخلاصة $status تُؤرشف بنصها وحالتها وخطئها الدقيق", async ({ status, error }) => {
     const sink = memoryFileSink();
     setFileSink(sink);
+    summaryDispatchHook.forceStatus = status;
+    summaryDispatchHook.forceError = error;
+    setTransportFetch((() => sseResponse(["نص الأرشفة الدقيق"])) as unknown as typeof fetch);
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    setTransportFetch(((input: RequestInfo | URL, init?: RequestInit) => { void input; void init; return new Response("{}", { status: 401 }); }) as unknown as typeof fetch);
     render(<ChatScreen session={s} />);
     fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
-    expect(await screen.findByText(/مفتاح غير صالح/, {}, { timeout: 3000 })).toBeInTheDocument();
-    expect((await getSession(s.id))?.onDiskDir ?? null).toBeFalsy();
-    expect(sink.tree().some((t) => t.startsWith("sessions/"))).toBe(false);
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe(status);
+    }, { timeout: 3000 });
+    await waitFor(async () => expect((await getSession(s.id))?.onDiskDir).toBeTruthy(), { timeout: 3000 });
+    const dir = "sessions/" + (await getSession(s.id))?.onDiskDir;
+    await waitFor(async () => expect(await sink.exists(dir + "/meta.json")).toBe(true), { timeout: 3000 });
+    const sessionMd = await sink.readFile(dir + "/session.md");
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_synthesis__primary.md");
+    const metaJson = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    const archived = metaJson.turns[0];
+    expect(sessionMd).toContain("نص الأرشفة الدقيق");
+    expect(resultFile).toContain("نص الأرشفة الدقيق");
+    expect(archived.results[0].text).toBe("نص الأرشفة الدقيق");
+    expect(archived.status[archived.results[0].targetId]).toBe(status);
+    expect(archived.errors[archived.results[0].targetId]).toBe(error);
+    if (error) {
+      expect(sessionMd).toContain("⛔ " + error);
+      expect(resultFile).toContain("⛔ " + error);
+    }
   });
 
   it("فشل الأرشفة لا يمس صف الخلاصة في Dexie: النص سليم وstatus done مع توست تحذيري", async () => {
@@ -321,6 +492,182 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
 });
 
 describe("المهمة 5 — الخلاصة بالحالة الصريحة والنص الجزئي", () => {
+  it("استثناء تحديث واجهة البث لا يقطع تجميع الخلاصة ونقطة حفظها", async () => {
+    const patchSpy = vi.spyOn(useSessionsStore.getState(), "patchMessage").mockImplementation(() => {
+      throw new Error("فشل تحديث واجهة البث");
+    });
+    setTransportFetch((() => sseResponse(["x".repeat(600)])) as unknown as typeof fetch);
+    const s = await mkSession({ title: "patchthrow" });
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("done");
+      expect(synth?.text).toBe("x".repeat(600));
+    }, { timeout: 3000 });
+    expect(patchSpy).toHaveBeenCalled();
+    expect(reposHook.streamingCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("يحفظ سياق الجلسة الملتقطة إذا تبدلت الجلسة قبل بدء نداء الخلاصة", async () => {
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    reposHook.holdOnCall = 1;
+    reposHook.holdGate = holdGate;
+    reposHook.onHoldStart = held;
+    let requestBody = "";
+    setTransportFetch((async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = typeof init?.body === "string" ? init.body : await new Request(input, init).clone().text();
+      return sseResponse(["خلاصة"]);
+    }) as unknown as typeof fetch);
+    const s = await mkSession({ title: "history-switch" });
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await heldPromise;
+    const other = await mkSession({ title: "history-other" });
+    useSessionsStore.setState((state) => ({ sessions: [...state.sessions, other], currentId: other.id, messages: [] }));
+    release();
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("done");
+    }, { timeout: 3000 });
+    expect(requestBody).toContain("جواب");
+  });
+
+  it("لا يلمس عرض الجلسة المفتوحة من جديد عملية خلاصة قديمة بعد A ثم B ثم A", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    const chunk = (value: string) => new TextEncoder().encode("data: " + JSON.stringify({ choices: [{ delta: { content: value } }] }) + "\n\n");
+    setTransportFetch((() => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(chunk("قبل"));
+        entered();
+        void gate.then(() => { controller.enqueue(chunk("بعد")); controller.close(); });
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch);
+    const s = await mkSession({ title: "reopen-a" });
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    const patchSpy = vi.spyOn(useSessionsStore.getState(), "patchMessage");
+    const first = render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await enteredPromise;
+    const patchesBeforeReturn = patchSpy.mock.calls.length;
+    first.unmount();
+    const other = await mkSession({ title: "reopen-b" });
+    useSessionsStore.setState({ currentId: other.id, messages: [] });
+    useSessionsStore.setState({ currentId: s.id, messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    release();
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("done");
+    }, { timeout: 3000 });
+    expect(patchSpy.mock.calls.length).toBe(patchesBeforeReturn);
+    expect(useSessionsStore.getState().messages.some((m) => m.kind === "synthesis")).toBe(false);
+  });
+
+  it("يصرّف نقاط حفظ الخلاصة المسجلة قبل الإغلاق قبل الصف النهائي", async () => {
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    reposHook.holdOnCall = 3;
+    reposHook.holdGate = holdGate;
+    reposHook.onHoldStart = held;
+    summaryDispatchHook.forceStatus = "stopped";
+    setTransportFetch((() => sseResponse(["بداية", "x".repeat(600), "y".repeat(600)])) as unknown as typeof fetch);
+    const s = await mkSession();
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await heldPromise;
+    await vi.waitFor(() => {
+      const synth = useSessionsStore.getState().messages.find((m) => m.kind === "synthesis");
+      expect(synth?.text).toBe("بداية" + "x".repeat(600) + "y".repeat(600));
+    }, { timeout: 3000 });
+    // Yield one event-loop turn so ChatScreen enters settleStream before the first checkpoint is released.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.status).toBe("stopped");
+      expect(synth?.text).toBe("بداية" + "x".repeat(600) + "y".repeat(600));
+    }, { timeout: 3000 });
+    expect(reposHook.appendCalls).toBe(5);
+    expect(reposHook.streamingCalls).toBe(3);
+  });
+
+  it("تبديل الجلسة أثناء انتظار الصف النهائي لا يعرض خطأ الخلاصة القديمة", async () => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    reposHook.holdFinalSummary = true;
+    reposHook.holdGate = holdGate;
+    reposHook.onHoldStart = held;
+    summaryDispatchHook.forceStatus = "error";
+    summaryDispatchHook.forceError = "خطأ النتيجة القديمة";
+    setTransportFetch((() => sseResponse(["نتيجة"])) as unknown as typeof fetch);
+    const s = await mkSession({ onDiskDir: "toast-race-error" });
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    const errSpy = vi.spyOn(toast, "error");
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await heldPromise;
+    const other = await mkSession();
+    useSessionsStore.setState((state) => ({ sessions: [...state.sessions, other], currentId: other.id }));
+    release();
+    const dir = "sessions/" + s.onDiskDir;
+    await waitFor(async () => expect(await sink.exists(dir + "/meta.json")).toBe(true), { timeout: 3000 });
+    expect(errSpy).not.toHaveBeenCalledWith("خطأ النتيجة القديمة");
+  });
+
+  it("تبديل الجلسة أثناء فشل الأرشفة لا يعرض تحذير الخلاصة القديمة", async () => {
+    const base = memoryFileSink();
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const archiveGate = new Promise<void>((resolve) => { release = resolve; });
+    const failingSink: FileSink = { ...base, writeFile: async (path, content) => {
+      if (path.endsWith("/session.md")) {
+        entered();
+        await archiveGate;
+        throw new Error("قرص ممتلئ أثناء الأرشفة");
+      }
+      return base.writeFile(path, content);
+    } };
+    setFileSink(failingSink);
+    const s = await mkSession({ onDiskDir: "toast-race-warning" });
+    seed(s, { targets: ONE });
+    useSessionsStore.setState({ messages: doneTurn(s) });
+    const warnSpy = vi.spyOn(toast, "warning");
+    render(<ChatScreen session={s} />);
+    fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
+    await enteredPromise;
+    const other = await mkSession();
+    useSessionsStore.setState((state) => ({ sessions: [...state.sessions, other], currentId: other.id }));
+    release();
+    await waitFor(async () => {
+      const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
+      expect(synth?.sidecarWarning).toBeTruthy();
+    }, { timeout: 3000 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalledWith("حُفظت الخلاصة محليًا وفشل أرشفتها على القرص");
+  });
+
   it("الخلاصة تنقطع وسط البث: يحفظ النص الجزئي بحالة خطأ لا صف فارغ ولا بث معلق", async () => {
     const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
     const f = (async () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(line)); setTimeout(() => c.error(new Error("انقطع الاتصال بالبث")), 40); } }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;

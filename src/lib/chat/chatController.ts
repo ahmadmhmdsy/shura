@@ -17,6 +17,16 @@ export interface SendCallbacks {
   onAppended?(msg: ChatMessage): void;
 }
 
+function observe(observer: (() => unknown) | undefined): void {
+  if (!observer) return;
+  try {
+    const result = observer();
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+      void Promise.resolve(result).catch(() => { /* rejected live observer is non-fatal */ });
+    }
+  } catch { /* synchronous live observer failure is non-fatal */ }
+}
+
 export interface SendArgs {
   session: SessionMeta;
   turn: Turn;
@@ -45,7 +55,9 @@ function userMsg(sessionId: string, turnId: string, operationId: string, text: s
 export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatMessage[]> {
   const { session, turn } = args;
   const built = buildTurnTargets(turn, args.targets, args.syncMode);
-  if (built.dropped.length) cb.onDropped(args.operationId, built.dropped);
+  if (built.dropped.length) {
+    observe(() => cb.onDropped(args.operationId, built.dropped));
+  }
   // [المهمة 5] معرف محاولة واحد لكل نداء إرسال (هوية إسناد فقط — سجل TurnAttempt مثبت للمهمة 6)
   const attemptId = newId("at");
 
@@ -55,7 +67,10 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
   // فحص وجود meta.json على الـ sink يحقق الدلالة نفسها (كتابة أولى فقط) ولا يمحو تمرّات موجودة.
   if (dir && !(await sink.exists(dir + "/meta.json"))) await writeSessionMeta(sink, dir, session);
 
-  const emit = async (m: ChatMessage): Promise<void> => { await appendMessage(m); cb.onAppended?.(m); };
+  const emit = async (m: ChatMessage): Promise<void> => {
+    await appendMessage(m);
+    observe(() => cb.onAppended?.(m));
+  };
 
   const opId = args.operationId;
   if (turn.sharedPrompt?.trim()) await emit(userMsg(session.id, turn.id, opId, turn.sharedPrompt.trim(), "shared", undefined, attemptId));
@@ -72,15 +87,16 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
   }
   for (const m of assistantMsgs) await emit(m);
 
-  // [المهمة 5] تراكم لكل هدف ونقاط حفظ دورية: رقم النهاية الدائم للهدف يقفل الأدوات قبل الكتابة النهائية
+  // [Task 5] closingTargets rejects new checkpoints once settlement starts. Callbacks already
+  // queued before closure still drain in order before the final row; finalizedTargets is set afterward.
   const streams = new Map<string, { accum: string; persistedLen: number; timer: ReturnType<typeof setInterval>; queue: Promise<unknown> }>();
+  const closingTargets = new Set<string>();
   const finalizedTargets = new Set<string>();
   const checkpointWrite = (targetId: string, text: string): void => {
     const st = streams.get(targetId);
-    if (!st) return;
-    // كتابة تسلسلية لكل هدف: صف البث نفسه (put بالمفتاح نفسه) بلا سباق مع النتيجة النهائية
+    if (!st || closingTargets.has(targetId)) return;
+    // Do not re-check closure here: callbacks queued before closure must still drain.
     st.queue = st.queue.then(() => {
-      if (finalizedTargets.has(targetId)) return;
       const m = assistantMsgs.find((x) => x.targetId === targetId);
       if (!m) return;
       return appendMessage({ ...m, text, status: "streaming" });
@@ -89,7 +105,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
   const noteChunk = (operationId: string, targetId: string, chunk: string): void => {
     if (operationId !== opId) return; // إهمال ردود عملية/هدف مغاير
     const st = streams.get(targetId);
-    if (!st || finalizedTargets.has(targetId)) return; // رد متأخر بعد الحسم: يُهمل
+    if (!st || closingTargets.has(targetId)) return; // رد متأخر بعد بدء الإغلاق: يُهمل
     st.accum += chunk;
     // عتبة الأحرف: 512 محرفًا جديدًا تفرض نقطة حفظ فورية
     if (st.accum.length - st.persistedLen >= 512) { st.persistedLen = st.accum.length; checkpointWrite(targetId, st.accum); }
@@ -99,17 +115,26 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     // فاصل زمني كل 250مللي ثانية: نقطة حفظ عند نمو النص فقط، ويُطفأ مع الحسم
     const timer = setInterval(() => {
       const st = streams.get(p.targetId);
-      if (!st || finalizedTargets.has(p.targetId)) return;
+      if (!st || closingTargets.has(p.targetId)) return;
       if (st.accum.length > st.persistedLen) { st.persistedLen = st.accum.length; checkpointWrite(p.targetId, st.accum); }
     }, 250);
     streams.set(p.targetId, { accum: "", persistedLen: 0, timer, queue: Promise.resolve() });
   }
-  const settleTarget = async (targetId: string): Promise<void> => {
+  const closeTarget = (targetId: string): void => {
     const st = streams.get(targetId);
     if (!st) return;
     clearInterval(st.timer);
-    finalizedTargets.add(targetId); // قبل انتظار الطابور: أي flush لاحق لا يكتب فوق النتيجة
-    await st.queue; // انتظار الكتابات المعلقة قبل الصف النهائي
+    closingTargets.add(targetId);
+  };
+  const closeAllTargets = (): void => {
+    for (const targetId of streams.keys()) closeTarget(targetId);
+  };
+  const settleTarget = async (targetId: string): Promise<void> => {
+    const st = streams.get(targetId);
+    if (!st) return;
+    closeTarget(targetId);
+    await st.queue; // نقاط الحفظ المقبولة قبل الإغلاق تُصرَّف قبل الصف النهائي
+    finalizedTargets.add(targetId);
   };
 
   let outcomes: Awaited<ReturnType<typeof dispatchTurn>>;
@@ -124,12 +149,15 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       modelInfoFor: args.modelInfoFor,
       // [-المهمة 5] حرس الهوية/الحسم قبل إعادة توجيه الدلتا للمخزن الحي
       onUpdate: (operationId, targetId, chunk) => {
-        if (operationId !== opId || finalizedTargets.has(targetId) || !streams.has(targetId)) return;
-        cb.onDelta(operationId, targetId, chunk);
+        if (operationId !== opId || closingTargets.has(targetId) || !streams.has(targetId)) return;
+        // Persistence is independent of live UI delivery: a callback exception must not skip
+        // accumulation/checkpoint scheduling or terminate the provider stream.
         noteChunk(operationId, targetId, chunk);
+        observe(() => cb.onDelta(operationId, targetId, chunk));
       },
     });
   } catch (dispatchErr) {
+    closeAllTargets();
     // [-المهمة 5] رفض النداء لا يترك صف بث معلق أبدًا: تنظيف المؤقتات وانتظار الطوابير
     // ثم صف خطأ نهائي لكل هدف بنصه المتراكم حتى لا يُمحى أي محتوى محفوظ.
     const message = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
@@ -143,7 +171,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         const row: ChatMessage = { ...m, attemptId, text, status: "error", error: message };
         try { await emit(row); } catch { /* الطبقة التخزينية معطلة — فعليات السلوك الحي تنبض بالحالة */ }
         fallback[targetId] = row;
-        cb.onStatus(opId, targetId, "error", message);
+        observe(() => cb.onStatus(opId, targetId, "error", message));
       }
     } finally {
       // [-المهمة 5] حتى لو رمي emit متأخرًا: كل مؤقت نقاط الحفظ يُنظّف دائمًا
@@ -153,6 +181,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     }
     return Object.values(fallback);
   }
+  closeAllTargets();
 
   // [المهمة 5] التصنيف النهائي يعتمد DispatchOutcome.status مباشرةً: stopped ليس خطأ أبدًا،
   // والنص/الحالة النهائية تأتي من النتيجة نفسها حيثما كان التراث الجانبي.
@@ -177,7 +206,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     } catch {
       (targetWarnings[o.targetId] ??= []).push("تعذر حفظ حدث الاستهلاك");
     }
-    cb.onStatus(opId, o.targetId, status, o.error);
+    observe(() => cb.onStatus(opId, o.targetId, status, o.error));
   }
   } finally {
     for (const targetId of streams.keys()) {

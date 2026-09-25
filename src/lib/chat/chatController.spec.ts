@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendTurn, type SendArgs, type SendCallbacks } from "./chatController";
-import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink } from "@/lib/markdown/sink";
+import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
 import { setTransportFetch } from "@/lib/transport/transport";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { createSession, getMessages, getSession, getUsageEvents } from "@/lib/db/repos";
@@ -9,7 +9,19 @@ import type { ChatMessage, SessionMeta } from "@/types";
 // [المهمة 5] خطاف عزل الثراث الجانبية: جعل recordUsage يفشل يثبت أن الصف الأساسي لا يُمحى
 const usageHook = vi.hoisted(() => ({ failUsage: false, calls: 0 }));
 // [المهمة 5] خطاف رفض النداء: dispatchTurn يرمي دومًا فيثبت التنظيف وصف الخطأ النهائي
-const dispatchHook = vi.hoisted(() => ({ reject: false }));
+const dispatchHook = vi.hoisted(() => ({
+  reject: false,
+  lateUpdateTarget: null as string | null,
+  lateUpdateChunk: "",
+  lateUpdateFired: false,
+}));
+const appendHook = vi.hoisted(() => ({
+  streamingCalls: 0,
+  holdAt: 0,
+  holdTarget: "",
+  holdGate: null as Promise<void> | null,
+  onHoldStart: null as (() => void) | null,
+}));
 vi.mock("@/lib/db/repos", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/db/repos")>();
   return {
@@ -18,6 +30,18 @@ vi.mock("@/lib/db/repos", async (importOriginal) => {
       usageHook.calls += 1;
       if (usageHook.failUsage) throw new Error("فشل حفظ الاستهلاك");
       return actual.recordUsage(ev);
+    },
+    appendMessage: async (msg: Parameters<typeof actual.appendMessage>[0]) => {
+      if (msg.status === "streaming") {
+        appendHook.streamingCalls += 1;
+        const holdByCall = appendHook.holdAt > 0 && appendHook.streamingCalls === appendHook.holdAt;
+        const holdByTarget = appendHook.holdTarget !== "" && msg.targetId === appendHook.holdTarget && msg.text.length > 0;
+        if (appendHook.holdGate && (holdByCall || holdByTarget)) {
+          appendHook.onHoldStart?.();
+          await appendHook.holdGate;
+        }
+      }
+      return actual.appendMessage(msg);
     },
   };
 });
@@ -67,7 +91,26 @@ function makeCb(): { c: { deltas: Record<string, string>; deltaOps: string[]; st
   return { c, cb };
 }
 
-beforeEach(() => { setTransportFetch(sseMockFetch()); usageHook.failUsage = false; usageHook.calls = 0; dispatchHook.reject = false; });
+beforeEach(() => {
+  // Reset the module-global sink between tests without changing production APIs.
+  setFileSink(null as unknown as FileSink);
+  setTransportFetch(sseMockFetch());
+  usageHook.failUsage = false;
+  usageHook.calls = 0;
+  dispatchHook.reject = false;
+  dispatchHook.lateUpdateTarget = null;
+  dispatchHook.lateUpdateChunk = "";
+  dispatchHook.lateUpdateFired = false;
+  appendHook.streamingCalls = 0;
+  appendHook.holdAt = 0;
+  appendHook.holdTarget = "";
+  appendHook.holdGate = null;
+  appendHook.onHoldStart = null;
+});
+
+afterEach(() => {
+  setFileSink(null as unknown as FileSink);
+});
 
 vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/chat/dispatch")>();
@@ -75,7 +118,16 @@ vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
     ...actual,
     dispatchTurn: async (args: Parameters<typeof actual.dispatchTurn>[0]) => {
       if (dispatchHook.reject) throw new Error("رفض نداء dispatchTurn");
-      return actual.dispatchTurn(args);
+      const outcomes = await actual.dispatchTurn(args);
+      if (dispatchHook.lateUpdateTarget !== null) {
+        const targetId = dispatchHook.lateUpdateTarget;
+        const chunk = dispatchHook.lateUpdateChunk;
+        setTimeout(() => {
+          dispatchHook.lateUpdateFired = true;
+          args.onUpdate?.(args.operationId, targetId, chunk);
+        }, 0);
+      }
+      return outcomes;
     },
   };
 });
@@ -306,6 +358,58 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     expect(usage.every((u) => u.attemptId === [...ids][0])).toBe(true);
   });
 
+  it("يصرّف نقاط الحفظ المسجلة قبل الإغلاق قبل الصف النهائي", async () => {
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    appendHook.holdAt = 2;
+    appendHook.holdGate = holdGate;
+    appendHook.onHoldStart = started;
+    const makeChunk = (content: string) => new TextEncoder().encode("data: " + JSON.stringify({ choices: [{ delta: { content } }] }) + "\n\n");
+    const f = (async () => new Response(new ReadableStream({ start(c) {
+      c.enqueue(makeChunk("بداية"));
+      c.enqueue(makeChunk("x".repeat(600)));
+      c.enqueue(makeChunk("y".repeat(600)));
+    } }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;
+    setTransportFetch(f);
+    const s = await mkSession("queued");
+    const ac = new AbortController();
+    const { c, cb } = makeCb();
+    const pending = sendTurn(baseArgs(s, { targets: [targets[0]], externalSignalFor: () => ac.signal }), cb);
+    await startedPromise;
+    await vi.waitFor(() => expect(c.deltas["t1"]).toBe("بداية" + "x".repeat(600) + "y".repeat(600)), { timeout: 3000 });
+    expect(appendHook.streamingCalls).toBe(2);
+    ac.abort(new Error("ألغي بواسطة المستخدم"));
+    release();
+    await pending;
+    expect(appendHook.streamingCalls).toBe(3);
+    const row = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(row.status).toBe("stopped");
+    expect(row.text).toBe("بداية" + "x".repeat(600) + "y".repeat(600));
+  });
+
+  it("يغلق كل الأهداف قبل انتظار طابور الهدف الأول فلا يقبل تحديثًا متأخرًا للهدف الثاني", async () => {
+    let release!: () => void;
+    const holdGate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const heldPromise = new Promise<void>((resolve) => { held = resolve; });
+    appendHook.holdTarget = "t1";
+    appendHook.holdGate = holdGate;
+    appendHook.onHoldStart = held;
+    dispatchHook.lateUpdateTarget = "t2";
+    dispatchHook.lateUpdateChunk = "تحديث متأخر";
+    setTransportFetch((() => sseResponse(["x".repeat(600)])) as unknown as typeof fetch);
+    const s = await mkSession("close-all");
+    const { c, cb } = makeCb();
+    const pending = sendTurn(baseArgs(s), cb);
+    await heldPromise;
+    await vi.waitFor(() => expect(dispatchHook.lateUpdateFired).toBe(true), { timeout: 3000 });
+    release();
+    await pending;
+    expect(c.deltas.t2).not.toContain("تحديث متأخر");
+  });
+
   it("نقطة حفظ أثناء البث: صف بنص جزئي يُكتب قبل النتيجة ثم الصف النهائي بالنص الكامل", async () => {
     const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
     const big = "data: " + JSON.stringify({ choices: [{ delta: { content: "x".repeat(600) } }] }) + "\n\n";
@@ -318,6 +422,93 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     // النتيجة النهائية بأحداث خطأ تحفظ النص الكامل المتراكم
     expect(t1.text).toBe("بداية" + "x".repeat(600));
     expect(t1.status).toBe("error");
+  });
+
+  it("استثناء onDelta لا يقطع تجميع النص أو حفظ نقطة الحفظ", async () => {
+    const s = await mkSession("callbackthrow");
+    const { cb } = makeCb();
+    let calls = 0;
+    cb.onDelta = () => {
+      calls += 1;
+      throw new Error("فشل واجهة البث");
+    };
+    setTransportFetch((() => sseResponse(["بداية", "نهاية"])) as unknown as typeof fetch);
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    const row = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(calls).toBeGreaterThan(0);
+    expect(row.status).toBe("done");
+    expect(row.text).toBe("بدايةنهاية");
+  });
+
+  it.each(["onAppended", "onStatus"] as const)("استثناء مراقب %s لا يوقف صفوف الأهداف النهائية", async (observer) => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    const s = await mkSession("observer-" + observer, { onDiskDir: "observer-" + observer });
+    const { cb } = makeCb();
+    let observerCalls = 0;
+    if (observer === "onAppended") {
+      cb.onAppended = (m) => {
+        if (m.role === "assistant" && m.status !== "streaming") {
+          observerCalls += 1;
+          throw new Error("فشل مراقب الإضافة");
+        }
+      };
+    } else {
+      cb.onStatus = () => {
+        observerCalls += 1;
+        throw new Error("فشل مراقب الحالة");
+      };
+    }
+    setTransportFetch((() => sseResponse(["نص نهائي"])) as unknown as typeof fetch);
+    const result = await sendTurn(baseArgs(s), cb);
+    const rows = (await getMessages(s.id)).filter((m) => m.role === "assistant");
+    expect(observerCalls).toBe(2);
+    expect(result).toHaveLength(2);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((m) => m.status === "done" && m.text === "نص نهائي")).toBe(true);
+    const archived = JSON.parse(await sink.readFile("sessions/observer-" + observer + "/meta.json")).turns[0];
+    expect(archived.results).toHaveLength(2);
+    expect(archived.results.every((r: { text: string }) => r.text === "نص نهائي")).toBe(true);
+    expect(Object.values(archived.status)).toEqual(["done", "done"]);
+  });
+
+  it.each(["onAppended", "onStatus", "onDelta"] as const)("رفض مراقب %s غير المتزامن لا يسرّب ولا يوقف الصفوف", async (observer) => {
+    const sink = memoryFileSink();
+    setFileSink(sink);
+    const s = await mkSession("async-observer-" + observer, { onDiskDir: "async-observer-" + observer });
+    const { cb } = makeCb();
+    let calls = 0;
+    if (observer === "onAppended") {
+      cb.onAppended = async (m) => {
+        if (m.role === "assistant" && m.status !== "streaming") {
+          calls += 1;
+          await Promise.resolve();
+          throw new Error("رفض مراقب الإضافة");
+        }
+      };
+    } else if (observer === "onStatus") {
+      cb.onStatus = async () => {
+        calls += 1;
+        await Promise.resolve();
+        throw new Error("رفض مراقب الحالة");
+      };
+    } else {
+      cb.onDelta = async () => {
+        calls += 1;
+        await Promise.resolve();
+        throw new Error("رفض مراقب الدلتا");
+      };
+    }
+    setTransportFetch((() => sseResponse(["نص نهائي"])) as unknown as typeof fetch);
+    const result = await sendTurn(baseArgs(s), cb);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const rows = (await getMessages(s.id)).filter((m) => m.role === "assistant");
+    expect(calls).toBe(2);
+    expect(result).toHaveLength(2);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((m) => m.status === "done" && m.text === "نص نهائي")).toBe(true);
+    const archived = JSON.parse(await sink.readFile("sessions/async-observer-" + observer + "/meta.json")).turns[0];
+    expect(archived.results.every((r: { text: string }) => r.text === "نص نهائي")).toBe(true);
   });
 
   it("عزل ثراث الاستهلاك: فشل recordUsage لا يمحو الصف الأساسي ولا يرفض الإرسال ويضيف تحذيرًا", async () => {

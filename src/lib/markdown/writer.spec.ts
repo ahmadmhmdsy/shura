@@ -68,6 +68,69 @@ describe("writeSessionMeta", () => {
 });
 
 describe("المهمة 5 — أرشفة خطأ بنص جزئي", () => {
+  it("يقتطع خطأ الرموز غير النقاطية بعدد محارف Unicode دون قطع زوج بديل", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/astral-error";
+    const marker = "… [مقتطع]";
+    const normalized = "😀".repeat(600);
+    const expectedError = [...normalized].slice(0, 512 - [...marker].length).join("") + marker;
+    await appendTurn(sink, dir, meta, {
+      ...turnData,
+      results: [{ targetId: "t2", text: "نص جزئي", usage: null }],
+      status: { t2: "error" },
+      errors: { t2: normalized },
+    });
+    const md = await sink.readFile(dir + "/session.md");
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_google__gemini-2.5-pro.md");
+    const archived = JSON.parse(await sink.readFile(dir + "/meta.json")).turns[0];
+    expect([...expectedError]).toHaveLength(512);
+    expect(md).toContain("⛔ " + expectedError);
+    expect(resultFile).toContain("⛔ " + expectedError);
+    expect(archived.errors.t2).toBe(expectedError);
+  });
+
+  it("نص الخطأ الطويل يُطبّع ويُقتطع إلى 512 محرفًا بالعلامة نفسها في Markdown والملف الفرعي وmeta.json", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/long-error";
+    const marker = "… [مقتطع]";
+    const normalized = ("أول   الخطأ\n" + "ب".repeat(600) + "نهاية-الخطأ-الطويل").replace(/\s+/g, " ").trim();
+    const expectedError = [...normalized].slice(0, 512 - [...marker].length).join("") + marker;
+    await appendTurn(sink, dir, meta, {
+      ...turnData,
+      results: [{ targetId: "t2", text: "نص جزئي", usage: null }],
+      status: { t2: "error" },
+      errors: { t2: "  " + normalized + "  " },
+    });
+    const md = await sink.readFile(dir + "/session.md");
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_google__gemini-2.5-pro.md");
+    const archived = JSON.parse(await sink.readFile(dir + "/meta.json")).turns[0];
+    expect([...expectedError]).toHaveLength(512);
+    expect(md).toContain("⛔ " + expectedError);
+    expect(resultFile).toContain("⛔ " + expectedError);
+    expect(archived.errors.t2).toBe(expectedError);
+    expect(md).not.toContain("نهاية-الخطأ-الطويل");
+    expect(resultFile).not.toContain("نهاية-الخطأ-الطويل");
+  });
+
+  it("خطأ أبيض أو فارغ يبقى فارغًا متطابقًا في Markdown والملف الفرعي وmeta.json", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/empty-error";
+    await appendTurn(sink, dir, meta, {
+      ...turnData,
+      results: [{ targetId: "t2", text: "نص جزئي", usage: null }],
+      status: { t2: "error" },
+      errors: { t2: " \n\t  " },
+    });
+    const md = await sink.readFile(dir + "/session.md");
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_google__gemini-2.5-pro.md");
+    const archived = JSON.parse(await sink.readFile(dir + "/meta.json")).turns[0];
+    expect(md).toContain("⛔ \n");
+    expect(resultFile).toContain("⛔ \n");
+    expect(archived.errors.t2).toBe("");
+    expect(md).not.toContain("⛔ خطأ");
+    expect(resultFile).not.toContain("⛔ خطأ");
+  });
+
   it("خطأ بنص جزئي: يحفظ النص الجزئي ويظهر الخطأ المحدود أيضًا في session.md والملف الفرعي", async () => {
     const sink = memoryFileSink();
     const dir = "sessions/partial-err";

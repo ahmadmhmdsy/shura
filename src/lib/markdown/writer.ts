@@ -11,6 +11,18 @@ export interface TurnFileData {
 }
 
 const ILLEGAL = /[<>:"/\\|?*]/g;
+const ARCHIVE_ERROR_MAX_CHARS = 512;
+const ARCHIVE_ERROR_TRUNCATION_MARKER = "… [مقتطع]";
+
+// [المهمة 5] حد واحد يشمل المسافات والعلامة، ويضمن تطابق الخطأ في Markdown والملف الفرعي وmeta.json.
+function boundArchiveError(error: string | undefined): string {
+  const normalized = (error ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const chars = [...normalized];
+  const marker = [...ARCHIVE_ERROR_TRUNCATION_MARKER];
+  if (chars.length <= ARCHIVE_ERROR_MAX_CHARS) return normalized;
+  return chars.slice(0, ARCHIVE_ERROR_MAX_CHARS - marker.length).join("") + ARCHIVE_ERROR_TRUNCATION_MARKER;
+}
 
 export function sanitizeTitle(title: string): string {
   // C0 control chars (U+0000-U+001F) are filtered out directly: an explicit control range
@@ -54,6 +66,10 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
   const metaJson = (await sink.exists(dir + "/meta.json")) ? JSON.parse(await sink.readFile(dir + "/meta.json")) : { meta, turns: [] };
   const turnIndex = metaJson.turns.length;
   const tdir = `turns/${turnDirName(turnIndex)}`;
+  const archiveErrors = Object.fromEntries(
+    Object.entries(data.errors).map(([targetId, error]) => [targetId, boundArchiveError(error)]),
+  );
+  const errorText = (targetId: string): string => archiveErrors[targetId] ?? "خطأ";
 
   let section = `\n\n## تمرّة ${turnIndex + 1} — ${new Date(data.createdAt).toLocaleString("ar")}\n`;
   if (data.turn.sharedPrompt) section += `\n> ${data.turn.sharedPrompt}\n`;
@@ -67,8 +83,8 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
     const st = data.status[r.targetId] ?? "done";
     section += `\n### ${prompt ? `${prompt.providerId} — ${prompt.modelId}` : "خلاصة النموذج الأساسي (synthesis)"}\n`;
     // [-المهمة 5] خطأ بنص جزئي: النص يُحفظ ويُظهر الخطأ المحدود بجانبه — لا استبدال
-    if (st === "error" && r.text.trim()) section += `\n${r.text}\n\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
-    else if (st === "error") section += `\n⛔ ${data.errors[r.targetId] ?? "خطأ"}\n`;
+    if (st === "error" && r.text.trim()) section += `\n${r.text}\n\n⛔ ${errorText(r.targetId)}\n`;
+    else if (st === "error") section += `\n⛔ ${errorText(r.targetId)}\n`;
     else section += `\n${r.text}\n`;
     section += "\n" + usageRow(r.usage);
   }
@@ -83,10 +99,10 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
   for (const [i, r] of data.results.entries()) {
     const prompt = data.prompts.find((p) => p.targetId === r.targetId);
     const body = data.status[r.targetId] === "error" && r.text.trim()
-      ? r.text + "\n\n⛔ " + (data.errors[r.targetId] ?? "خطأ")
-      : data.status[r.targetId] === "error" ? `⛔ ${data.errors[r.targetId] ?? "خطأ"}` : r.text;
+      ? r.text + "\n\n⛔ " + errorText(r.targetId)
+      : data.status[r.targetId] === "error" ? `⛔ ${errorText(r.targetId)}` : r.text;
     await sink.writeFile(`${dir}/${tdir}/${resultFileName(i, prompt?.providerId ?? "synthesis", prompt?.modelId ?? "primary")}`, body + "\n\n---\n" + usageRow(r.usage));
   }
-  metaJson.turns.push({ ...data, dirName: tdir });
+  metaJson.turns.push({ ...data, errors: archiveErrors, dirName: tdir });
   await sink.writeFile(dir + "/meta.json", JSON.stringify(metaJson, null, 2));
 }

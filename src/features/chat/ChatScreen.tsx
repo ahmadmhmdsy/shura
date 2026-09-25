@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { Composer } from "./Composer";
@@ -60,6 +60,16 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   // [دور إصلاح مأذون — بند 2] حارس إعادة دخول الخلاصة: مرجع متزامن (لا حالة) يغلق ثغرة الإغلاق
   // القديم بين نقرتين متتاليتين في نفس اللمسة — حالة useState لا تصلح هنا لأن كل نقر يقرأ لقطة قديمة.
   const extractingRef = useRef(false);
+  // A session can be remounted with the same id (A -> B -> A). A generation token
+  // prevents an old closure from mutating the newly mounted view after its cleanup.
+  // Ref writes stay in effects so React's render-phase purity/lint rules are preserved.
+  const viewGenerationRef = useRef(0);
+  useLayoutEffect(() => {
+    viewGenerationRef.current += 1;
+    return () => {
+      viewGenerationRef.current += 1;
+    };
+  }, [sessionId]);
   const sessionTokens = useMemo(() => estimateSessionTokens(messages), [messages]);
 
   const turns = useMemo(() => {
@@ -91,7 +101,8 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     // ردّ يحمل معرفًا مغايرًا يُرفض حتى لو كان الجلسة والرمز شارفيْن.
     const opId = newId("op");
     // دالة الثبات المشتركة: رمز هذه العملية ما يزال هو الحالي وجلستها هي المفتوحة.
-    const isCurrent = () => (useSessionsStore.getState().currentId === sessionId && operationRef.current === opToken);
+    const viewGeneration = viewGenerationRef.current;
+    const isCurrent = () => (viewGenerationRef.current === viewGeneration && useSessionsStore.getState().currentId === sessionId && operationRef.current === opToken);
     const isSameOperation = (oid: string) => oid === opId;
     // المخلفات المتيمة: إدخالات الإيقاف/الإلغاء لعمليات أقدم منقوضة لا تستحق البقاء — تُطهر
     // قبل تسجيل إشارات هذه العملية؛ تنظيف الأقدم المتأخر في finally مرشّح بـ isCurrent فلا يلمسها.
@@ -103,7 +114,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       if (!effectiveSession.onDiskDir && isFilePersistActive()) {
         const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
         await updateSession(effectiveSession.id, { onDiskDir: folder });
-        useSessionsStore.setState((s) => ({ sessions: s.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
+        if (isCurrent()) useSessionsStore.setState((s) => ({ sessions: s.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
         effectiveSession = { ...effectiveSession, onDiskDir: folder };
       }
       await sendTurn(
@@ -182,35 +193,94 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     // [-المهمة 5] معرف محاولة واحد لعملية الخلاصة (هوية إسناد لا سجل TurnAttempt — مهمة 6)
     const summaryOpId = newId("op");
     const summaryAttemptId = newId("at");
+    const summaryViewGeneration = viewGenerationRef.current;
+    // Capture context synchronously before any placeholder await; switching sessions must not
+    // replace the captured session's history with the newly opened session's messages.
+    const summaryHistory = messages.filter((m) => m.sessionId === session.id);
     // [-المهمة 5] نقاط حفظ الخلاصة أثناء البث: تراكم وحفظ كل 250مك أو 512 محرفًا بطابور
     // كتابة تسلسلي؛ الحالة خارج كتلة try حتى يصلها مسار catch وينظف المؤقت مهما رمي النداء.
     let accum = "";
     let persistedLen = 0;
+    let streamClosing = false;
     let streamTerminated = false;
     let checkpointQueue: Promise<unknown> = Promise.resolve();
     const checkpointWrite = (text: string): void => {
-      checkpointQueue = checkpointQueue.then(() => {
-        if (streamTerminated) return;
-        return appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text, providerId: primary.providerId, modelId: primary.modelId, status: "streaming", attemptId: summaryAttemptId, operationId: summaryOpId });
-      }).catch(() => { /* فشل نقطة حفظ لا يمس الصف النهائي */ });
+      if (streamClosing) return;
+      // Accepted callbacks stay queued through closure; only new checkpoints are rejected.
+      checkpointQueue = checkpointQueue.then(() =>
+        appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text, providerId: primary.providerId, modelId: primary.modelId, status: "streaming", attemptId: summaryAttemptId, operationId: summaryOpId }),
+      ).catch(() => { /* فشل نقطة حفظ لا يمس الصف النهائي */ });
     };
     const streamTimer = setInterval(() => {
-      if (streamTerminated) return;
+      if (streamClosing || streamTerminated) return;
       if (accum.length > persistedLen) { persistedLen = accum.length; checkpointWrite(accum); }
     }, 250);
     const settleStream = async (): Promise<void> => {
       clearInterval(streamTimer);
-      streamTerminated = true;
+      streamClosing = true;
       await checkpointQueue;
+      streamTerminated = true;
     };
+    const isCapturedSessionLive = (): boolean => viewGenerationRef.current === summaryViewGeneration && useSessionsStore.getState().currentId === session.id;
     const onDelta = (cbOpId: string, tid: string, chunk: string): void => {
       // [-المهمة 5] حرس هوية العملية والهدف قبل أي إعادة توجيه للحالة الحية
-      if (cbOpId !== summaryOpId || tid !== msgId || streamTerminated) return;
-      if (useSessionsStore.getState().currentId !== session.id) return;
+      if (cbOpId !== summaryOpId || tid !== msgId || streamClosing || streamTerminated) return;
+      // The accumulator belongs to the captured session; only live UI routing is session-gated.
       accum += chunk;
-      patchMessage(msgId, { text: accum, status: "streaming" });
       if (accum.length - persistedLen >= 512) { persistedLen = accum.length; checkpointWrite(accum); }
+      if (isCapturedSessionLive()) {
+        // Accumulation and checkpoint scheduling are durable; a live store observer may fail.
+        try { patchMessage(msgId, { text: accum, status: "streaming" }); } catch { /* UI observer failure is non-fatal */ }
+      }
     };
+    const archiveSummary = async (
+      text: string,
+      status: "done" | "stopped" | "error",
+      error: string | undefined,
+      usage: ChatMessage["usage"],
+    ): Promise<void> => {
+      if (!isFilePersistActive()) return;
+      let effectiveSession = session;
+      if (!effectiveSession.onDiskDir) {
+        const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
+        await updateSession(effectiveSession.id, { onDiskDir: folder });
+        // Mirror durable metadata for the captured session, not the current message view;
+        // retain it across a UI switch so reopening the session keeps its folder.
+        if (isCapturedSessionLive()) useSessionsStore.setState((st) => ({ sessions: st.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
+        effectiveSession = { ...effectiveSession, onDiskDir: folder };
+      }
+      await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
+        turn: { id: turnId, sharedPrompt: text, customs: {} },
+        prompts: [],
+        results: [{ targetId: msgId, text, usage: usage ?? null }],
+        status: { [msgId]: status },
+        errors: error === undefined ? {} : { [msgId]: error },
+        createdAt: Date.now(),
+      });
+    };
+    const runSummarySidecars = async (
+      text: string,
+      status: "done" | "stopped" | "error",
+      error: string | undefined,
+      usage: ChatMessage["usage"],
+      durationMs: number | undefined,
+    ): Promise<string | undefined> => {
+      let sidecar: string | undefined;
+      if (durationMs !== undefined) {
+        try {
+          await recordUsage({ id: newId("u"), sessionId: session.id, turnId, ts: Date.now(), providerId: primary.providerId, modelId: primary.modelId, inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cachedInputTokens: usage?.cachedInputTokens ?? 0, costUSD: usage?.costUSD ?? null, toolCalls: 0, durationMs, status: status === "error" ? "error" : "ok", attemptId: summaryAttemptId });
+        } catch {
+          sidecar = "تعذر حفظ حدث الاستهلاك";
+        }
+      }
+      try {
+        await archiveSummary(text, status, error, usage);
+      } catch {
+        sidecar = sidecar ? sidecar + " ؛ حُفظت الخلاصة محليًا وفشل أرشفتها على القرص" : "حُفظت الخلاصة محليًا وفشل أرشفتها على القرص";
+      }
+      return sidecar;
+    };
+    let outcome: Awaited<ReturnType<typeof dispatchTurn>>[number] | undefined;
     extractingRef.current = true;
     try {
       const prompt = buildSummaryPrompt(last[0], last[1].results);
@@ -219,70 +289,65 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       placeholderWritten = true;
       // [-المهمة 4] الخلاصة تعبر نفس العقود: هوية عملية صريحة، وضع سياق، تاريخ وحد النموذج.
       const summaryInfo = targets.find((t) => t.providerId === primary.providerId && t.modelId === primary.modelId)?.modelInfo ?? targets[0]?.modelInfo ?? { id: primary.modelId, label: primary.modelId };
-      let outcome: Awaited<ReturnType<typeof dispatchTurn>>[number];
       try {
-        outcome = (await dispatchTurn({ operationId: summaryOpId, sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs, contextMode, historyFor: () => useSessionsStore.getState().messages, modelInfoFor: () => summaryInfo, onUpdate: onDelta }))[0];
+        outcome = (await dispatchTurn({ operationId: summaryOpId, sessionId: session.id, turnId, prompts: [{ targetId: msgId, providerId: primary.providerId, modelId: primary.modelId, text: prompt, hasShared: true, hasCustom: false }], apiKeyFor: (pid) => settings.providerKeys[pid] ?? "", sessionHeaderFor: (pid) => (pid === "opencodego" ? { "x-opencode-session": session.id } : undefined), timeoutMs: settings.timeoutMs, contextMode, historyFor: () => summaryHistory, modelInfoFor: () => summaryInfo, onUpdate: onDelta }))[0];
       } finally {
         // [-المهمة 5] مهما رمي النداء: تنظيف المؤقت وانتظار الكتابات المعلقة أولا — لا بث معلق أبدي
         await settleStream();
       }
-      const stale = useSessionsStore.getState().currentId !== session.id;
-      // [-المهمة 5] DispatchOutcome.status مباشرةً: stopped يثبت بنصه الجزئي ولا يُلوَن خطأ،
+      if (!outcome) throw new Error("لم تُرجع عملية الخلاصة نتيجة");
+      // [-المهمة 5] DispatchOutcome.status مباشرةً: stopped يثبت بنصه الجزئي ولا يُلوّن خطأ،
       // والصف النهائي يُكتب دائمًا بنص/حالة النتيجة نفسها.
       const finalMsg: ChatMessage = { id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: outcome.text, providerId: primary.providerId, modelId: primary.modelId, status: outcome.status, error: outcome.error, usage: outcome.usage, attemptId: summaryAttemptId, operationId: summaryOpId };
       await appendMessage(finalMsg);
-      if (!stale) upsertMessagesLocal([finalMsg]);
-      if (outcome.status === "error" && !stale) toast.error(outcome.error ?? "فشل");
-      // [-المهمة 5] ثراث الاستهلاك معزول: فشله يضيف تحذيرًا جانبيًا ظاهرًا ولا يمس نص/حالة الخلاصة
-      let sidecar: string | undefined = undefined;
-      try {
-        await recordUsage({ id: newId("u"), sessionId: session.id, turnId, ts: Date.now(), providerId: primary.providerId, modelId: primary.modelId, inputTokens: outcome.usage?.inputTokens ?? 0, outputTokens: outcome.usage?.outputTokens ?? 0, cachedInputTokens: outcome.usage?.cachedInputTokens ?? 0, costUSD: outcome.usage?.costUSD ?? null, toolCalls: 0, durationMs: outcome.ms, status: outcome.status === "error" ? "error" : "ok", attemptId: summaryAttemptId });
-      } catch {
-        sidecar = "تعذر حفظ حدث الاستهلاك";
-      }
-      // [-المهمة 5] الأرشفة ثراث جانبي معزول: النص/الحالة المأرشفة هي الصف النهائي نفسه،
-      // وفشلها لا يمس صف الخلاصة الناجح إطلاقًا (درس (أ)-5).
-      if (outcome.status === "done" && isFilePersistActive()) {
-        try {
-          let effectiveSession = session;
-          if (!effectiveSession.onDiskDir) {
-            const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
-            await updateSession(effectiveSession.id, { onDiskDir: folder });
-            useSessionsStore.setState((st) => ({ sessions: st.sessions.map((x) => (x.id === effectiveSession.id ? { ...x, onDiskDir: folder } : x)) }));
-            effectiveSession = { ...effectiveSession, onDiskDir: folder };
-          }
-          await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
-            turn: { id: turnId, sharedPrompt: outcome.text, customs: {} },
-            prompts: [],
-            results: [{ targetId: msgId, text: outcome.text, usage: outcome.usage ?? null }],
-            status: { [msgId]: "done" },
-            errors: {},
-            createdAt: Date.now(),
-          });
-        } catch { sidecar = sidecar ? sidecar + " ؛ حُفظت الخلاصة محليًا وفشل أرشفتها على القرص" : "حُفظت الخلاصة محليًا وفشل أرشفتها على القرص"; }
-      }
+      if (isCapturedSessionLive()) upsertMessagesLocal([finalMsg]);
+      if (outcome.status === "error" && isCapturedSessionLive()) toast.error(outcome.error ?? "فشل");
+      // [-المهمة 5] الاستهلاك والأرشفة ثراثان معزولان لكل حالة نهائية؛ الصف الأساسي يسبقهما.
+      const sidecar = await runSummarySidecars(outcome.text, outcome.status, outcome.error, outcome.usage, outcome.ms);
       if (sidecar) {
         const warned: ChatMessage = { ...finalMsg, sidecarWarning: sidecar };
         // [-المهمة 5] كتابة التحذير نفسها معزولة: فشلها لا يعيد تحويل الصف الناجح إلى خطأ
         try {
           await appendMessage(warned);
-          if (!stale) upsertMessagesLocal([warned]);
+          if (isCapturedSessionLive()) upsertMessagesLocal([warned]);
         } catch { /* الصف الناجح في Dexie سليم — يكفي توست التحذير */ }
-        if (!stale) toast.warning(sidecar);
+        if (isCapturedSessionLive()) toast.warning(sidecar);
       }
     } catch (e) {
       // [دور إصلاح مأذون — بند 3] كما في حارس persistTurn: toast عربي وإنهاء بطاقة الخلاصة
       // بوضع خطأ في الطبقتين (المخزن الحي فورًا، وDexie بأفضل جهد) لا رفض وعد معلق مع «يكتب…» أبديًا.
       const message = e instanceof Error ? e.message : String(e);
       // [-المهمة 5] حرس الجلسة: فشل متأخر بعد الانتقال لجلسة أخرى لا يلمس المخزن الحي الجديد
-      const staleNow = useSessionsStore.getState().currentId !== session.id;
-      if (!staleNow) toast.error(message);
+      if (isCapturedSessionLive()) toast.error(message);
       // مهما كان مصدر الرمي: تنظيف مؤقت نقاط الحفظ ولا نص فارغ يُكتب فوق محتوى محفوظ
       try { await settleStream(); } catch { clearInterval(streamTimer); }
-      if (msgId && placeholderWritten && !staleNow) {
-        const partial = accum;
-        patchMessage(msgId, { status: "error", error: message });
-        try { await appendMessage({ id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt, role: "assistant", kind: "synthesis", text: partial, providerId: primary.providerId, modelId: primary.modelId, status: "error", error: message }); } catch { /* الطبقة التخزينية معطلة — تكفي الحالة الحية */ }
+      if (msgId && placeholderWritten) {
+        const partial = outcome?.text ?? accum;
+        // Session switch suppresses only the live patch/toast; durable truth stays with the captured session.
+        if (isCapturedSessionLive()) {
+          try { patchMessage(msgId, { text: partial, status: "error", error: message, usage: outcome?.usage }); } catch { /* UI observer failure is non-fatal */ }
+        }
+        const recovered: ChatMessage = {
+          id: msgId, sessionId: session.id, turnId, createdAt: synthCreatedAt,
+          role: "assistant", kind: "synthesis", text: partial,
+          providerId: primary.providerId, modelId: primary.modelId,
+          status: "error", error: message, usage: outcome?.usage, attemptId: summaryAttemptId, operationId: summaryOpId,
+        };
+        let recoveredPersisted = false;
+        try {
+          await appendMessage(recovered);
+          recoveredPersisted = true;
+        } catch { /* الطبقة التخزينية معطلة — لا يمكن المثبّت خارجها */ }
+        // [-المهمة 5] مسار catch يبقى ثراثًا معزولًا: الصف الأصلي أولًا، ثم الأرشفة/الاستهلاك.
+        const recoveredSidecar = await runSummarySidecars(partial, "error", message, outcome?.usage, outcome?.ms);
+        if (recoveredSidecar && recoveredPersisted) {
+          const warned: ChatMessage = { ...recovered, sidecarWarning: recoveredSidecar };
+          try {
+            await appendMessage(warned);
+            if (isCapturedSessionLive()) upsertMessagesLocal([warned]);
+          } catch { /* صف الخطأ الأصلي يبقى كما هو */ }
+          if (isCapturedSessionLive()) toast.warning(recoveredSidecar);
+        }
       }
     } finally { extractingRef.current = false; }
   }
