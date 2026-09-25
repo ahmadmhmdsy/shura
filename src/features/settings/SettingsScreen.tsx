@@ -20,6 +20,8 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   // («120» رقمًا رقمًا ⇒ 10 ثم 102 ثم 1020 ثانية تُحفظ صامتة فورًا). حقل مسودة نصية محلية:
   // onChange يحدّث المسودة فقط بلا كتابة مخزن، وonBlur يحللها مرة واحدة — صالحة ⇒
   // setTimeoutMs(بحد أدنى 10ث)؛ غير صالحة ⇒ تصفير المسودة فقط فيستعيد الحقل القيمة الحالية.
+  const selectProvider = (next: ProviderId) => { setPSel(next); setMSel(""); };
+  const invalidPrimary = primaryTarget != null && !PROVIDERS[primaryTarget.providerId]?.staticModels.some((m) => m.id === primaryTarget.modelId);
   const [timeoutDraft, setTimeoutDraft] = useState<string | null>(null);
 
   return (
@@ -30,7 +32,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.primaryModel}</h3>
           <div className="flex gap-2">
-            <select className="bg-sura-bg border border-sura-border rounded p-2 text-sm" value={pSel} onChange={(e) => setPSel(e.target.value as ProviderId)}>
+            <select aria-label="مزود النموذج الأساسي" className="bg-sura-bg border border-sura-border rounded p-2 text-sm" value={pSel} onChange={(e) => selectProvider(e.target.value as ProviderId)}>
               {listProviderIds().map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
             </select>
             <select className="bg-sura-bg border border-sura-border rounded p-2 text-sm flex-1" value={mSel} onChange={(e) => setMSel(e.target.value)}>
@@ -39,7 +41,8 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
             </select>
             <Button size="sm" disabled={!mSel} onClick={() => void setPrimaryTarget({ providerId: pSel, modelId: mSel })}>تعيين</Button>
           </div>
-          {primaryTarget && <p className="text-xs text-sura-muted">الحالي: {primaryTarget.providerId} · {primaryTarget.modelId}</p>}
+          {primaryTarget && invalidPrimary && <p role="alert" className="text-xs text-sura-warn">النموذج المحفوظ غير صالح: هذا الموديل لا ينتمي إلى المزود المختار.</p>}
+          {primaryTarget && !invalidPrimary && <p className="text-xs text-sura-muted">الحالي: {primaryTarget.providerId} · {primaryTarget.modelId}</p>}
           {!hasAnyTargets && <p className="text-xs text-sura-warn">لم تضف نماذج بعد — الأساسي يُستخدم للخلاصة وللأدوار العادية.</p>}
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">

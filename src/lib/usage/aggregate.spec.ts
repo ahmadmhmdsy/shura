@@ -29,4 +29,39 @@ describe("aggregate", () => {
     expect(g["openrouter"].calls).toBe(2);
     expect(g["google"].inputTokens).toBe(200);
   });
+
+  // تكلفة غير معروفة ليست صفرًا: تلخيصها صفرٌ يجعل الفاتورة تبدو كاملة وهي ناقصة.
+  it("keeps unknown aggregate cost unknown", () => {
+    expect(summarize([ev({ costUSD: null })]).costUSD).toBeNull();
+  });
+
+  it("null cost among known costs stays unknown", () => {
+    expect(summarize([ev({ id: "1", costUSD: 0.01 }), ev({ id: "2", costUSD: null })]).costUSD).toBeNull();
+  });
+
+  it("a non-finite cost is unknown, not zero", () => {
+    expect(summarize([ev({ costUSD: Number.NaN })]).costUSD).toBeNull();
+    expect(summarize([ev({ costUSD: Number.POSITIVE_INFINITY })]).costUSD).toBeNull();
+  });
+
+  it("no events means no cost, not unknown", () => {
+    expect(summarize([]).costUSD).toBe(0);
+  });
+
+  it("a filtered-out unknown event does not poison the included total", () => {
+    const s = summarize([ev({ id: "1", costUSD: 0.02, ts: 30 }), ev({ id: "2", costUSD: null, ts: 10 })], { fromTs: 20 });
+    expect(s.costUSD).toBeCloseTo(0.02);
+  });
+
+  it("groups an unknown provider cost as unknown", () => {
+    const g = groupByProvider([ev({ id: "1", costUSD: 0.01 }), ev({ id: "2", costUSD: null })]);
+    expect(g["openrouter"].costUSD).toBeNull();
+    expect(g["openrouter"].calls).toBe(2);
+  });
+
+  it("known provider groups still sum", () => {
+    const g = groupByProvider(events);
+    expect(g["openrouter"].costUSD).toBeCloseTo(0.04);
+    expect(g["google"].costUSD).toBeCloseTo(0.02);
+  });
 });

@@ -1,6 +1,6 @@
 export type ProviderId = "openrouter" | "google" | "minimax" | "opencodego";
 
-export interface ModelPricing { inputPerMTok: number; outputPerMTok: number; }
+export interface ModelPricing { inputPerMTok: number; outputPerMTok: number; cacheReadPerMTok?: number; cacheWritePerMTok?: number; }
 export interface ModelInfo { id: string; label: string; contextLength?: number; pricing?: ModelPricing | null; }
 
 export type ProviderKind = "openai-compatible" | "google";

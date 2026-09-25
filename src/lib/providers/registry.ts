@@ -55,18 +55,46 @@ export function getProvider(id: ProviderId): ProviderConfig {
   return p;
 }
 
-export function computeCost(usage: Pick<Usage, "inputTokens" | "outputTokens">, model: Pick<ModelInfo, "pricing">): number | null {
-  if (!model.pricing) return null;
-  const { inputPerMTok, outputPerMTok } = model.pricing;
-  return (usage.inputTokens / 1e6) * inputPerMTok + (usage.outputTokens / 1e6) * outputPerMTok;
+function isRate(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
+
+// A provider that reported cache activity without publishing its rate leaves the cost
+// unknown; substituting zero would understate the bill, so it returns null instead.
+export function computeCost(usage: CostUsage, model: Pick<ModelInfo, "pricing">): number | null {
+  const pricing = model.pricing;
+  if (!pricing) return null;
+  const cachedInputTokens = Math.max(0, usage.cachedInputTokens ?? 0);
+  const cacheWriteInput = Math.max(0, usage.cacheWriteInputTokens ?? 0);
+  if (cachedInputTokens > 0 && !isRate(pricing.cacheReadPerMTok)) return null;
+  if (cacheWriteInput > 0 && !isRate(pricing.cacheWritePerMTok)) return null;
+  const uncachedInput = Math.max(0, usage.inputTokens - cachedInputTokens - cacheWriteInput);
+  return (uncachedInput / 1e6) * pricing.inputPerMTok
+    + (cachedInputTokens / 1e6) * (pricing.cacheReadPerMTok ?? 0)
+    + (cacheWriteInput / 1e6) * (pricing.cacheWritePerMTok ?? 0)
+    + (Math.max(0, usage.outputTokens) / 1e6) * pricing.outputPerMTok;
+}
+
+// The one header builder. Chat, model construction, and key tests must send the same
+// provider identity and session header, otherwise a green key test proves less than a
+// real request does.
+export function headersFor(providerId: ProviderId, sessionId?: string): Record<string, string> {
+  const provider = getProvider(providerId);
+  const headers: Record<string, string> = { ...(provider.defaultHeaders ?? {}) };
+  const session = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (provider.sessionHeaderName && session) headers[provider.sessionHeaderName] = session;
+  return headers;
+}
+
+
+export type CostUsage = Pick<Usage, "inputTokens" | "outputTokens"> & Partial<Pick<Usage, "cachedInputTokens" | "cacheWriteInputTokens">>;
 
 export type FetchLike = typeof fetch;
 
 export function buildLanguageModel(providerId: ProviderId, apiKey: string, modelId: string, fetchImpl: FetchLike, extraHeaders?: Record<string, string>): LanguageModel {
   if (!apiKey.trim()) throw new Error(`مفتاح API للمزود ${getProvider(providerId).label} غير مضبوط — أضفه من الإعدادات`);
   const p = getProvider(providerId);
-  const headers = { ...(p.defaultHeaders ?? {}), ...(extraHeaders ?? {}) };
+  const headers = { ...headersFor(providerId), ...(extraHeaders ?? {}) };
   if (p.kind === "google") {
     const g = createGoogleGenerativeAI({ apiKey, baseURL: p.baseURL, headers, fetch: fetchImpl });
     return g(modelId);

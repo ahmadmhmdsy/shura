@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { buildLanguageModel } from "./registry";
+import { buildLanguageModel, headersFor } from "./registry";
 import { getTransportFetch } from "@/lib/transport/transport";
 import type { ProviderId } from "@/types";
 
@@ -18,10 +18,10 @@ export function mapProviderError(e: unknown): string {
   return msg;
 }
 
-export async function testProviderKey(providerId: ProviderId, apiKey: string, modelId: string): Promise<KeyTestResult> {
+export async function testProviderKey(providerId: ProviderId, apiKey: string, modelId: string, sessionId?: string): Promise<KeyTestResult> {
   const t0 = Date.now();
   try {
-    const model = buildLanguageModel(providerId, apiKey, modelId, getTransportFetch());
+    const model = buildLanguageModel(providerId, apiKey, modelId, getTransportFetch(), headersFor(providerId, sessionId));
     // [إصلاح موثق على كود الخطة] APICallError يشتق isRetryable من الحالة (429=true) فتتكرر المحاولة
     // (2000ms + 4000ms) وتتجاوز مهلة vitest الافتراضية 5000ms — فحص المفتاح نداء واحد حاسم.
     await generateText({ model, prompt: "أجب بكلمة واحدة فقط: جاهز", maxOutputTokens: 20, abortSignal: AbortSignal.timeout(30_000), maxRetries: 0 });

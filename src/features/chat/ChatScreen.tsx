@@ -15,6 +15,7 @@ import { newId } from "@/lib/id";
 import { appendMessage, claimOperationLease, getTurn, persistTurnAttempt, recordUsage, releaseOperationLease, selectPersistedRetryAttempt, updateSession, updateSessionIfOperation, updateTurnAttemptStatus } from "@/lib/db/repos";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { appendTurn, sessionFolderName } from "@/lib/markdown/writer";
+import { headersFor } from "@/lib/providers/registry";
 import { ar } from "@/i18n/ar";
 import type { ChatMessage, ContextMode, SessionMeta, Turn } from "@/types";
 
@@ -369,7 +370,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           historyFor: () => historySnapshot,
           modelInfoFor: (targetId) => sourceAttempt?.targets.find((target) => target.targetId === targetId)?.modelInfo ?? targets.find((target) => target.targetId === targetId)?.modelInfo ?? { id: targetId, label: targetId },
           apiKeyFor: (providerId) => settings.providerKeys[providerId] ?? "",
-          sessionHeaderFor: (providerId) => providerId === "opencodego" ? { "x-opencode-session": session.id } : undefined,
+          sessionHeaderFor: (providerId) => headersFor(providerId, session.id),
           externalSignalFor: () => handle.controller.signal,
           timeoutMs: settings.timeoutMs,
           assistantIds: Object.fromEntries(expectedMessageIds),
@@ -774,7 +775,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           turnId,
           prompts: [{ targetId, providerId: primary.providerId, modelId: primary.modelId, text: promptText, hasShared: true, hasCustom: false }],
           apiKeyFor: (providerId) => settings.providerKeys[providerId] ?? "",
-          sessionHeaderFor: (providerId) => providerId === "opencodego" ? { "x-opencode-session": session.id } : undefined,
+          sessionHeaderFor: (providerId) => headersFor(providerId, session.id),
           timeoutMs: settings.timeoutMs,
           contextMode,
           historyFor: () => history,

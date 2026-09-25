@@ -39,7 +39,7 @@ export function SummaryCard({ msg, horizontal }: { msg: ChatMessage; horizontal:
         {msg.sidecarWarning && <p className="mt-2 text-xs text-sura-warn whitespace-pre-wrap">{msg.sidecarWarning}</p>}
       </div>
       <div className="px-3 py-1.5 border-t border-sura-border text-[11px] text-sura-muted flex gap-3">
-        {usage ? <><span>↓ {usage.inputTokens}</span><span>↑ {usage.outputTokens}</span><span>كاش {usage.cachedInputTokens}</span><span>{usage.costUSD == null ? "—" : "$" + usage.costUSD.toFixed(6)}</span></> : <span>—</span>}
+        {usage ? <><span>↓ {usage.inputTokens}</span><span>↑ {usage.outputTokens}</span><span>كاش {usage.cachedInputTokens}</span>{usage.cacheWriteInputTokens ? <span>كتابة كاش {usage.cacheWriteInputTokens}</span> : null}<span>{usage.costUSD == null ? "—" : "$" + usage.costUSD.toFixed(6)}</span></> : <span>—</span>}
       </div>
     </div>
   );

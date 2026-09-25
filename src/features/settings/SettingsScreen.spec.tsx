@@ -91,6 +91,30 @@ describe("SettingsScreen", () => {
     fireEvent.click(panel.parentElement!);
     expect(closed).toBe(1);
   });
+  it("تغيير المزود يصفّر اختيار النموذج فلا تُحفظ زوجة مزود/موديل غير صالحة", async () => {
+    render(<SettingsScreen onClose={() => {}} />);
+    const modelSel = screen.getAllByRole("combobox")[1];
+    fireEvent.change(modelSel, { target: { value: "openai/gpt-4o" } });
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "google" } });
+
+    await waitFor(() => expect((modelSel as HTMLSelectElement).value).toBe(""));
+    expect(screen.getByRole("button", { name: "تعيين" })).toBeDisabled();
+    expect(useSettingsStore.getState().primaryTarget).toBeNull();
+  });
+
+  it("الزوجة المحفوظة غير الصالحة تُعرض كتحذير صريح", () => {
+    useSettingsStore.setState({ primaryTarget: { providerId: "google", modelId: "openai/gpt-4o" } });
+    render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.getByText(/غير صالح|لا ينتمي/)).toBeInTheDocument();
+  });
+
+  it("الزوجة المحفوظة الصالحة لا تُعرض كتحذير", () => {
+    useSettingsStore.setState({ primaryTarget: { providerId: "openrouter", modelId: "openai/gpt-4o" } });
+    render(<SettingsScreen onClose={() => {}} />);
+    expect(screen.queryByText(/غير صالح|لا ينتمي/)).not.toBeInTheDocument();
+  });
+
 });
 
 describe("App — ربط شاشة الإعدادات", () => {

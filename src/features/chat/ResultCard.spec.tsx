@@ -21,6 +21,16 @@ describe("ResultCard", () => {
     expect(screen.getByText("$0.000300")).toBeInTheDocument();
     expect(screen.getByLabelText("إعادة")).toBeInTheDocument();
   });
+  it("كتابة المخبأ تظهر فقط حين يبلّغ عنها المزود", () => {
+    render(<ResultCard msg={{ ...base, usage: { ...base.usage!, cacheWriteInputTokens: 7 } }} customPrompt={null} horizontal={false} onStop={() => {}} onRetry={() => {}} />);
+    expect(screen.getByText("كتابة كاش 7")).toBeInTheDocument();
+  });
+
+  it("لا تظهر كتابة المخبأ حين لا يبلّغ عنها المزود", () => {
+    render(<ResultCard msg={base} customPrompt={null} horizontal={false} onStop={() => {}} onRetry={() => {}} />);
+    expect(screen.queryByText(/كتابة كاش/)).not.toBeInTheDocument();
+  });
+
   it("الحالة error تعرض رسالة الخطأ والحالة stopped تعرض أُوقف", () => {
     const { rerender } = render(
       <ResultCard msg={{ ...base, status: "error", error: "مفتاح غير صالح أو غير مصرح (401/403)" }} customPrompt={null} horizontal={false} onStop={() => {}} onRetry={() => {}} />,
