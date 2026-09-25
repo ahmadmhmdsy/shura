@@ -404,7 +404,13 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
 
     if (dir && !(await sink.exists(dir + "/meta.json"))) {
       assertOwned();
-      await writeSessionMeta(sink, dir, session);
+      // The initial manifest is an archive sidecar: a failure must warn, never turn the
+      // primary durable row into an error. appendTurn can still create the manifest.
+      try {
+        await writeSessionMeta(sink, dir, session);
+      } catch {
+        warn("تعذر إنشاء ملف أرشفة الجلسة");
+      }
       assertOwned();
     }
     if (previousAttemptIds.length > 0 && isOwned()) {
@@ -678,6 +684,8 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         errors: Object.fromEntries(validOutcomes.map((outcome) => [outcome.targetId, outcome.error ?? ""])),
         createdAt: canonicalAttempt.createdAt,
         attemptId: canonicalAttempt.id,
+        attemptNumber: canonicalAttempt.attempt,
+        kind: canonicalAttempt.kind,
         operationId: opId,
       }).then(async () => {
         const updated = await updateSessionIfOperation(session.id, opId, { onDisk: isFilePersistActive() }, isOwned);

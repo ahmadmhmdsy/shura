@@ -169,3 +169,33 @@ describe("sessionsStore terminal patch guard", () => {
     expect(current?.operationId).toBe("op");
   });
 });
+describe("durable deletion through the store", () => {
+  it("يعيد نتيجة الحذف ويمسح المسودة بعد نجاح معاملة القاعدة", async () => {
+    const id = "store-delete-ok";
+    useComposerStore.getState().setDraft(id, { sharedPrompt: "مسودة" });
+    useSessionsStore.setState({ sessions: [{ ...session, id, onDisk: true, onDiskDir: "folder-ok" }], currentId: id, messages: [] });
+    await createSession({ ...session, id, onDisk: true, onDiskDir: "folder-ok" });
+
+    const result = await useSessionsStore.getState().remove(id);
+
+    expect(result.deleted).toBe(true);
+    expect(result.warning).toBeUndefined();
+    expect(await getSession(id)).toBeUndefined();
+    expect(useComposerStore.getState().drafts[id]).toBeUndefined();
+    expect(useSessionsStore.getState().sessions.some((s) => s.id === id)).toBe(false);
+  });
+
+  it("يبقي الجلسة والمسودة ظاهرتين إذا فشل الحذف الدائم", async () => {
+    const id = "store-delete-fail";
+    useComposerStore.getState().setDraft(id, { sharedPrompt: "مسودة ثمينة" });
+    const meta = { ...session, id, onDisk: true, onDiskDir: "../escape" };
+    useSessionsStore.setState({ sessions: [meta], currentId: id, messages: [] });
+    await createSession(meta);
+
+    await expect(useSessionsStore.getState().remove(id)).rejects.toThrow();
+
+    expect(await getSession(id)).toBeDefined();
+    expect(useComposerStore.getState().drafts[id]).toBeTruthy();
+    expect(useSessionsStore.getState().sessions.some((s) => s.id === id)).toBe(true);
+  });
+});

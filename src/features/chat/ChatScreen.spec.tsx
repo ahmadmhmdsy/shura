@@ -400,9 +400,9 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(meta?.onDiskDir).toBeTruthy();
     const dir = "sessions/" + meta?.onDiskDir;
     expect(await sink.exists(dir + "/meta.json")).toBe(true);
-    // session.md تُكتب بعد استقرار النتائج مباشرة — ننتظرها بدل سباق مع حلقة النتائج
-    await waitFor(async () => expect(await sink.exists(dir + "/session.md")).toBe(true), { timeout: 3000 });
-    expect(await sink.readFile(dir + "/session.md")).toContain("أهلاً");
+    // session.md is published from the manifest, so wait for the committed content
+    // rather than for the file to merely exist.
+    await waitFor(async () => expect(await sink.readFile(dir + "/session.md")).toContain("أهلاً"), { timeout: 3000 });
     await settleOperations();
   });
 
@@ -729,9 +729,10 @@ describe("ChatScreen — التوصيل الحي", () => {
     const dir = "sessions/" + (await getSession(s.id))?.onDiskDir;
     await waitFor(async () => expect(await sink.exists(dir + "/meta.json")).toBe(true), { timeout: 3000 });
     const sessionMd = await sink.readFile(dir + "/session.md");
-    const resultFile = await sink.readFile(dir + "/turns/t01/01_synthesis__primary.md");
     const archived = JSON.parse(await sink.readFile(dir + "/meta.json"));
     const archivedResult = archived.turns[0].results[0];
+    const archivedPrimary = archived.turns[0].prompts[0];
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_" + archivedPrimary.providerId + "__" + archivedPrimary.modelId.replace(/[^\w.-]/g, "_") + ".md");
     expect(sessionMd).toContain("قبلبعد");
     expect(resultFile).toContain("قبلبعد");
     expect(archived.turns[0].results[0].text).toBe("قبلبعد");
@@ -762,8 +763,9 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(md).toContain("أهلاً");
     const metaJson = JSON.parse(await sink.readFile(dir + "/meta.json"));
     expect(metaJson.turns).toHaveLength(1);
-    expect(metaJson.turns[0].turn.id).toMatch(/^syn-/);
-    const summaryAttempt = (await getTurn(metaJson.turns[0].turn.id))?.attempts[0];
+    expect(metaJson.schemaVersion).toBe(2);
+    expect(metaJson.turns[0].turnId).toMatch(/^syn-/);
+    const summaryAttempt = (await getTurn(metaJson.turns[0].turnId))?.attempts[0];
     // Non-vacuous: a missing durable attempt must fail loudly instead of comparing
     // undefined on both sides.
     expect(summaryAttempt, "the archived summary must have a durable attempt record").toBeDefined();
@@ -771,8 +773,11 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(metaJson.turns[0].operationId).toBe(summaryAttempt?.operationId);
     expect(metaJson.turns[0].attemptId).toBe(summaryAttempt?.id);
     expect(metaJson.turns[0].attemptId).toEqual(expect.any(String));
-    expect(metaJson.turns[0].turn.sharedPrompt).toBe("أهلاً");
-    expect(metaJson.turns[0].prompts).toEqual([]);
+    expect(metaJson.turns[0].sharedPrompt).toBe("أهلاً");
+    // The summary keeps the primary target snapshot so recovery can attribute usage.
+    expect(metaJson.turns[0].prompts).toHaveLength(1);
+    expect(metaJson.turns[0].prompts[0].providerId).toBe(ONE[0].providerId);
+    expect(metaJson.turns[0].prompts[0].modelId).toBe(ONE[0].modelId);
     const result0 = metaJson.turns[0].results[0];
     expect(result0.text).toBe("أهلاً");
     expect(typeof result0.targetId).toBe("string");
@@ -803,9 +808,10 @@ describe("ChatScreen — التوصيل الحي", () => {
     const dir = "sessions/" + (await getSession(s.id))?.onDiskDir;
     await waitFor(async () => expect(await sink.exists(dir + "/meta.json")).toBe(true), { timeout: 3000 });
     const sessionMd = await sink.readFile(dir + "/session.md");
-    const resultFile = await sink.readFile(dir + "/turns/t01/01_synthesis__primary.md");
     const metaJson = JSON.parse(await sink.readFile(dir + "/meta.json"));
     const archived = metaJson.turns[0];
+    const primary = archived.prompts[0];
+    const resultFile = await sink.readFile(dir + "/turns/t01/01_" + primary.providerId + "__" + primary.modelId.replace(/[^\w.-]/g, "_") + ".md");
     expect(sessionMd).toContain("نص الأرشفة الدقيق");
     expect(resultFile).toContain("نص الأرشفة الدقيق");
     expect(archived.results[0].text).toBe("نص الأرشفة الدقيق");
@@ -1301,7 +1307,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     let release!: () => void;
     const archiveGate = new Promise<void>((resolve) => { release = resolve; });
     const failingSink: FileSink = { ...base, writeFile: async (path, content) => {
-      if (path.endsWith("/session.md")) {
+      if (path.includes("session.md")) {
         entered();
         await archiveGate;
         throw new Error("قرص ممتلئ أثناء الأرشفة");

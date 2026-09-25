@@ -6,7 +6,7 @@ vi.mock("react-dom/client", () => ({
 vi.mock("./App", () => ({ default: () => null }));
 vi.mock("sonner", () => ({
   Toaster: () => null,
-  toast: { success: vi.fn() },
+  toast: { success: vi.fn(), warning: vi.fn() },
 }));
 vi.mock("@/state/settingsStore", () => ({
   useSettingsStore: {
@@ -28,12 +28,11 @@ vi.mock("@/lib/markdown/sink", () => ({
   getFileSink: vi.fn(),
   isFilePersistActive: () => false,
 }));
-vi.mock("@/lib/markdown/parser", () => ({ recoverFromDisk: vi.fn(async () => []) }));
+vi.mock("@/lib/markdown/parser", () => ({ recoverFromDisk: vi.fn(async () => ({ imported: [], quarantined: [], skippedTombstoned: [], errors: [] })) }));
 vi.mock("@/lib/db/repos", () => ({
-  appendMessage: vi.fn(async () => undefined),
-  createSession: vi.fn(async () => undefined),
+  hasTombstone: vi.fn(async () => false),
+  importSessionAtomically: vi.fn(async () => "imported"),
   reconcileInterruptedTurns: vi.fn(async () => 0),
-  recordUsage: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/transport/transport", () => ({ isTauri: () => false }));
 vi.mock("@/lib/desktop/bootstrap", () => ({ bootstrapDesktop: vi.fn(async () => undefined) }));
@@ -59,7 +58,11 @@ function createDeps(failingPhase: FailingPhase, events: string[]): StartupPhases
     bootstrap: phase("bootstrap"),
     loadSettings: phase("settings"),
     loadSessions: phase("sessions"),
-    recover: phase("recover"),
+    recoverNotice: vi.fn(async () => {
+      events.push("recover");
+      if (failingPhase === "recover") throw new Error("recover failed");
+      return null;
+    }),
     activeOperationKeys: vi.fn(() => [liveOperationKey("session-live", "op-live"), liveOperationKey("session-live", "op-live-2")]),
     reconcile: vi.fn(async (liveOperationIds: ReadonlySet<string>) => {
       events.push("reconcile");
@@ -101,7 +104,7 @@ describe("startup seam", () => {
       bootstrap: async () => undefined,
       loadSettings: async () => undefined,
       loadSessions: async () => undefined,
-      recover: async () => undefined,
+      recoverNotice: async () => null,
       activeOperationKeys: () => [],
       reconcile: async () => {
         events.push("reconcile");
@@ -141,6 +144,17 @@ describe("startup seam", () => {
     expect(warnings[0]).toContain("العمليات الجارية");
     expect(events).toEqual(["bootstrap", "settings", "sessions", "recover", "render"]);
     expect(dependencies.render).toHaveBeenCalledOnce();
+  });
+
+  it("يمرّر تحذير الاسترجاع إلى العرض ولا يدّعي نجاحًا صامتًا", async () => {
+    const events: string[] = [];
+    const dependencies = createDeps("recover", events);
+    dependencies.recoverNotice = vi.fn(async () => {
+      events.push("recover");
+      return { title: "تقرير استرجاع الأرشيف", details: ["عُزل أرشيف تالف: quarantine/broken-1"] };
+    });
+    await runStartup(dependencies);
+    expect(dependencies.render).toHaveBeenCalledWith({ title: "تقرير استرجاع الأرشيف", details: ["عُزل أرشيف تالف: quarantine/broken-1"] });
   });
 
   it("keeps reconciliation failure non-fatal and still renders", async () => {

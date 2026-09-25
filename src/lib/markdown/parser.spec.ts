@@ -36,8 +36,16 @@ describe("parser: استرجاع الجلسة من القرص", () => {
     await appendTurn(sink, "sessions/one", meta, turnData);
     await appendTurn(sink, "sessions/two", { ...meta, id: "ff00ee11" }, turnData);
     await sink.writeFile("sessions/empty/readme.txt", "hi");
-    const got = await recoverFromDisk(sink, "sessions");
-    expect(got.map((g) => g.meta.id).sort()).toEqual(["ab12cd34", "ff00ee11"]);
+    const report = await recoverFromDisk(sink, "sessions");
+    expect(report.imported.map((g) => g.meta.id).sort()).toEqual(["ab12cd34", "ff00ee11"]);
+  });
+  it("recoverFromDisk يستورد الجلسات الصالحة ويعرض ملاحظات بدل ابتلاعها", async () => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, "sessions/one", meta, turnData);
+    const report = await recoverFromDisk(sink, "sessions");
+    expect(report.errors).toEqual([]);
+    expect(report.quarantined).toEqual([]);
+    expect(report.skippedTombstoned).toEqual([]);
   });
   it("recoverFromDisk يعيد بناء رسالة الخلاصة بنصها من تمريرة syn-", async () => {
     const sink = memoryFileSink();

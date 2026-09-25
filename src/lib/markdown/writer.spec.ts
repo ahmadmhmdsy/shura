@@ -149,3 +149,175 @@ describe("المهمة 5 — أرشفة خطأ بنص جزئي", () => {
     expect(sub).toContain("⛔ انقطع الاتصال بالبث");
   });
 });
+// ===== Task 7: manifest v2, atomic publication, serialization, idempotency =====
+
+import type { FileSink } from "./sink";
+
+function recordingSink(base: FileSink, calls: string[]) {
+  return {
+    ...base,
+    async writeFile(p: string, c: string) { calls.push("write:" + p); await base.writeFile(p, c); },
+    async rename(a: string, b: string) { calls.push("rename:" + a + "->" + b); await base.rename(a, b); },
+  } as FileSink;
+}
+
+function failingSink(base: FileSink, fail: (op: string, path: string) => boolean) {
+  return {
+    ...base,
+    async writeFile(p: string, c: string) { if (fail("write", p)) throw new Error("EIO: " + p); await base.writeFile(p, c); },
+    async rename(a: string, b: string) { if (fail("rename", a)) throw new Error("EIO: " + a); await base.rename(a, b); },
+    async ensureDir(p: string) { if (fail("ensureDir", p)) throw new Error("EIO: " + p); await base.ensureDir(p); },
+  } as FileSink;
+}
+
+const dir = "sessions/atomic";
+
+describe("manifest v2", () => {
+  it("writeSessionMeta ينشر meta.json بمخطط 2 عبر ملف مؤقت", async () => {
+    const base = memoryFileSink();
+    const calls: string[] = [];
+    await writeSessionMeta(recordingSink(base, calls), dir, meta);
+    const parsed = JSON.parse(await base.readFile(dir + "/meta.json"));
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.turns).toEqual([]);
+    expect(parsed.meta.id).toBe("ab12cd34");
+    expect(calls).toContain("rename:" + dir + "/meta.json.tmp->" + dir + "/meta.json");
+    expect(await base.exists(dir + "/meta.json.tmp")).toBe(false);
+  });
+
+  it("يخزّن attempt وkind وoperationId في مدخل الأرشيف", async () => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1", attemptNumber: 2, kind: "retry", operationId: "op-1" });
+    const entry = JSON.parse(await sink.readFile(dir + "/meta.json")).turns[0];
+    expect(entry.turnId).toBe("t1");
+    expect(entry.attemptId).toBe("at-1");
+    expect(entry.attempt).toBe(2);
+    expect(entry.kind).toBe("retry");
+    expect(entry.operationId).toBe("op-1");
+  });
+
+  it("يقبل مخطط v1 غير المرقّم ويحافظ على بياناته ثم يكتب v2", async () => {
+    const sink = memoryFileSink();
+    await sink.writeFile(dir + "/meta.json", JSON.stringify({
+      meta: { id: "old-1", title: "قديم", createdAt: 1, updatedAt: 2, modelIds: ["gpt-4o"], primaryTarget: null, layoutMode: "vertical" },
+      turns: [{
+        turn: { id: "legacy-turn", sharedPrompt: "سؤال قديم", customs: {} },
+        prompts: [{ targetId: "t1", providerId: "openrouter", modelId: "gpt-4o", text: "سؤال قديم", hasShared: true, hasCustom: false }],
+        results: [{ targetId: "t1", text: "جواب قديم", usage: { inputTokens: 1, outputTokens: 2, cachedInputTokens: 0, costUSD: null } }],
+        status: { t1: "done" }, errors: {}, createdAt: 5, dirName: "turns/t01",
+      }],
+    }));
+    // The legacy folder keeps its old sidecar files; migration never deletes them.
+    await sink.writeFile(dir + "/turns/t01/00_shared-prompt.md", "سؤال قديم\n");
+    await appendTurn(sink, dir, meta, { ...turnData, turn: { id: "t2", sharedPrompt: "جديد", customs: {} }, attemptId: "at-new" });
+    const parsed = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.turns).toHaveLength(2);
+    expect(parsed.turns[0].attemptId).toBe("legacy:legacy-turn:turns/t01");
+    expect(parsed.turns[0].results[0].text).toBe("جواب قديم");
+    expect(parsed.turns[0].results[0].usage.inputTokens).toBe(1);
+    expect(parsed.turns[1].attemptId).toBe("at-new");
+    expect(await sink.readFile(dir + "/turns/t01/00_shared-prompt.md")).toBe("سؤال قديم\n");
+  });
+
+  it("يرفض مدخلًا بحالة غير صالحة بدل نشره", async () => {
+    const sink = memoryFileSink();
+    const broken = {
+      schemaVersion: 2,
+      meta,
+      updatedAt: 1,
+      turns: [{ id: "t1", turnId: "t1", attemptId: "a", attempt: 1, kind: "send", dirName: "turns/t01", sharedPrompt: null, prompts: [], results: [{ targetId: "t1", text: "x", status: "bogus", usage: null }], status: { t1: "bogus" }, errors: {}, createdAt: 1 }],
+    };
+    await sink.writeFile(dir + "/meta.json", JSON.stringify(broken));
+    await expect(appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-new" })).rejects.toThrow();
+  });
+});
+
+describe("atomic publication", () => {
+  it("لا ينشر التمريرة عند فشل ملف نتيجة ويحفظ المخطط السابق", async () => {
+    const base = memoryFileSink();
+    await appendTurn(base, dir, meta, { ...turnData, turn: { id: "first", sharedPrompt: "الأولى", customs: {} }, attemptId: "at-1" });
+    const before = await base.readFile(dir + "/meta.json");
+    const sink = failingSink(base, (op, p) => op === "write" && p.includes("02_"));
+    await expect(appendTurn(sink, dir, meta, { ...turnData, turn: { id: "second", sharedPrompt: "الثانية", customs: {} }, attemptId: "at-2" })).rejects.toThrow();
+    expect(await base.readFile(dir + "/meta.json")).toBe(before);
+    expect(JSON.parse(before).turns).toHaveLength(1);
+    expect((await base.tree()).filter((p) => p.includes(".tmp"))).toEqual([]);
+  });
+
+  it("يحفظ المخطط السابق إذا فشل تغيير اسم meta.json", async () => {
+    const base = memoryFileSink();
+    await appendTurn(base, dir, meta, { ...turnData, turn: { id: "first", sharedPrompt: "الأولى", customs: {} }, attemptId: "at-1" });
+    const before = await base.readFile(dir + "/meta.json");
+    const sink = failingSink(base, (op, p) => op === "rename" && p.includes("meta.json.tmp"));
+    await expect(appendTurn(sink, dir, meta, { ...turnData, turn: { id: "second", sharedPrompt: "الثانية", customs: {} }, attemptId: "at-2" })).rejects.toThrow();
+    expect(await base.readFile(dir + "/meta.json")).toBe(before);
+  });
+
+  it("ينشر session.md قبل meta.json كعلامة التزام", async () => {
+    const base = memoryFileSink();
+    const calls: string[] = [];
+    await appendTurn(recordingSink(base, calls), dir, meta, { ...turnData, attemptId: "at-1" });
+    const md = calls.findIndex((c) => c.includes("session.md.tmp->"));
+    const metaRename = calls.findIndex((c) => c.includes("meta.json.tmp->"));
+    expect(md).toBeGreaterThanOrEqual(0);
+    expect(metaRename).toBeGreaterThan(md);
+  });
+
+  it("يولّد session.md من المخطط ويتجاهل نصًا قديمًا متناقضًا", async () => {
+    const base = memoryFileSink();
+    await appendTurn(base, dir, meta, { ...turnData, turn: { id: "first", sharedPrompt: "الأولى", customs: {} }, attemptId: "at-1" });
+    await base.writeFile(dir + "/session.md", "# نص قديم متناقض\n\n## تمرّة 99\nنص لم يُكتب يومًا");
+    await appendTurn(base, dir, meta, { ...turnData, turn: { id: "second", sharedPrompt: "الثانية", customs: {} }, attemptId: "at-2" });
+    const md = await base.readFile(dir + "/session.md");
+    expect(md).not.toContain("نص قديم متناقض");
+    expect(md).not.toContain("## تمرّة 99");
+    expect(md).toContain("## تمرّة 1");
+    expect(md).toContain("## تمرّة 2");
+  });
+});
+
+describe("serialization and idempotency", () => {
+  it("يسلسل إضافتين متزامنتين لنفس المجلد دون فقدان", async () => {
+    const sink = memoryFileSink();
+    await Promise.all([
+      appendTurn(sink, dir, meta, { ...turnData, turn: { id: "a", sharedPrompt: "أ", customs: {} }, attemptId: "at-a" }),
+      appendTurn(sink, dir, meta, { ...turnData, turn: { id: "b", sharedPrompt: "ب", customs: {} }, attemptId: "at-b" }),
+    ]);
+    const parsed = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    expect(parsed.turns.map((t: { attemptId: string }) => t.attemptId).sort()).toEqual(["at-a", "at-b"]);
+    expect(parsed.turns.map((t: { dirName: string }) => t.dirName).sort()).toEqual(["turns/t01", "turns/t02"]);
+  });
+
+  it("نفس attemptId متكرر لا يكرر المدخل ولا المجلد", async () => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1" });
+    await appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1" });
+    const parsed = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    expect(parsed.turns).toHaveLength(1);
+    // 00_shared-prompt.md plus one result file per target: no second attempt directory.
+    expect((await sink.tree()).filter((p) => p.includes("/turns/"))).toHaveLength(3);
+  });
+
+  it("مدخل بنفس attemptId وبيانات مختلفة يرفض بدل استبدال المُلتزَم", async () => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1" });
+    await expect(appendTurn(sink, dir, meta, {
+      ...turnData,
+      attemptId: "at-1",
+      results: [{ targetId: "t1", text: "نص مختلف تمامًا", usage: null }],
+      status: { t1: "done" },
+      errors: {},
+    })).rejects.toThrow();
+    const parsed = JSON.parse(await sink.readFile(dir + "/meta.json"));
+    expect(parsed.turns).toHaveLength(1);
+    expect(parsed.turns[0].results[0].text).toBe("جواب GPT هنا");
+  });
+
+  it("يرفض إضافة جديدة بعد وجود شاهد حذف على القرص", async () => {
+    const sink = memoryFileSink();
+    await sink.writeFile("sessions/tombstones/ab12cd34.json", JSON.stringify({ id: "ab12cd34", deletedAt: 1 }));
+    await expect(appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1" })).rejects.toThrow();
+    expect(await sink.exists(dir + "/meta.json")).toBe(false);
+  });
+});

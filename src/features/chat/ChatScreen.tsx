@@ -625,7 +625,16 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       }
       await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
         turn: { id: turnId, sharedPrompt: text, customs: {} },
-        prompts: [],
+        // A v2 synthesis entry carries the primary target snapshot so recovery can
+        // attribute its usage instead of fabricating a provider.
+        prompts: [{
+          targetId,
+          providerId: primary.providerId,
+          modelId: primary.modelId,
+          text,
+          hasShared: true,
+          hasCustom: false,
+        }],
         results: [{ targetId, text, usage: usage ?? null }],
         status: { [targetId]: status },
         errors: error === undefined ? {} : { [targetId]: error },

@@ -578,11 +578,22 @@ describe("sendTurn", () => {
     const sink = memoryFileSink();
     setFileSink(sink);
     const s = await mkSession("guard", { onDiskDir: "guarddir" });
-    await sink.writeFile("sessions/guarddir/meta.json", JSON.stringify({ meta: s, turns: [{ existing: true }] }));
+    // A valid legacy (v1) entry: a malformed manifest is now rejected by validation.
+    await sink.writeFile("sessions/guarddir/meta.json", JSON.stringify({
+      meta: s,
+      turns: [{
+        turn: { id: "kept-turn", sharedPrompt: "سؤال محفوظ", customs: {} },
+        prompts: [{ targetId: "k1", providerId: "openrouter", modelId: "gpt-4o", text: "سؤال محفوظ", hasShared: true, hasCustom: false }],
+        results: [{ targetId: "k1", text: "جواب محفوظ", usage: null }],
+        status: { k1: "done" }, errors: {}, createdAt: 1, dirName: "turns/t01",
+      }],
+    }));
     await sendTurn(baseArgs(s), makeCb().cb);
     const meta = JSON.parse(await sink.readFile("sessions/guarddir/meta.json"));
+    expect(meta.schemaVersion).toBe(2);
     expect(meta.turns).toHaveLength(2);
-    expect(meta.turns[0].existing).toBe(true);
+    expect(meta.turns[0].turnId).toBe("kept-turn");
+    expect(meta.turns[0].results[0].text).toBe("جواب محفوظ");
   });
 
   it("بلا onDiskDir: لا تُكتب ملفات ولا يُحدَّث onDisk", async () => {
@@ -981,7 +992,7 @@ describe("المهمة 5 — الإسناد الدائم للبث الجزئي",
     const sink = memoryFileSink();
     // الفشل في session.md فقط: صف الأولوية هو الدكسي، والأرشفة (appendTurn) ثراث جانبي
     const failing: typeof sink = { ...sink, writeFile: async (path: string, data: string) => {
-      if (path.endsWith("session.md")) throw new Error("قرص ممتلئ");
+      if (path.includes("session.md")) throw new Error("قرص ممتلئ");
       return sink.writeFile(path, data);
     } };
     setFileSink(failing);

@@ -123,6 +123,10 @@ describe("open-generation race guards", () => {
 
   it("remove clears the deleted session's composer draft", async () => {
     vi.spyOn(repos, "getMessages").mockResolvedValue([message("gone")]);
+    // Durable deletion needs a real session row: an unknown id must not be "deleted".
+    const gone = { id: "gone", title: "ذهبت", createdAt: 0, updatedAt: 0, modelIds: [], primaryTarget: null, layoutMode: "vertical" as const, onDisk: false };
+    await repos.createSession(gone);
+    useSessionsStore.setState({ sessions: [gone] });
     await useSessionsStore.getState().open("gone");
     useComposerStore.getState().setShared("gone", "\u0645\u0633\u0648\u062F\u0629");
     expect(useComposerStore.getState().getDraft("gone").sharedPrompt).not.toBe("");

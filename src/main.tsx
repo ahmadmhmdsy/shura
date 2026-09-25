@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { Toaster, toast } from "sonner";
@@ -6,23 +6,13 @@ import "./styles/globals.css";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
-import { recoverFromDisk } from "@/lib/markdown/parser";
-import { appendMessage, createSession, reconcileInterruptedTurns, recordUsage } from "@/lib/db/repos";
+import { importSessionAtomically, reconcileInterruptedTurns } from "@/lib/db/repos";
+import { hasTombstone } from "@/lib/db/repos";
 import { isTauri } from "@/lib/transport/transport";
 import { bootstrapDesktop } from "@/lib/desktop/bootstrap";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
-
-export interface StartupPhases {
-  bootstrap: () => Promise<void>;
-  loadSettings: () => Promise<void>;
-  loadSessions: () => Promise<void>;
-  recover: () => Promise<void>;
-  activeOperationKeys: () => readonly string[];
-  reconcile: (liveOperationIds: ReadonlySet<string>) => Promise<unknown>;
-  /** Bounded startup warning sink; a failure must be visible, not silent. */
-  warn?: (message: string) => void;
-  render: () => void;
-}
+import { noticeFromRecoveryReport, recoverSessionsFromDisk, type StartupNotice } from "@/lib/startupRecovery";
+import { StartupNoticeBanner } from "@/features/startup/StartupNotice";
 
 async function runNonFatalPhase(phase: () => Promise<void> | void): Promise<void> {
   try {
@@ -36,7 +26,12 @@ export async function runStartup(phases: StartupPhases): Promise<void> {
   await runNonFatalPhase(phases.bootstrap);
   await runNonFatalPhase(phases.loadSettings);
   await runNonFatalPhase(phases.loadSessions);
-  await runNonFatalPhase(phases.recover);
+  let notice: StartupNotice | null = null;
+  try {
+    notice = await phases.recoverNotice();
+  } catch {
+    // A failed recovery phase must not prevent the first render; it is reported below.
+  }
   let liveOperationKeys: readonly string[] | null = null;
   await runNonFatalPhase(async () => {
     liveOperationKeys = phases.activeOperationKeys();
@@ -51,25 +46,51 @@ export async function runStartup(phases: StartupPhases): Promise<void> {
       await phases.reconcile(new Set(liveOperationKeys));
     });
   }
-  phases.render();
+  phases.render(notice);
+}
+export interface StartupPhases {
+  bootstrap: () => Promise<void>;
+  loadSettings: () => Promise<void>;
+  loadSessions: () => Promise<void>;
+  /** Recovery returns the visible notice, so nothing is reported as a clean success. */
+  recoverNotice: () => Promise<StartupNotice | null>;
+  activeOperationKeys: () => readonly string[];
+  reconcile: (liveOperationIds: ReadonlySet<string>) => Promise<unknown>;
+  /** Bounded startup warning sink; a failure must be visible, not silent. */
+  warn?: (message: string) => void;
+  render: (notice?: StartupNotice | null) => void;
 }
 
-// المهمة 14: تهيئة سطح المكتب (نقل بلا CORS عبر plugin-http + حوض ملفات أصلي + جذر الجلسات).
-// الاسترجاع يبقى مرحلة مستقلة غير مميتة، ثم تُحاول المطابقة قبل أول عرض.
-async function recoverSessionsFromDisk(): Promise<void> {
-  const { sessionRootDir } = useSettingsStore.getState();
-  if (!isFilePersistActive() || !sessionRootDir || useSessionsStore.getState().sessions.length !== 0) return;
+// المهمة 14: تهيئة سطح المكتب ثم الاسترجاع كمرحلة مستقلة غير مميتة، قبل أول عرض.
+// الاستيراد ذري لكل جلسة (بيانات + جدول التمريرات) وأي خطأ يصبح تحذيرًا مرئيًا.
+async function recoverNotice(): Promise<StartupNotice | null> {
+  const sessionRootDir = useSettingsStore.getState().sessionRootDir;
+  const report = await recoverSessionsFromDisk({
+    sink: getFileSink(),
+    rootDir: sessionRootDir ?? "",
+    filePersistActive: isFilePersistActive(),
+    existingSessionCount: () => useSessionsStore.getState().sessions.length,
+    isTombstoned: hasTombstone,
+    importSession: (payload) => importSessionAtomically(
+      payload.meta, payload.messages, payload.turns, payload.usageEvents,
+    ),
+    onImported: () => useSessionsStore.getState().load(),
+  });
+  if (report.imported.length > 0) {
+    toast.success(`استُرجعت ${report.imported.length} جلسة من القرص`);
+  }
+  return noticeFromRecoveryReport(report);
+}
 
-  const restored = await recoverFromDisk(getFileSink(), sessionRootDir);
-  for (const r of restored) {
-    await createSession(r.meta);
-    for (const m of r.messages) await appendMessage(m);
-    for (const u of r.usageEvents) await recordUsage(u);
-  }
-  if (restored.length) {
-    await useSessionsStore.getState().load();
-    toast.success(`استُرجعت ${restored.length} جلسة من القرص`);
-  }
+function Root({ notice }: { notice: StartupNotice | null }) {
+  const [dismissed, setDismissed] = useState(false);
+  return (
+    <>
+      {notice && !dismissed ? <StartupNoticeBanner notice={notice} onDismiss={() => setDismissed(true)} /> : null}
+      <App />
+      <Toaster richColors position="bottom-left" />
+    </>
+  );
 }
 
 const rootElement = typeof document === "undefined" ? null : document.getElementById("root");
@@ -81,16 +102,15 @@ if (rootElement) {
     },
     loadSettings: () => useSettingsStore.getState().load(),
     loadSessions: () => useSessionsStore.getState().load(),
-    recover: recoverSessionsFromDisk,
+    recoverNotice,
     activeOperationKeys: () => sessionOperationCoordinator.activeOperationKeys(),
     reconcile: reconcileInterruptedTurns,
     warn: (message) => toast.warning(message),
-    render: () => {
+    render: (notice) => {
       root.render(
         <React.StrictMode>
-          <App />
-          <Toaster richColors position="bottom-left" />
-        </React.StrictMode>,
+          <Root notice={notice ?? null} />
+        </React.StrictMode>
       );
     },
   });

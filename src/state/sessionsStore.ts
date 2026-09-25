@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import type { ChatMessage, SessionMeta, TargetConfig } from "@/types";
-import { appendMessage, createSession, deleteSession, getMessages, listSessions, updateSession } from "@/lib/db/repos";
+import { appendMessage, createSession, getMessages, getSession, listSessions, updateSession } from "@/lib/db/repos";
+import { deleteSessionDurably, type DeleteSessionResult } from "@/lib/sessionDeletion";
+import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
+import { useSettingsStore } from "./settingsStore";
 import type { AppendMessageResult } from "@/lib/db/repos";
 import { newId } from "@/lib/id";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
@@ -22,7 +25,7 @@ interface SessionsState {
   newSession(): Promise<SessionMeta>;
   open(id: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
-  remove(id: string): Promise<void>;
+  remove(id: string): Promise<DeleteSessionResult>;
   /** تثبيت بيانات الأهداف المختارة في بيانات جلسة (Dexie + القائمة المحلية)؛ يُتجاهل إن لم يتغير شيء */
   setTargets(id: string, targets: TargetConfig[]): Promise<void>;
   appendMessageLocal(msg: ChatMessage, canPublish?: () => boolean): Promise<AppendMessageResult>;
@@ -87,12 +90,22 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       sessionOperationCoordinator.cancel(id);
       await sessionOperationCoordinator.waitForIdle(id);
     }
-    await deleteSession(id);
+    // The live row is the deletion payload: its onDiskDir is the only safe archive path.
+    const target = get().sessions.find((session) => session.id === id) ?? await getSession(id);
+    if (!target) throw new Error("لا توجد جلسة بهذا المعرّف للحذف");
+    // Durable deletion: the disk witness, then the database transaction, then the
+    // archive bytes. A rejection leaves the session, its draft, and its archive intact.
+    const result = await deleteSessionDurably(
+      target,
+      isFilePersistActive() ? getFileSink() : null,
+      useSettingsStore.getState().sessionRootDir ?? "sessions",
+    );
     // The draft is cleared only after a successful durable delete: a rejected removal
     // must leave the session and its draft intact and recoverable.
     useComposerStore.getState().clearSession(id);
-    if (get().openGeneration !== gen) return;
+    if (get().openGeneration !== gen) return result;
     set((s) => ({ sessions: s.sessions.filter((x) => (x.id !== id)), currentId: s.currentId === id ? null : s.currentId, messages: s.currentId === id ? [] : s.messages }));
+    return result;
   },
   // المرجع: .superpowers/sdd/hardening-task-3-target-fix.md — عقد async قابل للرصد:
   // تحديث تفاؤلي للقائمة المحلية فورًا، وعند فشل updateSession تراجع فقط إن بقيت القيمة الحية
