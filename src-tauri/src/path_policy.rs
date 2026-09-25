@@ -33,13 +33,22 @@ mod tests {
 
     #[test]
     fn child_is_allowed_and_sibling_prefix_is_not() {
-        assert!(is_within_root(Path::new("/root"), Path::new("/root/session")));
-        assert!(!is_within_root(Path::new("/root"), Path::new("/rootish/session")));
+        assert!(is_within_root(
+            Path::new("/root"),
+            Path::new("/root/session")
+        ));
+        assert!(!is_within_root(
+            Path::new("/root"),
+            Path::new("/rootish/session")
+        ));
     }
 
     #[test]
     fn traversal_is_rejected() {
-        assert!(!is_within_root(Path::new("/root"), Path::new("/root/../other")));
+        assert!(!is_within_root(
+            Path::new("/root"),
+            Path::new("/root/../other")
+        ));
     }
 
     #[test]
@@ -58,25 +67,46 @@ mod tests {
 
     #[test]
     fn unrelated_absolute_path_is_rejected() {
-        assert!(!is_within_root(Path::new("/root"), Path::new("/etc/shadow")));
+        assert!(!is_within_root(
+            Path::new("/root"),
+            Path::new("/etc/shadow")
+        ));
     }
 
     #[test]
     fn relative_candidate_outside_root_is_rejected() {
-        assert!(!is_within_root(Path::new("/root"), Path::new("session/file.md")));
+        assert!(!is_within_root(
+            Path::new("/root"),
+            Path::new("session/file.md")
+        ));
     }
 
     #[test]
     fn relative_root_and_candidate_are_matched() {
-        assert!(is_within_root(Path::new("root"), Path::new("root/session/file.md")));
-        assert!(!is_within_root(Path::new("root"), Path::new("rootish/session/file.md")));
+        assert!(is_within_root(
+            Path::new("root"),
+            Path::new("root/session/file.md")
+        ));
+        assert!(!is_within_root(
+            Path::new("root"),
+            Path::new("rootish/session/file.md")
+        ));
     }
 
     #[cfg(windows)]
     #[test]
     fn windows_separators_are_checked() {
-        assert!(is_within_root(Path::new(r"C:\root"), Path::new(r"C:\root\session")));
-        assert!(!is_within_root(Path::new(r"C:\root"), Path::new(r"C:\rootish\session")));
-        assert!(!is_within_root(Path::new(r"C:\root"), Path::new(r"C:\root\..\other")));
+        assert!(is_within_root(
+            Path::new(r"C:\root"),
+            Path::new(r"C:\root\session")
+        ));
+        assert!(!is_within_root(
+            Path::new(r"C:\root"),
+            Path::new(r"C:\rootish\session")
+        ));
+        assert!(!is_within_root(
+            Path::new(r"C:\root"),
+            Path::new(r"C:\root\..\other")
+        ));
     }
 }

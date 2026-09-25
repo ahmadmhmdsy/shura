@@ -397,9 +397,17 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
             if (isWarningVisible()) toast.warning(warning);
           },
           onAppended: (message) => {
-            if (acceptsOperationCallback(message.operationId ?? "", message.attemptId ?? "", message.turnId) && isCanonicalAssistantMessage(message)) {
+            if (!acceptsOperationCallback(message.operationId ?? "", message.attemptId ?? "", message.turnId)) return;
+            if (isCanonicalAssistantMessage(message)) {
               currentAttemptNumber = message.attempt;
               publishMessageProgress(message, message.text, message.status, message.error);
+              return;
+            }
+            // A user prompt row is durable but is not a progress target. It still has to
+            // reach the live store: without it the transcript loses the question until a
+            // reload, and the next stateful turn in this session sends no history at all.
+            if (message.role === "user" && message.sessionId === sessionId) {
+              upsertMessagesLocal([message], { canPublish: isLiveView });
             }
           },
         },

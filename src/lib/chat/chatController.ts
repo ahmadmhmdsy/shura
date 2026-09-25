@@ -179,6 +179,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
   }
 
   type BoundSignal = { signal: AbortSignal; cleanup: () => void };
+  type StreamState = { accum: string; persistedLen: number; timer: ReturnType<typeof setInterval>; queue: Promise<unknown> };
   const boundSignals = new Map<string, BoundSignal>();
   const signalFor = (targetId: string): AbortSignal => {
     const existing = boundSignals.get(targetId);
@@ -251,6 +252,9 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     // bounded finalization warning before a replacement starts.
     observe(() => cb.onWarning?.(message));
   };
+  // Assigned when the stream states are built. A cancellation can read it because every
+  // call site of finalizeCancelled runs after that point.
+  let streamStates: Map<string, StreamState> | null = null;
   const finalizeCancelled = async (): Promise<ChatMessage[]> => {
     if (stopStreams) await stopStreams().catch(() => undefined);
     const terminalStatuses: TurnStatus[] = [];
@@ -262,7 +266,11 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         terminalStatuses.push(row.status);
         continue;
       }
-      const stopped: ChatMessage = { ...row, status: "stopped" };
+      // The checkpoint interval persists a streaming row at most every 250ms, so the tail
+      // the user can see is not necessarily in the durable row yet. The accumulated buffer
+      // is that tail: without it a Stop in the next quarter second deletes visible text.
+      const accum = streamStates?.get(row.targetId ?? "")?.accum ?? "";
+      const stopped: ChatMessage = { ...row, text: accum.length > row.text.length ? accum : row.text, status: "stopped" };
       const accepted = await appendMessage(stopped).then((result) => {
         if (result.accepted) {
           durableRows.set(stopped.id, result.current ?? stopped);
@@ -422,7 +430,8 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       if (!superseded && isOwned()) warn("تعذر تحديث سجل المحاولة السابقة");
     }
 
-    const streams = new Map<string, { accum: string; persistedLen: number; timer: ReturnType<typeof setInterval>; queue: Promise<unknown> }>();
+    const streams = new Map<string, StreamState>();
+    streamStates = streams;
     const closingTargets = new Set<string>();
     const finalizedTargets = new Set<string>();
     const checkpointWrite = (targetId: string, text: string): void => {

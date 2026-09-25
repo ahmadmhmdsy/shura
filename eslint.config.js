@@ -5,7 +5,9 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri/target", ".superpowers"] },
+  // Generated output is not project source: linting it would make the gate depend on
+  // whether a previous coverage or E2E run happened to leave artifacts on disk.
+  { ignores: ["dist", "coverage", "playwright-report", "test-results", "src-tauri/target", ".superpowers"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

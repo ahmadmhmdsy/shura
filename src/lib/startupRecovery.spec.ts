@@ -29,7 +29,7 @@ describe("recoverSessionsFromDisk", () => {
   it("يستورد الجلسة ذريًا بجدول التمريرات بدل حلقة صفوف مفردة", async () => {
     const sink = memoryFileSink();
     await appendTurn(sink, "sessions/folder-st", meta, turnData);
-    const importSession = vi.fn(async (_payload: unknown) => "imported" as const);
+    const importSession = vi.fn(async (payload: unknown) => { void payload; return "imported" as const; });
     const report = await recoverSessionsFromDisk(deps(sink, { importSession }));
     expect(importSession).toHaveBeenCalledTimes(1);
     const payload = importSession.mock.calls[0]![0] as ImportPayload;

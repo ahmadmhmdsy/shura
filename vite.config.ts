@@ -2,10 +2,36 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import path from "node:path";
+// __dirname is not defined in an ESM config (the file was previously type-checked as CJS
+// and failed the gate with TS2688-class errors); import.meta.url is the real ESM source of
+// truth, so the alias resolves identically under Vite, Vitest, and tsc.
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
-  test: { environment: "jsdom", globals: true, setupFiles: ["src/test/setup.ts"] },
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // 1200 kB is the release budget recorded in docs/environment.md; a chunk above it
+  // needs a documented code split before release.
+  build: { chunkSizeWarningLimit: 1200 },
+  // Tooling that writes through a sibling temp directory (for example a test runner staging
+  // a spec as e2e/.app.spec.ts.<pid>.<uuid>.tmpdir/app.spec.ts.tmp) makes chokidar watch a file
+  // that is replaced mid-read; on Windows that aborts the dev server with EBUSY.
+  server: { watch: { ignored: ["**/.*.tmpdir/**"] } },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["src/test/setup.ts"],
+    // The browser suite in e2e/ is Playwright's: collecting it here would register
+    // Playwright's test() inside Vitest and abort the whole run.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/src-tauri/**", "e2e/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      // Only application code is measured. Test helpers, the test setup, and the
+      // Playwright suite are infrastructure, not product surface.
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/test/**", "**/*.spec.{ts,tsx}", "src/vite-env.d.ts", "src/spec-node-types.d.ts"],
+      thresholds: { statements: 80, branches: 75, functions: 80, lines: 80 },
+    },
+  },
 });

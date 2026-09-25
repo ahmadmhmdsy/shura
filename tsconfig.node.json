@@ -1,1 +1,16 @@
-{ "compilerOptions": { "composite": true, "module": "ESNext", "moduleResolution": "bundler", "types": ["node"] }, "include": ["vite.config.ts", "eslint.config.js"] }
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "e2e/**/*.ts"]
+}

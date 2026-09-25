@@ -46,7 +46,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
             <select aria-label="مزود النموذج الأساسي" className="bg-sura-bg border border-sura-border rounded p-2 text-sm" value={pSel} onChange={(e) => selectProvider(e.target.value as ProviderId)}>
               {listProviderIds().map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
             </select>
-            <select className="bg-sura-bg border border-sura-border rounded p-2 text-sm flex-1" value={mSel} onChange={(e) => setMSel(e.target.value)}>
+            <select aria-label="نموذج الموديل الأساسي" className="bg-sura-bg border border-sura-border rounded p-2 text-sm flex-1" value={mSel} onChange={(e) => setMSel(e.target.value)}>
               <option value="">— اختر —</option>
               {PROVIDERS[pSel].staticModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
@@ -61,12 +61,12 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
           {/* [دور إصلاح مأذون — بند 2 من المراجعة الختامية] الزر «تغيير» المعطل ووعد «نافذة اختيار
               مجلد» حذفا (قرار منسق): الاختيار خارج نطاق capabilities وسيُحجب بصمت — النص الصادق
               بديلًا عن الوعد، والمدخل للعرض فقط يبقى. */}
-          <Input readOnly value={sessionRootDir ?? "Documents\\Shura (يعمل داخل تطبيق سطح المكتب)"} className="text-xs" />
+          <Input aria-label={ar.sessionDir} readOnly value={sessionRootDir ?? "Documents\\Shura (يعمل داخل تطبيق سطح المكتب)"} className="text-xs" />
           <p className="text-[11px] text-sura-muted">المسار ثابت في هذه النسخة: Documents\Shura</p>
         </section>
         <section className="space-y-2 border-t border-sura-border pt-3">
           <h3 className="text-sm font-medium">{ar.timeout}</h3>
-          <Input type="number" min={10} value={timeoutDraft ?? String(Math.round(timeoutMs / 1000))}
+          <Input aria-label={ar.timeout} type="number" min={10} value={timeoutDraft ?? String(Math.round(timeoutMs / 1000))}
             onChange={(e) => setTimeoutDraft(e.target.value)}
             onBlur={() => {
               if (timeoutDraft === null) return;
