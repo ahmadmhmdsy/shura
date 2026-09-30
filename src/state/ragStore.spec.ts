@@ -22,7 +22,7 @@ describe("ragStore", () => {
     await db.rag_chunks.clear();
     await db.rag_folders.clear();
     await db.settings.clear();
-    useRagStore.setState({ settings: DEFAULT_RAG_SETTINGS, documents: [], folders: [], loaded: false, loading: false, error: null, indexingErrors: {} });
+    useRagStore.setState({ settings: DEFAULT_RAG_SETTINGS, documents: [], folders: [], loaded: false, loading: false, error: null, indexingErrors: {}, indexingProgress: { totalFiles: 0, completedFiles: 0, currentFile: null, status: "idle" } });
   });
 
   it("load يجلب الإعدادات والمستندات والمجلدات", async () => {
@@ -69,6 +69,44 @@ describe("ragStore", () => {
     expect(useRagStore.getState().indexingErrors).toEqual({
       "file-1": "خطأ 1",
       "file-2": "خطأ 2",
+    });
+  });
+
+  it("setIndexingProgress يحدّث حالة تقدم الفهرسة", () => {
+    useRagStore.getState().setIndexingProgress({ totalFiles: 10, status: "indexing" });
+    expect(useRagStore.getState().indexingProgress).toEqual({
+      totalFiles: 10,
+      completedFiles: 0,
+      currentFile: null,
+      status: "indexing",
+    });
+  });
+
+  it("setIndexingProgress يدمج التحديثات الجزئية مع الحالة السابقة", () => {
+    useRagStore.getState().setIndexingProgress({ totalFiles: 5 });
+    useRagStore.getState().setIndexingProgress({ completedFiles: 2, currentFile: "doc.pdf" });
+    expect(useRagStore.getState().indexingProgress).toEqual({
+      totalFiles: 5,
+      completedFiles: 2,
+      currentFile: "doc.pdf",
+      status: "idle",
+    });
+  });
+
+  it("تتبع تقدم الفهرسة أثناء فهرسة الملفات", () => {
+    const { setIndexingProgress } = useRagStore.getState();
+    setIndexingProgress({ totalFiles: 3, status: "indexing" });
+    setIndexingProgress({ currentFile: "a.pdf" });
+    setIndexingProgress({ completedFiles: 1 });
+    setIndexingProgress({ currentFile: "b.pdf" });
+    setIndexingProgress({ completedFiles: 2 });
+    setIndexingProgress({ currentFile: "c.pdf" });
+    setIndexingProgress({ completedFiles: 3, status: "idle" });
+    expect(useRagStore.getState().indexingProgress).toEqual({
+      totalFiles: 3,
+      completedFiles: 3,
+      currentFile: "c.pdf",
+      status: "idle",
     });
   });
 });

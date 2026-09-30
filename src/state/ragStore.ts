@@ -19,6 +19,12 @@ interface RagState {
   loading: boolean;
   error: string | null;
   indexingErrors: Record<string, string>;
+  indexingProgress: {
+    totalFiles: number;
+    completedFiles: number;
+    currentFile: string | null;
+    status: "idle" | "indexing" | "error";
+  };
 
   load(): Promise<void>;
   updateSettings(patch: Partial<RagSettings>): Promise<void>;
@@ -29,6 +35,7 @@ interface RagState {
   refreshDocuments(): Promise<void>;
   setIndexingError(fileId: string, error: string): void;
   clearIndexingError(fileId: string): void;
+  setIndexingProgress(progress: Partial<RagState["indexingProgress"]>): void;
 }
 
 export const useRagStore = create<RagState>((set, get) => ({
@@ -39,6 +46,7 @@ export const useRagStore = create<RagState>((set, get) => ({
   loading: false,
   error: null,
   indexingErrors: {},
+  indexingProgress: { totalFiles: 0, completedFiles: 0, currentFile: null, status: "idle" },
 
   async load() {
     set({ loading: true, error: null });
@@ -109,5 +117,11 @@ export const useRagStore = create<RagState>((set, get) => ({
       const { [fileId]: _, ...rest } = state.indexingErrors;
       return { indexingErrors: rest };
     });
+  },
+
+  setIndexingProgress(progress: Partial<RagState["indexingProgress"]>) {
+    set((state) => ({
+      indexingProgress: { ...state.indexingProgress, ...progress },
+    }));
   },
 }));
