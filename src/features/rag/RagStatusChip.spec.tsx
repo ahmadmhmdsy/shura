@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summarizeRagStatus } from "./RagStatusChip";
-import type { RagDocument, RagFolder } from "@/types";
+import type { RagDocument } from "@/types";
 
 const doc = (over: Partial<RagDocument>): RagDocument => ({
   id: "d", source: "upload", persistence: "persistent", fileName: "f", fileType: "pdf",

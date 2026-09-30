@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { Composer } from "./Composer";
 import { TurnView } from "./TurnView";
+import { RagStatusChip } from "@/features/rag/RagStatusChip";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore, EMPTY_COMPOSER_DRAFT } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -23,7 +24,7 @@ function advanceViewGeneration(ref: { current: number }): void {
   ref.current += 1;
 }
 
-export function ChatScreen({ session }: { session: SessionMeta }) {
+export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; onOpenSettings(): void }) {
   // الربط الموقّع: كل القراءات والأكشنات تحمل معرف الجلسة نفسه — لا سطح مؤلف شامل بعد الخطوة 5
   const sessionId = session.id;
   const messages = useSessionsStore((s) => s.messages);
@@ -34,7 +35,15 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     const d = s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT;
     return { targets: d.targets, syncMode: d.syncMode, sharedPrompt: d.sharedPrompt, customs: d.customs, focusTargetId: d.focusTargetId };
   }));
-  const settings = useSettingsStore();
+  // [M9] Use selectors to prevent re-renders on unrelated settings changes.
+  // Only subscribe to the specific slices that ChatScreen actually reads.
+  const providerKeys = useSettingsStore((s) => s.providerKeys);
+  const timeoutMs = useSettingsStore((s) => s.timeoutMs);
+  const primaryTarget = useSettingsStore((s) => s.primaryTarget);
+  const [toolActivity, setToolActivity] = useState<Record<string, string>>({});
+  const agentMode = useComposerStore((s) => (s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT).agentMode);
+  const ragSettings = useSettingsStore((s) => s.ragSettings);
+  const multiStepTools = ragSettings.agentMode === "always" || agentMode;
   const subscribeOperations = useCallback((listener: () => void) => sessionOperationCoordinator.subscribe(listener), []);
   const operationSnapshot = useCallback(() => sessionOperationCoordinator.getVersion(), []);
   const operationVersion = useSyncExternalStore(subscribeOperations, operationSnapshot, () => 0);
@@ -44,6 +53,9 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     // explicitly so a remount/open rehydrates the latest progress snapshot.
     return operationVersion >= 0 ? sessionOperationCoordinator.progressFor(sessionId) : [];
   }, [sessionId, operationVersion]);
+  // [M10] Remove messages from dependency array to prevent re-renders on every message change.
+  // The effect only needs to re-run when the coordinator's progress changes (operationProgress),
+  // not when the messages array changes. Reading messages via getState() avoids the dependency.
   useEffect(() => {
     // An open/reopen payload is authoritative. Keep coordinator progress buffered
     // until it finishes, then apply the latest exact identity over that snapshot.
@@ -88,23 +100,23 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       const next = { ...message, text: progress.text, status: progress.status, error: progress.error };
       try { state.upsertMessagesLocal([next], { allowNewerAttempt: true, canPublish: () => useSessionsStore.getState().currentId === sessionId && sessionOperationCoordinator.isLatestOperation(progress.operationId, sessionId) }); } catch { /* live observer failure must not strand coordination */ }
     }
-  }, [operationProgress, sessionId, sessionLoading, upsertMessagesLocal, messages]);
+  }, [operationProgress, sessionId, sessionLoading, upsertMessagesLocal]);
   const sending = operationActive;
   const activeOperation = sessionOperationCoordinator.activeFor(sessionId);
-  const hasLivePrimary = Boolean(activeOperation && messages.some((message) =>
+  const hasLivePrimary = useMemo(() => Boolean(activeOperation && messages.some((message) =>
     message.sessionId === sessionId && message.role === "assistant" &&
-    message.operationId === activeOperation.id && (message.status === "pending" || message.status === "streaming")));
-  const hasLiveProgress = operationProgress.some((progress) => progress.status === "pending" || progress.status === "streaming");
+    message.operationId === activeOperation.id && (message.status === "pending" || message.status === "streaming"))), [activeOperation, messages, sessionId]);
+  const hasLiveProgress = useMemo(() => operationProgress.some((progress) => progress.status === "pending" || progress.status === "streaming"), [operationProgress]);
   // Before hydration the coordinator is the only trustworthy owner; after a terminal primary,
   // progress has no live entries so sidecar-only work is intentionally not cancellable.
-  const cancellable = Boolean(operationActive && (hasLivePrimary || hasLiveProgress || operationProgress.length === 0));
-  const stopDisabledFor = (message: ChatMessage): boolean => {
+  const cancellable = useMemo(() => Boolean(operationActive && (hasLivePrimary || hasLiveProgress || operationProgress.length === 0)), [operationActive, hasLivePrimary, hasLiveProgress, operationProgress]);
+  const stopDisabledFor = useMemo(() => (message: ChatMessage): boolean => {
     const active = sessionOperationCoordinator.activeFor(sessionId);
     if (!active || !cancellable) return true;
     return message.sessionId !== sessionId || message.role !== "assistant" || message.status !== "streaming" ||
       message.operationId !== active.id || !message.attemptId || !message.turnId ||
       typeof message.attempt !== "number" || message.attempt <= 0 || !message.targetId;
-  };
+  }, [cancellable, sessionId]);
   // [المهمة 4 - وضع السياق] قراءة حية من مخزن الجلسات (التبديل يعيد الرسم بلا remount):
   // session.contextMode غائب في الصفوف القديمة بالتالي stateful افتراضي ولا stateless ضمني أبدًا.
   const liveSession = useSessionsStore((s) => s.sessions.find((x) => x.id === sessionId));
@@ -164,6 +176,16 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
   async function doSend(): Promise<void> {
     if (sessionOperationCoordinator.isActive(sessionId)) {
       toast.warning("جارٍ تنفيذ عملية بالفعل");
+      return;
+    }
+    // [M11] Guard against sending with no targets or empty prompt.
+    if (targets.length === 0) {
+      toast.warning(ar.noTargets);
+      return;
+    }
+    const trimmedPrompt = sharedPrompt.trim();
+    if (!trimmedPrompt) {
+      toast.warning(ar.emptyPrompt);
       return;
     }
     const turn: Turn = { id: newId("turn"), sharedPrompt, customs: { ...customs } };
@@ -367,12 +389,13 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           operationIsCurrent,
           operationGeneration,
           contextMode,
+          multiStepTools,
           historyFor: () => historySnapshot,
           modelInfoFor: (targetId) => sourceAttempt?.targets.find((target) => target.targetId === targetId)?.modelInfo ?? targets.find((target) => target.targetId === targetId)?.modelInfo ?? { id: targetId, label: targetId },
-          apiKeyFor: (providerId) => settings.providerKeys[providerId] ?? "",
+          apiKeyFor: (providerId) => providerKeys[providerId] ?? "",
           sessionHeaderFor: (providerId) => headersFor(providerId, session.id),
           externalSignalFor: () => handle.controller.signal,
-          timeoutMs: settings.timeoutMs,
+          timeoutMs,
           assistantIds: Object.fromEntries(expectedMessageIds),
           assistantCreatedAts: baseResults?.[0] && retryTargetId ? { [retryTargetId]: baseResults[0].createdAt } : undefined,
         },
@@ -395,6 +418,16 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           },
           onWarning: (warning) => {
             if (isWarningVisible()) toast.warning(warning);
+          },
+          onToolExecutionStart: (targetId, toolName) => {
+            setToolActivity((prev) => ({ ...prev, [targetId]: toolName }));
+          },
+          onToolExecutionEnd: (targetId) => {
+            setToolActivity((prev) => {
+              const next = { ...prev };
+              delete next[targetId];
+              return next;
+            });
           },
           onAppended: (message) => {
             if (!acceptsOperationCallback(message.operationId ?? "", message.attemptId ?? "", message.turnId)) return;
@@ -446,6 +479,33 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
     sessionOperationCoordinator.cancel(sessionId);
   }
 
+  // Keyboard shortcuts: Ctrl+Enter (send), Escape (stop streaming)
+  const keyboardHandlerRef = useRef({ doSend: () => {}, cancel: () => {} });
+  // eslint-disable-next-line react-hooks/refs -- ref pattern avoids stale closures
+  keyboardHandlerRef.current = { doSend: () => void doSend(), cancel: () => cancelCurrentOperation() };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key === "Enter") {
+        event.preventDefault();
+        keyboardHandlerRef.current.doSend();
+      }
+      if (event.key === "Escape" && sending) {
+        event.preventDefault();
+        keyboardHandlerRef.current.cancel();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sending]);
+
+  // Focus management: focus main content on session switch
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (mainRef.current && !document.activeElement?.closest("[data-composer]")) {
+      mainRef.current.focus();
+    }
+  }, [sessionId]);
+
   async function extractSummary(): Promise<void> {
     if (sessionOperationCoordinator.isActive(sessionId)) {
       toast.warning("جارٍ تنفيذ عملية بالفعل");
@@ -460,7 +520,7 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
       toast.warning("الخلاصة موجودة بالفعل — لا خلاصة فوق خلاصة");
       return;
     }
-    const primary = settings.primaryTarget ?? (targets[0] ? { providerId: targets[0].providerId, modelId: targets[0].modelId } : null);
+    const primary = primaryTarget ?? (targets[0] ? { providerId: targets[0].providerId, modelId: targets[0].modelId } : null);
     if (!primary) {
       toast.warning("حدد النموذج الأساسي من الإعدادات أولًا");
       return;
@@ -782,10 +842,11 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
           sessionId: session.id,
           turnId,
           prompts: [{ targetId, providerId: primary.providerId, modelId: primary.modelId, text: promptText, hasShared: true, hasCustom: false }],
-          apiKeyFor: (providerId) => settings.providerKeys[providerId] ?? "",
+          apiKeyFor: (providerId) => providerKeys[providerId] ?? "",
           sessionHeaderFor: (providerId) => headersFor(providerId, session.id),
-          timeoutMs: settings.timeoutMs,
+          timeoutMs,
           contextMode,
+          multiStepTools: false,
           historyFor: () => history,
           modelInfoFor: () => targetSnapshot.modelInfo,
           externalSignalFor: () => handle.controller.signal,
@@ -932,16 +993,19 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
 
   if (targets.length === 0 && messages.length === 0) {
     return (
-      <main className="flex-1 flex flex-col h-full min-w-0">
-        <div className="flex-1 grid place-items-center text-sura-muted text-sm">أضف نماذج من (+) ثم اكتب سؤالك.</div>
+      <main ref={mainRef} tabIndex={-1} className="flex-1 flex flex-col h-full min-w-0">
+        <div className="flex-1 grid place-items-center text-sura-muted text-sm" role="status" aria-live="polite">أضف نماذج من (+) ثم اكتب سؤالك.</div>
         <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => { cancelCurrentOperation(); }} onExtractSummary={() => void extractSummary()} sending={sending} cancellable={cancellable} sessionTokens={sessionTokens} contextLimit={null} contextMode={contextMode} onContextModeChange={(next) => void onToggleContextMode(next)} />
       </main>
     );
   }
 
   return (
-    <main className="flex-1 flex flex-col h-full min-w-0">
-      <div className="flex-1 overflow-y-auto p-4 space-y-4" dir="rtl">
+    <main ref={mainRef} tabIndex={-1} className="flex-1 flex flex-col h-full min-w-0">
+      <div className="px-4 pt-3 flex justify-start">
+        <RagStatusChip onOpenSettings={onOpenSettings} />
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4" dir="rtl" role="log" aria-live="polite" aria-label="الرسائل">
         {turns.map(([turnId, t]) => (
           <TurnView key={turnId} prompts={t.prompts} results={t.results} layout={session.layoutMode}
             customPrompts={t.customPrompts} onToggleLayout={() => void onToggleLayout()}
@@ -963,9 +1027,9 @@ export function ChatScreen({ session }: { session: SessionMeta }) {
               const sharedMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "shared");
               const customMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "custom" && p.targetId === targetId);
               void persistTurn({ id: captured.turnId, sharedPrompt: sharedMsg?.text ?? null, customs: customMsg ? { [targetId]: customMsg.text } : {} }, targetId, [captured], { [targetId]: captured.id });
-            }} />
+            }} toolActivity={toolActivity} />
         ))}
-        {turns.length === 0 && <p className="text-sura-muted text-sm">لا رسائل بعد.</p>}
+        {turns.length === 0 && <p className="text-sura-muted text-sm" role="status" aria-live="polite">لا رسائل بعد.</p>}
       </div>
       <Composer sessionId={session.id} onSend={() => void doSend()} onStop={() => { cancelCurrentOperation(); }}
         onExtractSummary={() => void extractSummary()} sending={sending} cancellable={cancellable}

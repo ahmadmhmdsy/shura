@@ -70,7 +70,7 @@ function seed(session: import("@/types").SessionMeta): void {
   useSessionsStore.setState({ sessions: [session], currentId: session.id, messages: [], loading: false });
   useSettingsStore.setState({ providerKeys: { openrouter: "k" }, timeoutMs: 5000 });
   const targets = ONE.map((t) => ({ ...t, targetId: t.targetId + "_" + session.id }));
-  useComposerStore.setState({ drafts: { [session.id]: { targets, syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null } } });
+  useComposerStore.setState({ drafts: { [session.id]: { targets, syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null, agentMode: false } } });
 }
 
 // تمريرة جاهزة بمعرف هدف مطابق لأهداف المؤلف — تفعّل زر «إعادة» الذي يستدعي persistTurn.
@@ -112,7 +112,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     useSettingsStore.setState({ providerKeys: { openrouter: "k" }, timeoutMs: 5000 });
     useComposerStore.setState({ drafts: {} });
 
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
 
     expect(await screen.findByRole("button", { name: /إرسال/ })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("اكتب سؤالك الموحد للجميع…")).toBeInTheDocument();
@@ -122,7 +122,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
@@ -140,7 +140,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls.length).toBe(1));
     const call = sendProbe.calls[0];
@@ -180,7 +180,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const call = sendProbe.calls[0];
@@ -216,12 +216,12 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    const firstView = render(<ChatScreen session={s} />);
+    const firstView = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
 
     firstView.unmount();
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     expect(screen.getByLabelText("إعادة")).toBeDisabled();
     expect(screen.getByRole("button", { name: /استخرج خلاصة/ })).toBeDisabled();
     act(() => sessionOperationCoordinator.cancel(s.id));
@@ -246,7 +246,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       await Promise.resolve();
     });
     expect(useSessionsStore.getState().messages).toHaveLength(0);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await waitFor(() => expect(useSessionsStore.getState().messages.find((message) => message.id === base.id)).toMatchObject({ text: "تم التحميل", status: "streaming" }));
     await act(async () => { sessionOperationCoordinator.finish(handle.id, s.id); await Promise.resolve(); });
   }, 8000);
@@ -255,7 +255,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    const firstView = render(<ChatScreen session={s} />);
+    const firstView = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const call = sendProbe.calls[0]!;
@@ -275,7 +275,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       useSessionsStore.setState({ currentId: s.id, messages: [], loading: true });
       await Promise.resolve();
     });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       call.cb.onAppended(identified);
       call.cb.onDelta(call.operationId, identified.targetId!, "بعد", attemptId, identified.turnId, identified.id);
@@ -306,9 +306,9 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
         status: "streaming",
       } : message) });
     });
-    const first = render(<ChatScreen session={s} />);
+    const first = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     first.unmount();
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const activeId = handle.id;
     const base = useSessionsStore.getState().messages.find((message) => message.id === "r1")!;
     await act(async () => {
@@ -340,7 +340,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       await Promise.resolve();
     });
     const upsert = vi.spyOn(useSessionsStore.getState(), "upsertMessagesLocal");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     upsert.mockClear();
     await act(async () => {
       expect(sessionOperationCoordinator.publishProgress({ sessionId: s.id, operationId: handle.id, attemptId: base.attemptId!, turnId: base.turnId, messageId: base.id, targetId: "forged-target", text: "forged", status: "streaming", message: { ...base, targetId: "forged-target", text: "forged" } })).toBe(true);
@@ -361,7 +361,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       operationId: handle.id, attemptId: "at-rehydrate", attempt: 1,
     };
     useSessionsStore.setState({ loading: true });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       expect(sessionOperationCoordinator.publishProgress({
         sessionId: s.id, operationId: handle.id, attemptId: base.attemptId!, turnId: base.turnId,
@@ -389,9 +389,9 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
         ...message, operationId: handle.id, attemptId: "at-stop-remount", attempt: 1, status: "streaming",
       } : message) });
     });
-    const first = render(<ChatScreen session={s} />);
+    const first = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     first.unmount();
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const stops = screen.getAllByRole("button", { name: /إيقاف/ });
     fireEvent.click(stops[stops.length - 1]);
     await waitFor(() => expect(sessionOperationCoordinator.activeOperationIds()).toHaveLength(0));
@@ -407,7 +407,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       useSessionsStore.setState({ messages: [{ ...base, operationId: handle.id, attemptId: "at-card-stop", attempt: 1, status: "streaming" }] });
       await Promise.resolve();
     });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const cardStop = screen.getAllByRole("button", { name: /إيقاف/ })[0];
     expect(cardStop).not.toBeDisabled();
     fireEvent.click(cardStop);
@@ -426,7 +426,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       useSessionsStore.setState({ messages: [...seededTurn(s).filter((message) => message.role === "user"), stale, live] });
       await Promise.resolve();
     });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const stops = screen.getAllByRole("button", { name: /إيقاف/ });
     expect(stops).toHaveLength(3);
     expect(stops[0]).toBeDisabled();
@@ -445,7 +445,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       useSessionsStore.setState({ messages: [...seededTurn(s).filter((message) => message.role === "user"), stale, live] });
       await Promise.resolve();
     });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const stops = screen.getAllByRole("button", { name: /إيقاف/ });
     expect(stops.filter((button) => button.hasAttribute("disabled"))).toHaveLength(1);
     const enabledStop = stops.find((button) => !button.hasAttribute("disabled"))!;
@@ -459,7 +459,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const call = sendProbe.calls[0];
@@ -479,7 +479,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     const handle = sessionOperationCoordinator.start(s.id, "send", new AbortController())!;
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const stop = screen.getByRole("button", { name: /إيقاف/ });
     expect(stop).not.toBeDisabled();
     fireEvent.click(stop);
@@ -496,7 +496,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
       currentId: current.id,
       messages: [...seededTurn(current), { ...seededTurn(current)[1]!, id: "foreign-result", sessionId: other.id, turnId: "foreign-turn", text: "LEAK" }],
     });
-    render(<ChatScreen session={current} />);
+    render(<ChatScreen session={current} onOpenSettings={() => {}} />);
     expect(screen.queryByText("LEAK")).not.toBeInTheDocument();
   });
 
@@ -505,7 +505,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     seed(first);
     useSessionsStore.setState({ messages: seededTurn(first) });
     const warningSpy = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={first} />);
+    render(<ChatScreen session={first} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const second = await mkSession();
@@ -523,12 +523,12 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
     const warningSpy = vi.spyOn(toast, "warning");
-    const firstView = render(<ChatScreen session={s} />);
+    const firstView = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const call = sendProbe.calls[0];
     firstView.unmount();
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       callWarnings(call, "تحذير remount");
       await Promise.resolve();
@@ -542,7 +542,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
     const warningSpy = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));
     const call = sendProbe.calls[0];
@@ -560,7 +560,7 @@ describe("ChatScreen — هوية العملية (مراجعة المهمة 3)",
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
     await waitFor(() => expect(sendProbe.calls).toHaveLength(1));

@@ -132,7 +132,7 @@ function seed(session: SessionMeta, opts: { targets?: TargetConfig[]; prompt?: s
   // معرفات أهداف فريدة لكل اختبار: عمليات إرسال سابقة معلقة (مؤقتات مهلة) قد تكمل بعد انتهاء
   // اختبارها وتكتب في المخزن العام — التفرد يمنع التطابق الخاطئ في مسار الدلتا الاحتياطي.
   const targets = (opts.targets ?? TWO).map((t) => ({ ...t, targetId: t.targetId + "_" + session.id }));
-  useComposerStore.setState({ drafts: { [session.id]: { targets, syncMode: true, sharedPrompt: opts.prompt ?? "س1", customs: {}, focusTargetId: null } } });
+  useComposerStore.setState({ drafts: { [session.id]: { targets, syncMode: true, sharedPrompt: opts.prompt ?? "س1", customs: {}, focusTargetId: null, agentMode: false } } });
 }
 
 function doneTurn(session: SessionMeta): ChatMessage[] {
@@ -209,7 +209,7 @@ describe("ChatScreen — التوصيل الحي", () => {
   it("الإرسال يبث حيًا: السؤال يظهر وبطاقتان بالنص النهائي", async () => {
     const s = await mkSession();
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
       await sessionOperationCoordinator.waitForIdle();
@@ -223,7 +223,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s);
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     expect(screen.getByRole("button", { name: /أفقي/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /أفقي/ }));
     await waitFor(() => expect(useSessionsStore.getState().sessions.find((x) => x.id === s.id)?.layoutMode).toBe("horizontal"));
@@ -244,7 +244,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     setTransportFetch(hangFetch);
     const s = await mkSession();
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
       await vi.waitFor(() => expect(hangCalls).toBe(2), { timeout: 3000 });
@@ -267,7 +267,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     setTransportFetch((() => sseResponse(["done"])) as unknown as typeof fetch);
     const s = await mkSession();
     seed(s, { targets: ONE });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
       await usageStartedPromise;
@@ -294,7 +294,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const warning = vi.spyOn(toast, "warning");
     const s = await mkSession();
     seed(s, { targets: ONE });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /إرسال/ })));
     expect(warning).toHaveBeenCalledWith("تعذر حفظ حدث الاستهلاك");
     expect((await getMessages(s.id)).find((message) => message.role === "assistant")?.status).toBe("done");
@@ -307,7 +307,7 @@ describe("ChatScreen — التوصيل الحي", () => {
       String(input).includes("openrouter") ? new Response("{}", { status: 401 }) : f(input, init)) as typeof fetch);
     const s = await mkSession();
     seed(s, { targets: ONE });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /إرسال/ })));
     // مهلة أوسع من الافتراضية: تحت توازي عمال vitest قد يتأخر استقرار تدفق 401 عن ثانية
     await screen.findByText(/مفتاح غير صالح/, {}, { timeout: 3000 });
@@ -340,7 +340,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     }) as unknown as typeof fetch);
     const s = await mkSession({ title: "composer-stop" });
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
       await vi.waitFor(() => expect(calls).toBe(2), { timeout: 3000 });
@@ -372,7 +372,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession({ title: "cancel-warning" });
     seed(s, { targets: ONE });
     const warningSpy = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
       await vi.waitFor(() => {
@@ -393,7 +393,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     setFileSink(sink);
     const s = await mkSession();
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
     expect(await screen.findAllByText("أهلاً", {}, { timeout: 3000 })).toHaveLength(2);
     const meta = await getSession(s.id);
@@ -411,7 +411,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     seed(s);
     // تمرّة مكتملة حتى يمر حارس «لا نتائج لاستخلاصها بعد» ويُشتق النموذج الأساسي من targets[0]
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
     // إعادة التحميل من Dexie بعد الاكتمال: صف الخلاصة بنصه النهائي وحالته done (لا فارغ/streaming)
@@ -459,7 +459,7 @@ describe("ChatScreen — التوصيل الحي", () => {
       useSessionsStore.setState({ messages: seededTurn(s) });
       summaryDispatchHook.forceOperationId = forced.operationId;
       summaryDispatchHook.forceTargetId = forced.targetId;
-      render(<ChatScreen session={s} />);
+      render(<ChatScreen session={s} onOpenSettings={() => {}} />);
       await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
       await waitFor(async () => {
         const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
@@ -480,7 +480,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     // بثّ متمايز: نداء الخلاصة يعيد «أهلاً» ونداء الإعادة يعيد «مُعاد» — الفرق يثبت أن الإعادة نُفذت
     let calls = 0;
     setTransportFetch(((...a: unknown[]) => { void a; calls += 1; return sseResponse(calls === 1 ? ["أهلاً"] : ["مُعاد"]); }) as unknown as typeof fetch);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
     await waitFor(async () => { const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis"); expect(synth?.status, "synthErr=" + synth?.error).toBe("done"); }, { timeout: 3000 });
@@ -522,7 +522,7 @@ describe("ChatScreen — التوصيل الحي", () => {
       requestBody = typeof init?.body === "string" ? init.body : await new Request(input, init).clone().text();
       return sseResponse(["legacy-retry"]);
     }) as unknown as typeof fetch);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByLabelText("إعادة")));
     expect(await screen.findByText("legacy-retry", {}, { timeout: 3000 })).toBeInTheDocument();
     const record = await getTurn("tr-" + s.id);
@@ -543,7 +543,7 @@ describe("ChatScreen — التوصيل الحي", () => {
       { id: "r-custom", sessionId: s.id, turnId: "tr-" + s.id, createdAt: 2, role: "assistant", kind: "result", text: "قديم", targetId, providerId: "openrouter", modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" }, status: "error" },
     ] });
     setTransportFetch((() => sseResponse(["custom-retry"])) as unknown as typeof fetch);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByLabelText("إعادة")));
     expect(await screen.findByText("custom-retry", {}, { timeout: 3000 })).toBeInTheDocument();
     const historicalCustomToggle = screen.getByRole("button", { name: /السؤال المخصص/ });
@@ -575,7 +575,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     reposHook.holdSessionUpdate = true;
     reposHook.sessionUpdateGate = updateGate;
     reposHook.onSessionUpdateStart = updateStarted;
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     // First retry: backfill persists, then the operation is canceled before sendTurn.
     await act(async () => {
       fireEvent.click(screen.getByLabelText("إعادة"));
@@ -614,7 +614,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     let calls = 0;
     setTransportFetch((() => { calls += 1; return sseResponse(["must-not-run"]); }) as unknown as typeof fetch);
     const errorSpy = vi.spyOn(toast, "error");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     fireEvent.click(screen.getByLabelText("إعادة"));
     await waitFor(() => expect(errorSpy).toHaveBeenCalled());
     expect(calls).toBe(0);
@@ -625,7 +625,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const btn = screen.getByRole("button", { name: /استخرج خلاصة/ });
     await act(async () => {
       fireEvent.click(btn);
@@ -646,7 +646,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     useSessionsStore.setState({ messages: seededTurn(s) });
     // الفشل يقتصر على صف الخلاصة النهائي، لا نقطة حفظ المؤقتة.
     reposHook.failFinalSummary = true;
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     expect(await screen.findByText("فشل تخزين داخلي", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.queryByText("يكتب…")).not.toBeInTheDocument();
@@ -667,7 +667,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     let synth: ChatMessage | undefined;
     let prompt: ChatMessage | undefined;
     await act(async () => {
@@ -710,7 +710,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await vi.waitFor(() => {
@@ -749,7 +749,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     expect(await screen.findByText("خلاصة النموذج الأساسي")).toBeInTheDocument();
     await waitFor(async () => expect((await getSession(s.id))?.onDiskDir).toBeTruthy(), { timeout: 3000 });
@@ -798,7 +798,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     await waitFor(async () => {
       const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
@@ -843,14 +843,14 @@ describe("ChatScreen — التوصيل الحي", () => {
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
     const warnSpy = vi.spyOn(toast, "warning");
-    const view = render(<ChatScreen key="first" session={s} />);
+    const view = render(<ChatScreen key="first" session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await writeStart;
     });
     // A same-session remount invalidates the captured view generation, so the live
     // owner predicate is false while the operation itself is still the latest one.
-    view.rerender(<ChatScreen key="second" session={s} />);
+    view.rerender(<ChatScreen key="second" session={s} onOpenSettings={() => {}} />);
     releaseWrite();
     await waitFor(() => expect(warnSpy).toHaveBeenCalledWith("حُفظت الخلاصة محليًا وفشل أرشفتها على القرص"), { timeout: 3000 });
     const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
@@ -869,7 +869,7 @@ describe("ChatScreen — التوصيل الحي", () => {
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: seededTurn(s) });
     const warnSpy = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     await waitFor(async () => { const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis"); expect(synth?.status, "synthErr=" + synth?.error).toBe("done"); }, { timeout: 4000 });
     // انتظار اكتمال سلسلة الأرشفة (فشلها وتوستها) — قد تحسم بعد ثبات صف Dexie بقليل
@@ -888,8 +888,8 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
     useSettingsStore.setState({ providerKeys: { openrouter: "k", minimax: "k" }, timeoutMs: 5000 });
     const t1 = { targetId: "t1_" + s.id, providerId: "openrouter" as const, modelId: "openai/gpt-4o", modelInfo: { id: "openai/gpt-4o", label: "GPT-4o" } };
     const t2 = { targetId: "t2_" + s.id, providerId: "minimax" as const, modelId: "MiniMax-M2", modelInfo: { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 2000 } };
-    useComposerStore.setState({ drafts: { [s.id]: { targets: [t1, t2], syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null } } });
-    render(<ChatScreen session={s} />);
+    useComposerStore.setState({ drafts: { [s.id]: { targets: [t1, t2], syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null, agentMode: false } } });
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     // بلا تركيز: الاحتياط هو الهدف الأول (بلا contextLength) → علامة الجهل «؟» لا 128000 المولّدة (0%/1%)
     expect(screen.getByText("؟")).toBeInTheDocument();
     expect(screen.queryByText("1%")).toBeNull();
@@ -903,7 +903,7 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
   it("تبديل بلا حالة يُثبت صريحًا (updateSession + الحالة الحية) وتظهر شارة المقارنة في الوضع فقط", async () => {
     const s = await mkSession();
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     const sw = screen.getByRole("switch", { name: "وضع السياق" });
     expect(sw).not.toBeChecked();
     expect(screen.queryByText("مقارنة stateless")).toBeNull();
@@ -921,7 +921,7 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
   it("جلسة محفوظة stateless تعرض الشارة فور فتحها (الوضع ليس ضمنيًا)", async () => {
     const s = await mkSession({ contextMode: "stateless" });
     seed(s);
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     expect(screen.getByText("مقارنة stateless")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "وضع السياق" })).toBeChecked();
   });
@@ -936,7 +936,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession({ title: "patchthrow" });
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     await waitFor(async () => {
       const synth = (await getMessages(s.id)).find((m) => m.kind === "synthesis");
@@ -964,7 +964,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession({ title: "history-switch" });
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -995,7 +995,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
     const patchSpy = vi.spyOn(useSessionsStore.getState(), "patchMessage");
-    const first = render(<ChatScreen session={s} />);
+    const first = render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     let patchesBeforeReturn = 0;
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
@@ -1005,7 +1005,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
       const other = await mkSession({ title: "reopen-b" });
       useSessionsStore.setState({ currentId: other.id, messages: [] });
       useSessionsStore.setState({ currentId: s.id, messages: doneTurn(s) });
-      render(<ChatScreen session={s} />);
+      render(<ChatScreen session={s} onOpenSettings={() => {}} />);
       release();
       await sessionOperationCoordinator.waitForIdle();
     });
@@ -1032,7 +1032,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     useSessionsStore.setState({ messages: doneTurn(s) });
     const toastError = vi.spyOn(toast, "error");
     const toastWarning = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1070,7 +1070,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     useSessionsStore.setState({ messages: doneTurn(s) });
     const warning = vi.spyOn(toast, "warning");
     const error = vi.spyOn(toast, "error");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     let oldOperationId = "";
     let bSessionDir: string | undefined;
     await act(async () => {
@@ -1112,7 +1112,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1148,7 +1148,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1167,7 +1167,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await sessionOperationCoordinator.waitForIdle();
@@ -1196,7 +1196,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1227,7 +1227,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1256,7 +1256,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1286,7 +1286,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
     const errSpy = vi.spyOn(toast, "error");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await heldPromise;
@@ -1319,7 +1319,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
     const warnSpy = vi.spyOn(toast, "warning");
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     let synth: ChatMessage | undefined;
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
@@ -1341,7 +1341,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession();
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await runToIdle(() => fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ })));
     await waitFor(async () => {
       const rows = await getMessages(s.id);
@@ -1366,7 +1366,7 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
     const s = await mkSession({ title: "summary-stop" });
     seed(s, { targets: ONE });
     useSessionsStore.setState({ messages: doneTurn(s) });
-    render(<ChatScreen session={s} />);
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /استخرج خلاصة/ }));
       await enteredPromise;
