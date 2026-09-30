@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ar } from "@/i18n/ar";
 import { StatusAnnouncer } from "@/features/chat/StatusAnnouncer";
 import { initAppLogging, logger, safeExecute, incrementSessionCount } from "@/lib/logging";
+import { registerShortcuts, type Shortcut } from "@/lib/keyboard/shortcuts";
+import { ShortcutHelpDialog } from "@/features/keyboard/ShortcutHelpDialog";
 
 // Theme management
 type Theme = "dark" | "light";
@@ -61,40 +63,67 @@ export default function App() {
   }, [navOpen]);
 
   // Global keyboard shortcuts
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      // Ctrl/Cmd+N: New session
-      if ((event.ctrlKey || event.metaKey) && event.key === "n") {
-        event.preventDefault();
-        safeExecute(() => { useSessionsStore.getState().newSession(); incrementSessionCount(); logger.info("New session created"); }, "newSession");
-      }
-      // Ctrl/Cmd+K: Focus search
-      if ((event.ctrlKey || event.metaKey) && event.key === "k") {
-        event.preventDefault();
+  const shortcuts: Shortcut[] = [
+    {
+      key: "k",
+      ctrl: true,
+      action: () => {
         const searchInput = document.querySelector<HTMLInputElement>('input[aria-label="ابحث في الجلسات…"]');
         searchInput?.focus();
-      }
-      // Ctrl/Cmd+,: Open settings
-      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
-        event.preventDefault();
-        setShowSettings(true);
-      }
-      // Ctrl/Cmd+/: Toggle theme
-      if ((event.ctrlKey || event.metaKey) && event.key === "/") {
-        event.preventDefault();
-        setTheme(t => t === "dark" ? "light" : "dark");
-      }
-      // ?: Show help
-      if (event.key === "?" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const target = event.target as HTMLElement;
-        if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
-          event.preventDefault();
-          setShowHelp(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+      },
+      description: ar.shortcutSearch,
+    },
+    {
+      key: "n",
+      ctrl: true,
+      action: () => {
+        safeExecute(() => { useSessionsStore.getState().newSession(); incrementSessionCount(); logger.info("New session created"); }, "newSession");
+      },
+      description: ar.shortcutNewSession,
+    },
+    {
+      key: "s",
+      ctrl: true,
+      shift: true,
+      action: () => setShowSettings(true),
+      description: ar.shortcutSettings,
+    },
+    {
+      key: "Escape",
+      action: () => {
+        window.dispatchEvent(new CustomEvent("shura:stop-generation"));
+      },
+      description: ar.shortcutStop,
+      when: () => {
+        const target = document.activeElement;
+        return target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA";
+      },
+    },
+    {
+      key: "?",
+      action: () => setShowHelp(true),
+      description: ar.shortcutHelp,
+      when: () => {
+        const target = document.activeElement;
+        return target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA";
+      },
+    },
+    {
+      key: ",",
+      ctrl: true,
+      action: () => setShowSettings(true),
+      description: ar.shortcutSettings,
+    },
+    {
+      key: "/",
+      ctrl: true,
+      action: () => setTheme(t => t === "dark" ? "light" : "dark"),
+      description: ar.shortcutToggleTheme,
+    },
+  ];
+
+  useEffect(() => {
+    return registerShortcuts(shortcuts);
   }, []);
 
   return (
@@ -239,30 +268,8 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      {/* Help Dialog */}
-      <Dialog open={showHelp} onOpenChange={setShowHelp}>
-        <DialogContent className="max-w-md" dir="rtl" closeLabel="إغلاق">
-          <DialogHeader>
-            <DialogTitle>{ar.whatIsShura}</DialogTitle>
-            <DialogDescription className="sr-only">{ar.whatIsShuraDesc}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4 text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">
-            <p>{ar.whatIsShuraDesc}</p>
-            <div className="space-y-2">
-              <h4 className="text-[var(--sura-text-body-sm)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.whatIsShuraTargets}</h4>
-              <p>{ar.whatIsShuraTargetsDesc}</p>
-            </div>
-            <div className="space-y-2">
-              <h4 className="text-[var(--sura-text-body-sm)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.whatIsShuraSync}</h4>
-              <p>{ar.whatIsShuraSyncDesc}</p>
-            </div>
-            <div className="space-y-2">
-              <h4 className="text-[var(--sura-text-body-sm)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.whatIsShuraContext}</h4>
-              <p>{ar.whatIsShuraContextDesc}</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Shortcut Help Dialog */}
+      <ShortcutHelpDialog open={showHelp} onOpenChange={setShowHelp} shortcuts={shortcuts} />
 
       <StatusAnnouncer />
     </div>

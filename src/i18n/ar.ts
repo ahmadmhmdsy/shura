@@ -116,6 +116,11 @@ export const ar = {
   shortcutNewSession: "جلسة جديدة",
   shortcutSearch: "بحث",
   shortcutStop: "إيقاف",
+  shortcutSettings: "الإعدادات",
+  shortcutToggleTheme: "تبديل المظهر",
+  shortcutHelp: "مساعدة",
+  shortcutHelpTitle: "اختصارات لوحة المفاتيح",
+  shortcutHelpDesc: "قائمة اختصارات لوحة المفاتيح المتاحة",
   // [Impeccable] Empty state
   emptyStateTitle: "ابدأ محادثة جديدة",
   emptyStateDesc: "اكتب سؤالك في الأسفل واضغط إرسال — أو اضغط هنا لبدء جلسة جديدة",
