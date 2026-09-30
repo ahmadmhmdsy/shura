@@ -42,6 +42,7 @@ export interface DispatchArgs {
   onStatus?(operationId: string, targetId: string, status: TurnStatus, error?: string): void;
   onToolExecutionStart?(targetId: string, toolName: string): void;
   onToolExecutionEnd?(targetId: string, toolName: string): void;
+  onToolExecutionError?(targetId: string, toolName: string, error: string): void;
 }
 
 export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[]> {
@@ -127,7 +128,14 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
             tools: { search_documents: searchTool },
             stopWhen: args.multiStepTools ? isStepCount(5) : isStepCount(1),
             onToolExecutionStart: ({ toolCall }) => { args.onToolExecutionStart?.(p.targetId, toolCall.toolName); },
-            onToolExecutionEnd: ({ toolCall }) => { args.onToolExecutionEnd?.(p.targetId, toolCall.toolName); },
+            onToolExecutionEnd: ({ toolCall, toolOutput }) => {
+              // يغلف AI SDK خطأ الأداة المرمي كـ { type: "tool-error", error } — نرصد خاصية error
+              // لنطلق onToolExecutionError قبل نداء النهاية العادي.
+              if (toolOutput != null && typeof toolOutput === "object" && "error" in toolOutput) {
+                args.onToolExecutionError?.(p.targetId, toolCall.toolName, String((toolOutput as { error: unknown }).error));
+              }
+              args.onToolExecutionEnd?.(p.targetId, toolCall.toolName);
+            },
             onError: ({ error }) => { if (rawError === undefined) rawError = error; },
           });
           for await (const chunk of result.textStream) {

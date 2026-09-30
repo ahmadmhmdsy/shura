@@ -41,6 +41,7 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
   const timeoutMs = useSettingsStore((s) => s.timeoutMs);
   const primaryTarget = useSettingsStore((s) => s.primaryTarget);
   const [toolActivity, setToolActivity] = useState<Record<string, string>>({});
+  const [toolErrors, setToolErrors] = useState<Record<string, { toolName: string; error: string }>>({});
   const agentMode = useComposerStore((s) => (s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT).agentMode);
   const ragSettings = useSettingsStore((s) => s.ragSettings);
   const multiStepTools = ragSettings.agentMode === "always" || agentMode;
@@ -204,6 +205,8 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
       toast.warning("جارٍ تنفيذ عملية بالفعل");
       return;
     }
+    // تمرّة جديدة تمحو أخطاء الأدوات السابقة — لا تبقى مُلاحظات عالقة من تمرّة قديمة.
+    setToolErrors({});
     const opId = handle.id;
     const attemptId = newId("at");
     let operationGeneration: number | undefined;
@@ -428,6 +431,16 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
               delete next[targetId];
               return next;
             });
+            // نجاح الأداة يمحو أي خطأ سابق لنفس الهدف ضمن التمرّة الجارية.
+            setToolErrors((prev) => {
+              if (!(targetId in prev)) return prev;
+              const next = { ...prev };
+              delete next[targetId];
+              return next;
+            });
+          },
+          onToolExecutionError: (targetId, toolName, error) => {
+            setToolErrors((prev) => ({ ...prev, [targetId]: { toolName, error } }));
           },
           onAppended: (message) => {
             if (!acceptsOperationCallback(message.operationId ?? "", message.attemptId ?? "", message.turnId)) return;
@@ -1027,7 +1040,13 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
               const sharedMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "shared");
               const customMsg = [...turn.prompts].reverse().find((p) => p.promptKind === "custom" && p.targetId === targetId);
               void persistTurn({ id: captured.turnId, sharedPrompt: sharedMsg?.text ?? null, customs: customMsg ? { [targetId]: customMsg.text } : {} }, targetId, [captured], { [targetId]: captured.id });
-            }} toolActivity={toolActivity} />
+            }} toolActivity={toolActivity} toolErrors={toolErrors} onToolError={(targetId) => {
+              setToolErrors((prev) => {
+                const next = { ...prev };
+                delete next[targetId];
+                return next;
+              });
+            }} />
         ))}
         {turns.length === 0 && <p className="text-sura-muted text-sm" role="status" aria-live="polite">لا رسائل بعد.</p>}
       </div>

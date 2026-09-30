@@ -6,13 +6,15 @@ import { Markdown } from "./Markdown";
 import { ar } from "@/i18n/ar";
 import type { ChatMessage } from "@/types";
 
-export function TurnView({ prompts, results, layout, customPrompts, onToggleLayout, onStop, onRetry, disabled = false, stopDisabled = false, toolActivity }: {
+export function TurnView({ prompts, results, layout, customPrompts, onToggleLayout, onStop, onRetry, disabled = false, stopDisabled = false, toolActivity, toolErrors = {}, onToolError }: {
   prompts: ChatMessage[]; results: ChatMessage[]; layout: "vertical" | "horizontal";
   customPrompts: Record<string, string | null>;
   onToggleLayout(): void; onStop(message: ChatMessage): void; onRetry(message: ChatMessage): void;
   disabled?: boolean;
   stopDisabled?: boolean | ((message: ChatMessage) => boolean);
   toolActivity?: Record<string, string>;
+  toolErrors?: Record<string, { toolName: string; error: string }>;
+  onToolError?: (targetId: string, toolName: string, error: string) => void;
 }) {
   // Superseded rows remain durable for retry identity, but only the current attempt is visible.
   const visiblePrompts = prompts.filter((m) => !m.superseded);
@@ -23,6 +25,11 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
   const [errorSummaryDismissed, setErrorSummaryDismissed] = useState(false);
   const errorResults = plain.filter((m) => m.status === "error");
   const showErrorSummary = errorResults.length > 0 && !errorSummaryDismissed;
+  // أخطاء الأدوات لكل هدف: تُعرض كمُلاحظات قابلة للإخفاء حتى لا تُربك التمرّة الجارية.
+  const [dismissedToolErrors, setDismissedToolErrors] = useState<Record<string, boolean>>({});
+  const visibleToolErrors = Object.entries(toolErrors).filter(([targetId, error]) =>
+    !dismissedToolErrors[targetId] && error.error.length > 0 && results.some((r) => r.targetId === targetId),
+  );
   return (
     <section className="border border-sura-border rounded-lg p-3 space-y-3">
       {showErrorSummary && (
@@ -55,6 +62,28 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
         <div className="flex items-center gap-2 text-xs text-sura-accent" role="status">
           <span className="size-1.5 rounded-full bg-sura-accent animate-pulse" />
           {ar.ragSearchingDocuments}
+        </div>
+      )}
+      {visibleToolErrors.length > 0 && (
+        <div className="rounded border border-sura-danger/40 bg-sura-danger/10 px-3 py-2 space-y-2" role="alert">
+          {visibleToolErrors.map(([targetId, error]) => (
+            <div key={targetId} className="flex items-center gap-2">
+              <AlertCircle className="size-4 text-sura-danger shrink-0" />
+              <span className="text-sm text-sura-danger flex-1">
+                {error.error}
+              </span>
+              <button
+                type="button"
+                className="text-xs text-sura-muted hover:text-sura-foreground transition-colors"
+                onClick={() => {
+                  setDismissedToolErrors((prev) => ({ ...prev, [targetId]: true }));
+                  onToolError?.(targetId, error.toolName, error.error);
+                }}
+              >
+                {ar.errorDismiss}
+              </button>
+            </div>
+          ))}
         </div>
       )}
       {plain.length > 0 && <ResultCards msgs={plain} layout={layout} customPrompts={customPrompts} onToggleLayout={onToggleLayout} onStop={onStop} onRetry={onRetry} disabled={disabled} stopDisabled={stopDisabled} />}

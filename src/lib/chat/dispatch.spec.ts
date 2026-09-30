@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { dispatchTurn } from "./dispatch";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { setTransportFetch } from "@/lib/transport/transport";
+import { createSearchDocumentsTool } from "@/lib/rag/tool";
 import type { ChatMessage } from "@/types";
+
+vi.mock("@/lib/rag/tool", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rag/tool")>();
+  return {
+    ...actual,
+    createSearchDocumentsTool: vi.fn(actual.createSearchDocumentsTool),
+  };
+});
 
 const prompts = [
   { targetId: "t1", providerId: "openrouter" as const, modelId: "openai/gpt-4o", text: "س1", hasShared: true, hasCustom: false },
@@ -221,6 +231,48 @@ describe("dispatchTurn", () => {
 
     expect(callCount).toBe(2);
     expect(toolStarts).toEqual(["search_documents"]);
+    expect(toolEnds).toEqual(["search_documents"]);
+    expect(out[0].status).toBe("done");
+    expect(out[0].text).toContain("الإجابة");
+  });
+
+  it("خطأ الأداة: onToolExecutionError يُطلق عند رمي الأداة خطأ", async () => {
+    vi.mocked(createSearchDocumentsTool).mockImplementationOnce(() => ({
+      description: "mock tool",
+      inputSchema: z.object({ query: z.string() }),
+      execute: async () => { throw new Error("فشل البحث في المستندات"); },
+    }) as never);
+
+    const toolCallSse = [
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: "دعني أبحث" } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "search_documents", arguments: '{"query":"test"}' } }] } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 7, completion_tokens: 3 } }) + '\n\n',
+      'data: [DONE]\n\n',
+    ].join("");
+    let callCount = 0;
+    setTransportFetch((async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(toolCallSse)); c.close(); } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return sseResponse(["الإجابة"]);
+    }) as unknown as typeof fetch);
+
+    const toolErrors: [string, string, string][] = [];
+    const toolEnds: string[] = [];
+    const out = await dispatchTurn({
+      ...baseArgs,
+      prompts: [prompts[0]],
+      multiStepTools: true,
+      onToolExecutionError: (_tid, toolName, error) => { toolErrors.push([_tid, toolName, error]); },
+      onToolExecutionEnd: (_tid, name) => { toolEnds.push(name); },
+    });
+
+    expect(callCount).toBe(2);
+    expect(toolErrors.length).toBe(1);
+    expect(toolErrors[0][0]).toBe("t1");
+    expect(toolErrors[0][1]).toBe("search_documents");
+    expect(toolErrors[0][2]).toContain("فشل البحث");
     expect(toolEnds).toEqual(["search_documents"]);
     expect(out[0].status).toBe("done");
     expect(out[0].text).toContain("الإجابة");

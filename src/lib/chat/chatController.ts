@@ -14,6 +14,7 @@ export interface SendCallbacks {
   onAppended?(msg: ChatMessage): void;
   onToolExecutionStart?(targetId: string, toolName: string): void;
   onToolExecutionEnd?(targetId: string, toolName: string): void;
+  onToolExecutionError?(targetId: string, toolName: string, error: string): void;
 }
 
 function observe(observer: (() => unknown) | undefined): void {
@@ -520,6 +521,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         multiStepTools: args.multiStepTools,
         onToolExecutionStart: cb.onToolExecutionStart,
         onToolExecutionEnd: cb.onToolExecutionEnd,
+        onToolExecutionError: cb.onToolExecutionError,
         onUpdate: (callbackOperationId, targetId, chunk) => {
           if (callbackOperationId !== opId || !signalsLive() || closingTargets.has(targetId) || !streams.has(targetId)) return;
           noteChunk(callbackOperationId, targetId, chunk, canonicalAttempt!.id);
