@@ -88,7 +88,7 @@ export function Composer(props: ComposerProps) {
     <div className="border-t border-[var(--sura-border-primary)] bg-[var(--sura-surface-primary)] p-3 space-y-2" data-composer="true">
       {/* Targets row — compact chips */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.targetHint}><Info className="size-3.5" /></span>
+        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.targetHint} aria-hidden="true"><Info className="size-3.5" /></span>
         {targets.map((t) => (
           <Badge key={t.targetId} variant={focusTargetId === t.targetId ? "default" : "secondary"} className="gap-1 cursor-pointer" onClick={() => setFocus(sessionId, t.targetId)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setFocus(sessionId, t.targetId); } }} aria-label={`${PROVIDERS[t.providerId].label} ${t.modelId}`}>
             {PROVIDERS[t.providerId].label} · {t.modelId}
@@ -138,7 +138,7 @@ export function Composer(props: ComposerProps) {
           <>
             <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">·</span>
             <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.whatIsShuraSyncDesc}><Link2 className="size-3.5" /> {ar.syncMode}
-              <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} /></label>
+              <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} aria-label={ar.syncMode} /></label>
           </>
         )}
       </div>
@@ -150,7 +150,7 @@ export function Composer(props: ComposerProps) {
             ? targets.filter((t) => t.targetId === focusTargetId).map((t) => (
               <div key={t.targetId} className="space-y-1">
                 <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">{ar.customField} {PROVIDERS[t.providerId].label} · {t.modelId}</span>
-                <Textarea value={customs[t.targetId] ?? ""} onChange={(e) => setCustom(sessionId, t.targetId, e.target.value)} placeholder="سؤال مخصص لهذا النموذج (فارغ = يرث السؤال الموحد)" className="min-h-24" />
+                <Textarea value={customs[t.targetId] ?? ""} onChange={(e) => setCustom(sessionId, t.targetId, e.target.value)} placeholder="سؤال مخصص لهذا النموذج (فارغ = يرث السؤال الموحد)" className="min-h-24" aria-label={ar.customField + " " + PROVIDERS[t.providerId].label + " " + t.modelId} />
               </div>
             ))
             : targets.map((t) => (
@@ -162,7 +162,7 @@ export function Composer(props: ComposerProps) {
         </div>
       )}
 
-      <Textarea value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} placeholder={ar.sharedPlaceholder} className="min-h-20" />
+      <Textarea value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} placeholder={ar.sharedPlaceholder} className="min-h-20" aria-label={ar.sharedPlaceholder} />
 
       <div className="flex items-center gap-2 justify-end">
         <Button size="sm" variant="ghost" disabled={props.sending} onClick={props.onExtractSummary}><Sparkles className="size-4" /> {ar.extractSummary}</Button>

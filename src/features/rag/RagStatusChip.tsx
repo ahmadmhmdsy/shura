@@ -51,7 +51,7 @@ export function RagStatusChip({ onOpenSettings }: { onOpenSettings(): void }) {
     : 0;
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex flex-col items-start gap-1" role="status" aria-live="polite" aria-atomic="true">
       <button
         type="button"
         onClick={onOpenSettings}
@@ -61,14 +61,22 @@ export function RagStatusChip({ onOpenSettings }: { onOpenSettings(): void }) {
           summary.tone === "warn" ? "border-sura-warn text-sura-warn" :
           "border-sura-border text-sura-foreground"
         )}
+        aria-label={ar.ragFiles + ": " + summary.label}
         title={errorDetails || ar.ragFiles}
       >
-        {summary.tone === "active" && <span className="size-1.5 rounded-full bg-sura-accent animate-pulse" />}
+        {summary.tone === "active" && <span className="size-1.5 rounded-full bg-sura-accent animate-pulse" aria-hidden="true" />}
         {summary.label}
         {indexing && (
           <span className="inline-flex items-center gap-1" dir="ltr">
             <span className="w-14 h-1 rounded-full bg-sura-border overflow-hidden">
-              <span className="block h-full bg-sura-accent" style={{ width: percent + "%" }} />
+              <span
+              className="block h-full bg-sura-accent"
+              style={{ width: percent + "%" }}
+              role="progressbar"
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
             </span>
             <span className="tabular-nums text-[10px]">{percent}%</span>
           </span>

@@ -47,11 +47,12 @@ export function RagFolderManager() {
           لا توجد مجلدات خارجية. أضف مجلدًا لفهرسة ملفاته.
         </p>
       ) : (
-        <div className="space-y-2">
+        <ul className="space-y-2 list-none">
           {folders.map((folder) => (
-            <div
+            <li
               key={folder.id}
               className="flex items-center gap-2 p-2 rounded border border-sura-border text-xs"
+              aria-label={`${folder.label}، ${folder.path}، ${folder.status === "error" ? ar.ragFolderError : ar.ragFolderActive}`}
             >
               <div className="flex-1 min-w-0">
                 <p className="truncate font-medium">{folder.label}</p>
@@ -77,6 +78,7 @@ export function RagFolderManager() {
                   onCheckedChange={(v) => {
                     void updateFolder(folder.id, { autoReindex: v });
                   }}
+                  aria-label={ar.ragAutoReindex}
                 />
               </div>
               {folder.status === "error" && (
@@ -94,9 +96,9 @@ export function RagFolderManager() {
               >
                 ×
               </button>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
       {indexingProgress.status === "indexing" && <RagIndexingProgress />}
       <Button size="sm" variant="outline" disabled={adding} onClick={() => void handleAddFolder()}>
