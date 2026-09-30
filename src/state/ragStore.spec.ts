@@ -22,7 +22,7 @@ describe("ragStore", () => {
     await db.rag_chunks.clear();
     await db.rag_folders.clear();
     await db.settings.clear();
-    useRagStore.setState({ settings: DEFAULT_RAG_SETTINGS, documents: [], folders: [], loaded: false, loading: false, error: null });
+    useRagStore.setState({ settings: DEFAULT_RAG_SETTINGS, documents: [], folders: [], loaded: false, loading: false, error: null, indexingErrors: {} });
   });
 
   it("load يجلب الإعدادات والمستندات والمجلدات", async () => {
@@ -50,5 +50,25 @@ describe("ragStore", () => {
     const { removeExternalFolder } = await import("@/lib/rag/folderManager");
     await useRagStore.getState().removeFolder("folder-1");
     expect(removeExternalFolder).toHaveBeenCalledWith("folder-1");
+  });
+
+  it("setIndexingError يسجل خطأ الفهرسة لملف", () => {
+    useRagStore.getState().setIndexingError("file-1", "فشل الفهرسة");
+    expect(useRagStore.getState().indexingErrors).toEqual({ "file-1": "فشل الفهرسة" });
+  });
+
+  it("clearIndexingError يزيل خطأ الفهرسة لملف", () => {
+    useRagStore.getState().setIndexingError("file-1", "فشل الفهرسة");
+    useRagStore.getState().clearIndexingError("file-1");
+    expect(useRagStore.getState().indexingErrors).toEqual({});
+  });
+
+  it("indexingErrors تتتبع الأخطاء لكل ملف على حدة", () => {
+    useRagStore.getState().setIndexingError("file-1", "خطأ 1");
+    useRagStore.getState().setIndexingError("file-2", "خطأ 2");
+    expect(useRagStore.getState().indexingErrors).toEqual({
+      "file-1": "خطأ 1",
+      "file-2": "خطأ 2",
+    });
   });
 });

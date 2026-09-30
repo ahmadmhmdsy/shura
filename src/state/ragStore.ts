@@ -18,6 +18,7 @@ interface RagState {
   loaded: boolean;
   loading: boolean;
   error: string | null;
+  indexingErrors: Record<string, string>;
 
   load(): Promise<void>;
   updateSettings(patch: Partial<RagSettings>): Promise<void>;
@@ -26,6 +27,8 @@ interface RagState {
   addFolder(path: string, label: string, autoReindex: boolean): Promise<RagFolder>;
   removeFolder(folderId: string): Promise<void>;
   refreshDocuments(): Promise<void>;
+  setIndexingError(fileId: string, error: string): void;
+  clearIndexingError(fileId: string): void;
 }
 
 export const useRagStore = create<RagState>((set, get) => ({
@@ -35,6 +38,7 @@ export const useRagStore = create<RagState>((set, get) => ({
   loaded: false,
   loading: false,
   error: null,
+  indexingErrors: {},
 
   async load() {
     set({ loading: true, error: null });
@@ -92,5 +96,18 @@ export const useRagStore = create<RagState>((set, get) => ({
   async refreshDocuments() {
     const docs = await getDocuments();
     set({ documents: docs });
+  },
+
+  setIndexingError(fileId: string, error: string) {
+    set((state) => ({
+      indexingErrors: { ...state.indexingErrors, [fileId]: error },
+    }));
+  },
+
+  clearIndexingError(fileId: string) {
+    set((state) => {
+      const { [fileId]: _, ...rest } = state.indexingErrors;
+      return { indexingErrors: rest };
+    });
   },
 }));
