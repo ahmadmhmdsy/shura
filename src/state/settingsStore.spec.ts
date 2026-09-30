@@ -155,4 +155,15 @@ describe("settingsStore", () => {
   it("never persists an unknown provider id", async () => {
     await expect(useSettingsStore.getState().setProviderKey("evil" as ProviderId, "x")).rejects.toThrow();
   });
+
+  it("defaults agentMode to always", () => {
+    expect(useSettingsStore.getState().ragSettings.agentMode).toBe("always");
+  });
+
+  it("persists agentMode through setRagSettings", async () => {
+    await useSettingsStore.getState().setRagSettings({ agentMode: "toggle" });
+    expect(useSettingsStore.getState().ragSettings.agentMode).toBe("toggle");
+    const snapshot = vi.mocked(setSetting).mock.calls.at(-1)?.[1] as { rag?: { agentMode?: string } } | undefined;
+    expect(snapshot?.rag?.agentMode).toBe("toggle");
+  });
 });
