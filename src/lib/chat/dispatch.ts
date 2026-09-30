@@ -1,9 +1,11 @@
-import { streamText } from "ai";
+import { streamText, isStepCount } from "ai";
 import type { ModelMessage } from "ai";
 import { buildLanguageModel, computeCost, getProvider } from "@/lib/providers/registry";
 import { buildContextMessages } from "./context";
 import { getTransportFetch } from "@/lib/transport/transport";
 import { mapProviderError } from "@/lib/providers/keyTest";
+import { createSearchDocumentsTool } from "@/lib/rag/tool";
+import { useSettingsStore } from "@/state/settingsStore";
 import type { BuiltPrompt, ContextMode, ChatMessage, ModelInfo, ProviderId, TurnStatus, Usage } from "@/types";
 
 /** تصنيف صريح لنتيجة النداء: توقف المستخدم ليس خطأ، والغياب الحميد لfinish يبقى متوافقًا فقط عند نهاية بث سليمة */
@@ -32,11 +34,14 @@ export interface DispatchArgs {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   contextMode: ContextMode;
+  multiStepTools?: boolean;
   historyFor(targetId: string): readonly ChatMessage[];
   modelInfoFor(targetId: string): ModelInfo;
   onUpdate?(operationId: string, targetId: string, chunk: string): void;
   externalSignalFor?(targetId: string): AbortSignal | undefined;
   onStatus?(operationId: string, targetId: string, status: TurnStatus, error?: string): void;
+  onToolExecutionStart?(targetId: string, toolName: string): void;
+  onToolExecutionEnd?(targetId: string, toolName: string): void;
 }
 
 export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[]> {
@@ -60,7 +65,8 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       externalSignal?.removeEventListener("abort", externalListener);
     };
     const status = args.onStatus ? (s: TurnStatus, error?: string) => args.onStatus?.(args.operationId, p.targetId, s, error) : undefined;
-    status?.("streaming");
+    // [L5] Move status?.("streaming") inside the try block so cleanup runs if it throws.
+    // status?.("streaming"); // Moved inside try block below.
     // [تصحيح المهمة 5] سبب المهلة كائن ملتقط واحد: التصنيف بمطابقة الهوية (r === timeoutReason) بدل regex الرسالة
     const timeoutReason = new Error("انتهت مهلة النداء");
     const timer = setTimeout(() => ac.abort(timeoutReason), timeout);
@@ -81,6 +87,9 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
         const isTimeout = r === timeoutReason;
         terminal = true;
         const reason = r instanceof Error ? r : new Error(typeof r === "string" && r ? r : "ألغي النداء");
+        // Note: usage is not available when the stream is aborted (user stop/timeout).
+        // The AI SDK only exposes result.usage after normal stream completion.
+        // This is a known limitation — stopped/error outcomes record 0 tokens.
         resolve({
           targetId: p.targetId, operationId: args.operationId,
           status: isTimeout ? "error" : "stopped",
@@ -92,6 +101,8 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       ac.signal.addEventListener("abort", onAbort, { once: true });
     });
     try {
+      // [L5] status?.("streaming") moved inside try block so cleanup runs if it throws.
+      status?.("streaming");
       const modelInfo = args.modelInfoFor(p.targetId);
       const history = args.historyFor(p.targetId).filter((row) => row.sessionId === args.sessionId);
       // [صرامة مأذونة ضمن حقن المهمة 4] buildContextMessages يقيم الحد الآمن (منها 0.8) قبل أي اتصال
@@ -107,7 +118,18 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
           // عند فشل doStream (مثل 401) يغلق ai@7 البث رشيقًا (بلا رمٍ من textStream) ويرفض result.usage
           // بـ NoOutputGeneratedError رسالته "No output generated..." تحوي "generated" فتطابق /rate/ خاطئًا
           // في mapProviderError — الخطأ الخام (APICallError بـ statusCode) هو مصدر الترجمة الصحيحة.
-          const result = streamText({ model, messages: modelMessages, abortSignal: ac.signal, onError: ({ error }) => { if (rawError === undefined) rawError = error; } });
+          const ragSettings = useSettingsStore.getState().ragSettings;
+          const searchTool = createSearchDocumentsTool({ settings: ragSettings });
+          // [المهمة 4] حلقة الأدوات: stopWhen هو سبب علة «دعني أبحث» — ai@7 يفترض isStepCount(1)
+          // فلا تصل نتائج الأداة للنموذج أبدًا؛ multiStepTools يفتح حتى 5 خطوات (بحث + إجابة).
+          const result = streamText({
+            model, messages: modelMessages, abortSignal: ac.signal, maxRetries: 0,
+            tools: { search_documents: searchTool },
+            stopWhen: args.multiStepTools ? isStepCount(5) : isStepCount(1),
+            onToolExecutionStart: ({ toolCall }) => { args.onToolExecutionStart?.(p.targetId, toolCall.toolName); },
+            onToolExecutionEnd: ({ toolCall }) => { args.onToolExecutionEnd?.(p.targetId, toolCall.toolName); },
+            onError: ({ error }) => { if (rawError === undefined) rawError = error; },
+          });
           for await (const chunk of result.textStream) {
             // [تصحيح المهمة 5] ما بعد السباق: نقل يتجاهل abort لا يجبود المراكم ولا النداءات
             if (terminal) break;
@@ -138,7 +160,7 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
             cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
             // computeCost يقتصر على Pick<Usage,"inputTokens"|"outputTokens">؛ تمرير cachedInputTokens
             // كائن حرفي بخاصية زائدة (TS2353) — حرفية الخطة المُزامَنة (296fbb5) بلا cachedInputTokens.
-            costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0 }, info) : null,
+            costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0, cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0 }, info) : null,
           };
           // النافذة الحميدة: إغلاق بلا سبب نهاية لكن بUsage سليم — تعامل معروف في dispatch.spec؛
           // finishReason يتم آمطه تمامًا (لا "error" ولا String(undefined))

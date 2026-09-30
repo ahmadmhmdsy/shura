@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { dispatchTurn } from "./dispatch";
-import { sseMockFetch } from "@/test/mocks/sse";
+import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
 import { setTransportFetch } from "@/lib/transport/transport";
 import type { ChatMessage } from "@/types";
 
@@ -17,6 +17,7 @@ const baseArgs = {
   sessionHeaderFor: () => ({}),
   timeoutMs: 5000,
   contextMode: "stateful" as const,
+  multiStepTools: false,
   modelInfoFor: (targetId: string) => {
     if (targetId === "t1") return { id: "openai/gpt-4o", label: "GPT-4o", contextLength: 128_000 };
     if (targetId === "t2") return { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 204_800 };
@@ -190,5 +191,61 @@ describe("dispatchTurn", () => {
     expect(statuses.filter(([, t, s, e]) => t === "t2" && s === "streaming" && e === undefined).length).toBe(1);
     expect(statuses.filter(([, t, s]) => t === "t2" && s === "done").length).toBe(1);
     expect(statuses.every(([o]) => o === "op1")).toBe(true);
+  });
+
+  it("multi-step: النموذج يستدعي search_documents ثم يجيب بنتائجها", async () => {
+    const toolCallSse = [
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: "دعني أبحث" } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "search_documents", arguments: '{"query":"test"}' } }] } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 7, completion_tokens: 3 } }) + '\n\n',
+      'data: [DONE]\n\n',
+    ].join("");
+    let callCount = 0;
+    setTransportFetch((async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(toolCallSse)); c.close(); } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return sseResponse(["الإجابة"]);
+    }) as unknown as typeof fetch);
+
+    const toolStarts: string[] = [];
+    const toolEnds: string[] = [];
+    const out = await dispatchTurn({
+      ...baseArgs,
+      prompts: [prompts[0]],
+      multiStepTools: true,
+      onToolExecutionStart: (_tid, name) => { toolStarts.push(name); },
+      onToolExecutionEnd: (_tid, name) => { toolEnds.push(name); },
+    });
+
+    expect(callCount).toBe(2);
+    expect(toolStarts).toEqual(["search_documents"]);
+    expect(toolEnds).toEqual(["search_documents"]);
+    expect(out[0].status).toBe("done");
+    expect(out[0].text).toContain("الإجابة");
+  });
+
+  it("single-step: النموذج يستدعي الأداة لكن البث يتوقف بعد خطوة واحدة", async () => {
+    const toolCallSse = [
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: "دعني أبحث" } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "search_documents", arguments: '{"query":"test"}' } }] } }] }) + '\n\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 7, completion_tokens: 3 } }) + '\n\n',
+      'data: [DONE]\n\n',
+    ].join("");
+    let callCount = 0;
+    setTransportFetch((async () => {
+      callCount++;
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(toolCallSse)); c.close(); } }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch);
+
+    const out = await dispatchTurn({
+      ...baseArgs,
+      prompts: [prompts[0]],
+      multiStepTools: false,
+    });
+
+    expect(callCount).toBe(1);
+    expect(out[0].text).toBe("دعني أبحث");
   });
 });
