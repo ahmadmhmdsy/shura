@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -7,12 +7,16 @@ import { ar } from "@/i18n/ar";
 import { EMBEDDING_MODELS } from "@/lib/rag/embedder";
 import { CHUNKING_PRESETS } from "@/lib/rag/chunker";
 import { downloadModel } from "@/lib/rag/modelDownloader";
+import { downloadRagData } from "@/lib/export/ragExporter";
+import { importRagData, validateRagImportData } from "@/lib/export/ragImporter";
+import { toast } from "sonner";
 import type { RagSettings as RagSettingsType } from "@/types";
 
 export function RagSettings() {
   const { ragSettings, setRagSettings } = useSettingsStore();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ percent: number; loaded: number; total: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const update = (patch: Partial<RagSettingsType>) => {
     void setRagSettings(patch);
@@ -29,6 +33,26 @@ export function RagSettings() {
     } finally {
       setDownloading(null);
       setProgress(null);
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!validateRagImportData(data)) {
+        toast.error(ar.ragImportError);
+        return;
+      }
+      await importRagData(data);
+      toast.success(ar.ragImportSuccess);
+    } catch (err) {
+      console.error("Import failed:", err);
+      toast.error(ar.ragImportError);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -209,6 +233,31 @@ export function RagSettings() {
             onCheckedChange={(v) => update({ autoReindexFolders: v })}
           />
         </div>
+      </section>
+
+      {/* Export RAG Data */}
+      <section className="space-y-2 border-t border-sura-border pt-3">
+        <h3 className="text-sm font-medium">{ar.ragExportData}</h3>
+        <p className="text-xs text-sura-muted">{ar.ragExportDataDesc}</p>
+        <Button size="sm" variant="outline" onClick={() => void downloadRagData()}>
+          {ar.ragExportDataButton}
+        </Button>
+      </section>
+
+      {/* Import RAG Data */}
+      <section className="space-y-2 border-t border-sura-border pt-3">
+        <h3 className="text-sm font-medium">{ar.ragImportData}</h3>
+        <p className="text-xs text-sura-muted">{ar.ragImportDataDesc}</p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => void handleImportFile(e)}
+        />
+        <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+          {ar.ragImportDataButton}
+        </Button>
       </section>
     </div>
   );
