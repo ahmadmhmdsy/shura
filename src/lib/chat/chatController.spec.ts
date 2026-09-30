@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendTurn, type SendArgs, type SendCallbacks } from "./chatController";
-import type { DispatchOutcome } from "./dispatch";
+import type { DispatchOutcome, DispatchArgs } from "./dispatch";
 import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
 import { setTransportFetch } from "@/lib/transport/transport";
 import { sseMockFetch, sseResponse } from "@/test/mocks/sse";
@@ -20,6 +20,7 @@ const dispatchHook = vi.hoisted(() => ({
   calls: 0,
   overrideOutcomes: false,
   outcomes: null as DispatchOutcome[] | null,
+  lastArgs: null as DispatchArgs | null,
 }));
 const persistenceHook = vi.hoisted(() => ({
   holdLookup: false,
@@ -140,6 +141,7 @@ function baseArgs(session: SessionMeta, over: Partial<SendArgs> = {}): SendArgs 
     operationId: "op1",
     operationSignal,
     contextMode: "stateful",
+    multiStepTools: false,
     historyFor: () => [],
     modelInfoFor: () => ({ id: "m", label: "نموذج", contextLength: 128000 }),
     apiKeyFor: () => "k", sessionHeaderFor: () => undefined,
@@ -190,6 +192,7 @@ beforeEach(async () => {
   dispatchHook.calls = 0;
   dispatchHook.overrideOutcomes = false;
   dispatchHook.outcomes = null;
+  dispatchHook.lastArgs = null;
   persistenceHook.holdLookup = false;
   persistenceHook.lookupGate = null;
   persistenceHook.onLookupStart = null;
@@ -226,6 +229,7 @@ vi.mock("@/lib/chat/dispatch", async (importOriginal) => {
   return {
     ...actual,
     dispatchTurn: async (args: Parameters<typeof actual.dispatchTurn>[0]) => {
+      dispatchHook.lastArgs = args;
       dispatchHook.calls += 1;
       if (dispatchHook.reject) throw new Error("رفض نداء dispatchTurn");
       if (dispatchHook.overrideOutcomes) return dispatchHook.outcomes ?? [];
@@ -783,6 +787,17 @@ describe("sendTurn", () => {
     const results = (await getMessages(s.id)).filter((m) => m.role === "assistant");
     expect(results).toHaveLength(1);
     expect(results[0].text).toBe("أهلاً");
+  });
+
+  it("multiStepTools وtool callbacks تمر من sendTurn إلى dispatchTurn", async () => {
+    const s = await mkSession("tool-forward");
+    const { cb } = makeCb();
+    cb.onToolExecutionStart = () => {};
+    cb.onToolExecutionEnd = () => {};
+    await sendTurn(baseArgs(s, { targets: [targets[0]], multiStepTools: true }), cb);
+    expect(dispatchHook.lastArgs?.multiStepTools).toBe(true);
+    expect(dispatchHook.lastArgs?.onToolExecutionStart).toBe(cb.onToolExecutionStart);
+    expect(dispatchHook.lastArgs?.onToolExecutionEnd).toBe(cb.onToolExecutionEnd);
   });
 });
 

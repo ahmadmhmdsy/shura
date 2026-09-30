@@ -12,6 +12,8 @@ export interface SendCallbacks {
   onDropped(operationId: string, targetIds: string[], attemptId: string, turnId?: string): void;
   onWarning?(message: string): void;
   onAppended?(msg: ChatMessage): void;
+  onToolExecutionStart?(targetId: string, toolName: string): void;
+  onToolExecutionEnd?(targetId: string, toolName: string): void;
 }
 
 function observe(observer: (() => unknown) | undefined): void {
@@ -51,6 +53,7 @@ export interface SendArgs {
   /** Durable lease generation claimed by the UI boundary; direct callers claim their own. */
   operationGeneration?: number;
   contextMode: ContextMode;
+  multiStepTools: boolean;
   historyFor(targetId: string): readonly ChatMessage[];
   modelInfoFor(targetId: string): ModelInfo;
 }
@@ -115,7 +118,7 @@ function turnFromAttempt(attempt: TurnAttempt): Turn {
 
 function snapshotForPrompt(
   prompt: BuiltPrompt,
-  target: { targetId: string; providerId: ProviderId; modelId: string } | undefined,
+  _target: { targetId: string; providerId: ProviderId; modelId: string } | undefined,
   turn: Turn,
   modelInfoFor: (targetId: string) => ModelInfo,
 ): TargetSnapshot {
@@ -130,7 +133,7 @@ function snapshotForPrompt(
     promptText: prompt.text,
     hasShared: prompt.hasShared,
     hasCustom: prompt.hasCustom,
-    ...(target ? {} : {}),
+    ...(_target ? {} : {}),
   };
 }
 
@@ -514,6 +517,9 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         contextMode: args.contextMode,
         historyFor: (targetId) => history.get(targetId) ?? [],
         modelInfoFor: (targetId) => snapshotByTarget.get(targetId)?.modelInfo ?? args.modelInfoFor(targetId),
+        multiStepTools: args.multiStepTools,
+        onToolExecutionStart: cb.onToolExecutionStart,
+        onToolExecutionEnd: cb.onToolExecutionEnd,
         onUpdate: (callbackOperationId, targetId, chunk) => {
           if (callbackOperationId !== opId || !signalsLive() || closingTargets.has(targetId) || !streams.has(targetId)) return;
           noteChunk(callbackOperationId, targetId, chunk, canonicalAttempt!.id);
@@ -677,7 +683,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         operationId: opId,
       }).then(() => ({})).catch(() => ({ targetId: outcome.targetId, warning: "تعذر حفظ حدث الاستهلاك" })));
     }
-    if (dir) {
+    if (dir && isFilePersistActive()) {
       sidecars.push(appendTurn(sink, dir, session, {
         turn: archiveTurn,
         prompts: built.prompts.map((prompt) => ({
@@ -700,7 +706,10 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         const updated = await updateSessionIfOperation(session.id, opId, { onDisk: isFilePersistActive() }, isOwned);
         if (!updated) throw new Error("operation ownership changed before archive metadata update");
         return {};
-      }).catch(() => ({ warning: "تعذر أرشفة النتيجة على القرص" })));
+      }).catch((e: unknown) => {
+        console.error("Archive failed:", e);
+        return { warning: "تعذر أرشفة النتيجة على القرص" };
+      }));
     }
     const sidecarResults = await Promise.allSettled(sidecars);
     const warnings: Record<string, string[]> = {};
