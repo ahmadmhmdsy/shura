@@ -16,6 +16,9 @@
 import type { RagModel } from "@/types";
 import { db } from "@/lib/db/db";
 
+type OrtModule = typeof import("onnxruntime-web");
+type OrtSession = Awaited<ReturnType<OrtModule["InferenceSession"]["create"]>>;
+
 export interface Embedder {
   readonly modelId: string;
   readonly dimensions: number;
@@ -30,7 +33,7 @@ const DEFAULT_MODEL_DIMENSIONS = 384;
 /** A fully loaded embedding model: ONNX inference session + tokenizer. */
 export interface LoadedEmbeddingModel {
   modelId: string;
-  session: any;
+  session: OrtSession;
   tokenizer: Tokenizer;
 }
 
@@ -102,7 +105,7 @@ async function doLoadModel(
 
   // Load model from IndexedDB or download
   const modelData = await loadModelFromCache(modelId);
-  let session: any;
+  let session: OrtSession;
   if (modelData) {
     session = await ort.InferenceSession.create(modelData);
   } else {
@@ -129,7 +132,7 @@ async function doLoadModel(
  * Models are downloaded once and cached in IndexedDB.
  */
 export class OnnxEmbedder implements Embedder {
-  private session: any = null;
+  private session: OrtSession | null = null;
   private tokenizer: Tokenizer | null = null;
   private modelLoaded = false;
 
@@ -185,7 +188,7 @@ export class OnnxEmbedder implements Embedder {
   }
 
   private async embedBatchInternal(
-    ort: any,
+    ort: OrtModule,
     texts: string[],
   ): Promise<number[][]> {
     // Tokenize

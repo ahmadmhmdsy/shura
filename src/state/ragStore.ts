@@ -114,7 +114,8 @@ export const useRagStore = create<RagState>((set, get) => ({
 
   clearIndexingError(fileId: string) {
     set((state) => {
-      const { [fileId]: _, ...rest } = state.indexingErrors;
+      const rest = { ...state.indexingErrors };
+      delete rest[fileId];
       return { indexingErrors: rest };
     });
   },

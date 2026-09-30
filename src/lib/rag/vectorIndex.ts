@@ -10,6 +10,9 @@
 
 import type { RagChunk } from "@/types";
 
+type HnswlibModule = Awaited<ReturnType<typeof import("hnswlib-wasm")["loadHnswlib"]>>;
+type HnswIndex = InstanceType<HnswlibModule["HierarchicalNSW"]>;
+
 export interface VectorSearchResult {
   chunkId: string;
   score: number;  // cosine similarity (0-1)
@@ -22,8 +25,8 @@ export interface VectorSearchResult {
  * Supports incremental adds without rebuilding the entire index.
  */
 export class VectorIndex {
-  private index: any = null;
-  private hnswlib: any = null;
+  private index: HnswIndex | null = null;
+  private hnswlib: HnswlibModule | null = null;
   private dimensions: number;
   private initialized = false;
   private chunkIds: string[] = [];  // maps index label → chunkId
@@ -42,7 +45,7 @@ export class VectorIndex {
     const { loadHnswlib } = await import("hnswlib-wasm");
     this.hnswlib = await loadHnswlib();
     
-    this.index = new this.hnswlib.HierarchicalNSW("cosine", this.dimensions, "");
+    this.index = new this.hnswlib!.HierarchicalNSW("cosine", this.dimensions, "");
     this.index.initIndex(1000, 16, 200, 100);
     this.initialized = true;
   }
@@ -53,7 +56,7 @@ export class VectorIndex {
   async addVector(chunkId: string, vector: number[]): Promise<void> {
     if (!this.initialized) await this.initialize();
     const label = this.chunkIds.length;
-    this.index.addPoint(vector, label, false);
+    this.index!.addPoint(vector, label, false);
     this.chunkIds.push(chunkId);
   }
 
@@ -74,7 +77,7 @@ export class VectorIndex {
     if (!this.initialized) await this.initialize();
     if (!this.index) return [];
 
-    const results = this.index.searchKnn(query, k);
+    const results = this.index.searchKnn(query, k, () => true);
     const neighbors = results.neighbors as number[];
     const distances = results.distances as number[];
 
@@ -92,13 +95,13 @@ export class VectorIndex {
     if (!this.initialized) await this.initialize();
     
     // Reset and rebuild
-    this.index = new this.hnswlib.HierarchicalNSW("cosine", this.dimensions, "");
+    this.index = new this.hnswlib!.HierarchicalNSW("cosine", this.dimensions, "");
     this.index.initIndex(Math.max(1000, chunks.length * 2), 16, 200, 100);
     this.chunkIds = [];
 
     for (const chunk of chunks) {
       const label = this.chunkIds.length;
-      this.index.addPoint(chunk.embedding, label, false);
+      this.index!.addPoint(chunk.embedding, label, false);
       this.chunkIds.push(chunk.id);
     }
   }

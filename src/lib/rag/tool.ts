@@ -77,7 +77,7 @@ export function createSearchDocumentsTool(options: SearchDocumentsToolOptions) {
       }
 
       // 3. Filter by scope
-      let filteredChunks = allChunks;
+      const filteredChunks = allChunks;
       if (scope !== "all") {
         // In a full implementation, we'd filter by source
         // For now, search all
