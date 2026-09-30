@@ -1,16 +1,19 @@
 import { create } from "zustand";
-import type { ProviderId } from "@/types";
+import { DEFAULT_RAG_SETTINGS, type ProviderId, type RagSettings } from "@/types";
 import { getSetting, setSetting } from "@/lib/db/repos";
 import { initializeCredentialStore } from "@/lib/security/credentialBackend";
 import { redactExternalError } from "@/lib/security/redact";
 import { LIMITS, clampTimeoutMs } from "@/lib/limits";
 import { listProviderIds } from "@/lib/providers/registry";
+import { logger } from "@/lib/logging";
 
 /** The persisted record never contains a credential: keys live in the credential store. */
 export interface PersistedSettings {
   primaryTarget: { providerId: ProviderId; modelId: string } | null;
   sessionRootDir: string | null;
   timeoutMs: number;
+  rag: RagSettings;
+  simpleMode: boolean;
 }
 
 /** Shape written by older builds, read once so plaintext keys can be migrated out. */
@@ -24,15 +27,24 @@ interface SettingsState extends PersistedSettings {
   loaded: boolean;
   saving: boolean;
   error: string | null;
+  ragSettings: RagSettings;
   load(): Promise<void>;
   setProviderKey(id: ProviderId, key: string): Promise<void>;
   setPrimaryTarget(t: PersistedSettings["primaryTarget"]): Promise<void>;
   setSessionRootDir(p: string | null): Promise<void>;
   setTimeoutMs(ms: number): Promise<void>;
+  setRagSettings(patch: Partial<RagSettings>): Promise<void>;
+  setSimpleMode(enabled: boolean): Promise<void>;
 }
 
 const KEY = "settings.main";
-const defaults: PersistedSettings = { primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000 };
+const defaults: PersistedSettings = { primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000, rag: DEFAULT_RAG_SETTINGS, simpleMode: false };
+
+/** Pinned to these values while simple mode hides the RAG sections. */
+const SIMPLE_MODE_RAG_DEFAULTS: Partial<RagSettings> = {
+  defaultSearchMode: "hybrid",
+  searchResultCount: 5,
+};
 
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -55,8 +67,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     loaded: false,
     saving: false,
     error: null,
+    ragSettings: defaults.rag,
 
     async load() {
+      logger.info("Loading settings");
       const saved = ((await getSetting<LegacySettings>(KEY)) ?? {}) as LegacySettings;
       const legacyKeys = saved.providerKeys ?? {};
       const keys: Partial<Record<ProviderId, string>> = {};
@@ -86,6 +100,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         ...defaults,
         ...saved,
         providerKeys: keys,
+        ragSettings: saved.rag ?? DEFAULT_RAG_SETTINGS,
         loaded: true,
         error: failures.length ? "تعذّر نقل بعض مفاتيح المزودين — أعد إدخالها: " + failures[0] : null,
       });
@@ -125,6 +140,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     async setPrimaryTarget(t) { await applyChange(set, get, enqueue, { primaryTarget: t }); },
     async setSessionRootDir(p) { await applyChange(set, get, enqueue, { sessionRootDir: p }); },
     async setTimeoutMs(ms) { await applyChange(set, get, enqueue, { timeoutMs: clampTimeoutMs(ms) }); },
+    async setRagSettings(patch) { await applyChange(set, get, enqueue, { rag: { ...get().ragSettings, ...patch } }); },
+    async setSimpleMode(enabled: boolean) {
+      // Simple mode hides the RAG sections, so enabling it pins their settings to
+      // the recommended defaults; disabling only restores their visibility.
+      const patch: Partial<PersistedSettings> = enabled
+        ? { simpleMode: true, rag: { ...get().ragSettings, ...SIMPLE_MODE_RAG_DEFAULTS } }
+        : { simpleMode: false };
+      await applyChange(set, get, enqueue, patch);
+    },
   };
 });
 
@@ -133,8 +157,10 @@ type GetState = () => SettingsState;
 type Enqueue = (write: () => Promise<void>) => Promise<void>;
 
 async function applyChange(set: SetState, get: GetState, enqueue: Enqueue, patch: Partial<PersistedSettings>): Promise<void> {
+  logger.info("Applying settings change", { keys: Object.keys(patch) });
   const before = { ...get() };
-  set({ ...patch, saving: true, error: null });
+  const ragBefore = get().ragSettings;
+  set({ ...patch, ragSettings: patch.rag ?? ragBefore, saving: true, error: null });
   try {
     await enqueue(() => persist(get));
   } catch (error) {
@@ -143,6 +169,8 @@ async function applyChange(set: SetState, get: GetState, enqueue: Enqueue, patch
       primaryTarget: before.primaryTarget,
       sessionRootDir: before.sessionRootDir,
       timeoutMs: before.timeoutMs,
+      ragSettings: ragBefore,
+      simpleMode: before.simpleMode,
       error: message,
     });
     throw new Error(message, { cause: error });
@@ -157,6 +185,8 @@ async function persist(get: GetState): Promise<void> {
     primaryTarget: state.primaryTarget,
     sessionRootDir: state.sessionRootDir,
     timeoutMs: state.timeoutMs,
+    rag: state.ragSettings,
+    simpleMode: state.simpleMode,
   };
   await setSetting(KEY, snapshot);
 }
