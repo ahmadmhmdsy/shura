@@ -6,9 +6,10 @@ import { useRagStore } from "@/state/ragStore";
 import { updateFolder } from "@/lib/rag/folderManager";
 import { toast } from "sonner";
 import { ar } from "@/i18n/ar";
+import { RagIndexingProgress } from "@/features/rag/RagIndexingProgress";
 
 export function RagFolderManager() {
-  const { folders, documents, addFolder, removeFolder } = useRagStore();
+  const { folders, documents, addFolder, removeFolder, indexingProgress } = useRagStore();
   const [adding, setAdding] = useState(false);
 
   const handleAddFolder = async () => {
@@ -97,6 +98,7 @@ export function RagFolderManager() {
           ))}
         </div>
       )}
+      {indexingProgress.status === "indexing" && <RagIndexingProgress />}
       <Button size="sm" variant="outline" disabled={adding} onClick={() => void handleAddFolder()}>
         {ar.ragAddFolder}
       </Button>
