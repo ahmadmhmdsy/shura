@@ -10,6 +10,7 @@ export interface ComposerDraft {
   sharedPrompt: string;
   customs: Record<string, string>;
   focusTargetId: string | null;
+  agentMode: boolean;
 }
 
 export interface ComposerState {
@@ -25,13 +26,14 @@ export interface ComposerState {
   setCustom(sessionId: string, targetId: string, text: string): void;
   setSyncMode(sessionId: string, value: boolean): void;
   setFocus(sessionId: string, targetId: string | null): void;
+  setAgentMode(sessionId: string, value: boolean): void;
   /** حذف مسودة الجلسة بالكامل (تستدعيه إزالة الجلسة في مخزن الجلسات). */
   clearSession(sessionId: string): void;
 }
 
 /** مسودة فارغة مرجعية للقراءة: مكوّنات الواجهة تستخدمها بديلًا عن مسودة الجلسة المجهولة. */
 export function emptyComposerDraft(): ComposerDraft {
-  return { targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null };
+  return { targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null, agentMode: false };
 }
 
 /** Stable read-only fallback for selectors; getDraft intentionally keeps its historical fresh-object API. */
@@ -83,6 +85,9 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
   },
   setFocus(sessionId, targetId) {
     set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), focusTargetId: targetId } } }));
+  },
+  setAgentMode(sessionId, value) {
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), agentMode: value } } }));
   },
   clearSession(sessionId) {
     set((s) => {

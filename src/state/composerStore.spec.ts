@@ -26,7 +26,7 @@ describe("composerStore — مسودة موقّعة بمعرف الجلسة", ()
   it("getDraft لجلسة مجهولة يعيد مسودة فارغة جديدة ولا يكتب في المخزن", () => {
     useComposerStore.getState().setDraft("s1", { sharedPrompt: "سؤال" });
     const first = useComposerStore.getState().getDraft("unknown");
-    expect(first).toEqual({ targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null });
+    expect(first).toEqual({ targets: [], syncMode: true, sharedPrompt: "", customs: {}, focusTargetId: null, agentMode: false });
     // كائن جديد في كل نداء (لا نسخ من مسودة أخرى ولا مرجع مشترك)
     expect(useComposerStore.getState().getDraft("unknown")).not.toBe(first);
     expect(useComposerStore.getState().drafts["unknown"]).toBeUndefined();
@@ -50,7 +50,7 @@ describe("composerStore — مسودة موقّعة بمعرف الجلسة", ()
 
   it("setDraft يبني مسودة كاملة على القاعدة الفارغة", () => {
     useComposerStore.getState().setDraft("s1", { sharedPrompt: "سؤال" });
-    expect(useComposerStore.getState().getDraft("s1")).toEqual({ targets: [], syncMode: true, sharedPrompt: "سؤال", customs: {}, focusTargetId: null });
+    expect(useComposerStore.getState().getDraft("s1")).toEqual({ targets: [], syncMode: true, sharedPrompt: "سؤال", customs: {}, focusTargetId: null, agentMode: false });
   });
 
   it("setDraft يدمج على مسودة قائمة بدل تفريغها", () => {
@@ -92,6 +92,14 @@ describe("composerStore — مسودة موقّعة بمعرف الجلسة", ()
     s.setFocus("s1", "t1");
     expect(s.getDraft("s1").focusTargetId).toBe("t1");
     expect(s.getDraft("s2").focusTargetId).toBeNull();
+  });
+
+  it("setAgentMode مقيد بجلسته ويبقى افتراضيًا false", () => {
+    const s = useComposerStore.getState();
+    expect(s.getDraft("s1").agentMode).toBe(false);
+    s.setAgentMode("s1", true);
+    expect(s.getDraft("s1").agentMode).toBe(true);
+    expect(s.getDraft("s2").agentMode).toBe(false);
   });
 
   it("removeTarget ينظف الحقل المخصص والتركيز داخل جلسته فقط", () => {
