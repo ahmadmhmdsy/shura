@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useRagStore } from "@/state/ragStore";
@@ -77,6 +78,14 @@ export function RagFolderManager() {
                   }}
                 />
               </div>
+              {folder.status === "error" && (
+                <button
+                  className="text-xs text-sura-muted hover:text-sura-foreground transition-colors flex items-center gap-1"
+                  onClick={() => void addFolder(folder.path, folder.label, folder.autoReindex)}
+                >
+                  <RotateCcw className="size-3" /> {ar.errorRetry}
+                </button>
+              )}
               <button
                 className="text-sura-muted hover:text-sura-warn"
                 onClick={() => void handleRemoveFolder(folder.id)}

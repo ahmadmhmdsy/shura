@@ -86,6 +86,9 @@ export const ar = {
   ragFolderError: "خطأ",
   ragFolderLastIndexed: "آخر فهرسة",
   ragFolderFiles: "ملف",
+  ragProgressTotal: "إجمالي الملفات",
+  ragProgressCompleted: "مكتمل",
+  ragProgressCurrent: "الملف الحالي",
   // [Impeccable] Onboarding & discovery
   whatIsShura: "ما هي شورى؟",
   whatIsShuraDesc: "شورى هو تطبيق دردشة يتيح لك إرسال سؤال واحد إلى عدة نماذج ذكاء اصطناعي في نفس الوقت، ثم مقارنة إجاباتهم جنبًا إلى جنب.",
@@ -130,6 +133,7 @@ export const ar = {
   errorSummary: "أخطاء",
   errorDismiss: "إخفاء",
   errorRetryAll: "إعادة الكل",
+  errorRetry: "إعادة المحاولة",
   // [Impeccable] Model selection
   searchModels: "ابحث في النماذج…",
   recentModels: "الأخيرة",

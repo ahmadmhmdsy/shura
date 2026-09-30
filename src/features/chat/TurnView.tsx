@@ -66,24 +66,36 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
       )}
       {visibleToolErrors.length > 0 && (
         <div className="rounded border border-sura-danger/40 bg-sura-danger/10 px-3 py-2 space-y-2" role="alert">
-          {visibleToolErrors.map(([targetId, error]) => (
-            <div key={targetId} className="flex items-center gap-2">
-              <AlertCircle className="size-4 text-sura-danger shrink-0" />
-              <span className="text-sm text-sura-danger flex-1">
-                {error.error}
-              </span>
-              <button
-                type="button"
-                className="text-xs text-sura-muted hover:text-sura-foreground transition-colors"
-                onClick={() => {
-                  setDismissedToolErrors((prev) => ({ ...prev, [targetId]: true }));
-                  onToolError?.(targetId, error.toolName, error.error);
-                }}
-              >
-                {ar.errorDismiss}
-              </button>
-            </div>
-          ))}
+          {visibleToolErrors.map(([targetId, error]) => {
+            const targetMessage = results.find((r) => r.targetId === targetId);
+            return (
+              <div key={targetId} className="flex items-center gap-2">
+                <AlertCircle className="size-4 text-sura-danger shrink-0" />
+                <span className="text-sm text-sura-danger flex-1">
+                  {error.error}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs text-sura-muted hover:text-sura-foreground transition-colors flex items-center gap-1"
+                  onClick={() => {
+                    if (targetMessage) onRetry(targetMessage);
+                  }}
+                >
+                  <RotateCcw className="size-3" /> {ar.errorRetry}
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-sura-muted hover:text-sura-foreground transition-colors"
+                  onClick={() => {
+                    setDismissedToolErrors((prev) => ({ ...prev, [targetId]: true }));
+                    onToolError?.(targetId, error.toolName, error.error);
+                  }}
+                >
+                  {ar.errorDismiss}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       {plain.length > 0 && <ResultCards msgs={plain} layout={layout} customPrompts={customPrompts} onToggleLayout={onToggleLayout} onStop={onStop} onRetry={onRetry} disabled={disabled} stopDisabled={stopDisabled} />}
