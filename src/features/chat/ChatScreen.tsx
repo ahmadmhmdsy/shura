@@ -3,7 +3,10 @@ import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { Composer } from "./Composer";
 import { TurnView } from "./TurnView";
+import { SessionExportDialog } from "./SessionExportDialog";
 import { RagStatusChip } from "@/features/rag/RagStatusChip";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore, EMPTY_COMPOSER_DRAFT } from "@/state/composerStore";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -41,6 +44,7 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
   const timeoutMs = useSettingsStore((s) => s.timeoutMs);
   const primaryTarget = useSettingsStore((s) => s.primaryTarget);
   const [toolActivity, setToolActivity] = useState<Record<string, string>>({});
+  const [exportOpen, setExportOpen] = useState(false);
   const [toolErrors, setToolErrors] = useState<Record<string, { toolName: string; error: string }>>({});
   const agentMode = useComposerStore((s) => (s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT).agentMode);
   const ragSettings = useSettingsStore((s) => s.ragSettings);
@@ -1015,8 +1019,12 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
 
   return (
     <main ref={mainRef} tabIndex={-1} className="flex-1 flex flex-col h-full min-w-0">
-      <div className="px-4 pt-3 flex justify-start">
+      <div className="px-4 pt-3 flex justify-start items-center gap-2">
         <RagStatusChip onOpenSettings={onOpenSettings} />
+        <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+          <Download className="size-4" />
+          {ar.exportSession}
+        </Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4" dir="rtl" role="log" aria-live="polite" aria-label="الرسائل">
         {turns.map(([turnId, t]) => (
@@ -1056,6 +1064,7 @@ export function ChatScreen({ session, onOpenSettings }: { session: SessionMeta; 
         contextLimit={contextLimit}
         contextMode={contextMode}
         onContextModeChange={(next) => void onToggleContextMode(next)} />
+      <SessionExportDialog open={exportOpen} onOpenChange={setExportOpen} session={session} messages={scopedMessages} />
     </main>
   );
 }

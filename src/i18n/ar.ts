@@ -161,4 +161,18 @@ export const ar = {
   lightTheme: "فاتح",
   darkTheme: "داكن",
   theme: "المظهر",
+  // [M5] Session export dialog
+  exportSession: "تصدير الجلسة",
+  exportDialogTitle: "تصدير الجلسة",
+  exportDialogDesc: "اختر الصيغة والرسائل التي تريد تضمينها في الملف",
+  exportFormat: "الصيغة",
+  exportFormatMarkdown: "Markdown",
+  exportFormatJSON: "JSON",
+  exportRange: "الرسائل",
+  exportRangeAll: "كل الرسائل",
+  exportRangePrompts: "أسئلتي فقط",
+  exportRangeResults: "إجابات النماذج فقط",
+  exportCount: "{n} رسالة ستُضمَّن في الملف",
+  exportButton: "تصدير",
+  cancel: "إلغاء",
 } as const;
