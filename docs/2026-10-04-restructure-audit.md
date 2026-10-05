@@ -1,284 +1,285 @@
-# تقرير إعادة الهيكلة والتدقيق الصادق — «شورى»
+# Restructuring and Honest Audit Report — "Shura"
 
-**التاريخ:** 2026-10-04
-**النطاق:** إعادة هيكلة قاعدة الشيفرة لتكون نظيفة وقابلة لإعادة الاستخدام والتعديل والتوسع، مع تدقيق صادق لكل نقطة ضعف أو تنفيذ ناقص أو ميزة يجب إضافتها/حذفها/تعديلها.
-**المنهجية:** كل ملاحظة إما **موثّقة بملف وسطر** أو **مُثبتة باختبار تشغيلي فعلي**. لم يُعامل أي جزء من المشروع كـ«مقدّس».
+**Date:** 2026-10-04
+**Scope:** Restructure the codebase to be clean, reusable, easy to edit, and ready to grow — plus an honest audit of every weakness, missing implementation, and feature that should be added, removed, or changed.
+**Method:** Every finding is either **documented with a file and line** or **proven by an actual runnable test**. Nothing in the project was treated as untouchable.
 
 ---
 
-## 1. الملخص التنفيذي
+## 1. Executive Summary
 
-| المحور | قبل | بعد |
+| Axis | Before | After |
 |---|---|---|
-| أكبر مكوّن واجهة | «ChatScreen.tsx» — **1069** سطر | **550** سطر (−49%) |
-| أكبر وحدة قاعدة بيانات | «repos.ts» — **706** سطر في ملف واحد | **728** سطرًا على **10** وحدات + واجهة موحّدة |
-| ملف الأنواع | «types/index.ts» — **221** سطر | **3** وحدات + واجهة موحّدة |
-| «App.tsx» | **296** سطر (حوار إعداد + SVG مكرر + اختصارات مضمّنة) | **131** سطر |
-| تغطية «src/lib/rag/» | **0** ملف مختبر (16 ملف مصدر) | **16** ملفًا مختبرًا / **208** اختبارًا |
-| الحزمة الأساسية | 1,195.17 kB | **1,071.15 kB** (هامش 128.85 kB من حد 1200) |
-| دوال مغطاة عالميًا | 969/1268 = **76.42%** (تحت عتبة 80 ⇒ البوابة حمراء) | 1105/1281 = **86.26%** (البوابة خضراء) |
+| Largest UI component | `ChatScreen.tsx` — **1069** lines | **550** lines (−49%) |
+| Largest database unit | `repos.ts` — **706** lines in one file | **728** lines across **10** modules + a facade |
+| Types file | `types/index.ts` — **221** lines | **3** modules + a facade |
+| `App.tsx` | **296** lines (settings dialog + duplicated SVG + inline shortcuts) | **131** lines |
+| Coverage of `src/lib/rag/` | **0** tested files (16 source files) | **16** tested files / **211** tests |
+| Main bundle | 1,195.17 kB | **1,071.15 kB** (128.85 kB of headroom under the 1200 budget) |
+| Globally covered functions | 969/1268 = **76.42%** (below the 80 threshold ⇒ gate red) | 1105/1281 = **86.26%** (gate green) |
 
-**أهم نتيجة:** اكتُشف **خطأ إنتاجي حقيقي يُوقف ميزة كاملة** (§3.1)، و**خطأ ثانٍ في تقسيم النص** يُضخّم الأحجام المُفهرسة (§3.2). كلاهما موثّق باختبار تشغيلي.
+**Headline result:** a **real production bug that disables an entire feature** was found (§3.1), and a **second bug in text chunking** that inflates indexed sizes (§3.2). Both are proven by runnable tests.
 
 ---
 
-## 2. ما أُعيد هيكلته (بنية قابلة للتوسع)
+## 2. What Was Restructured (an extensible structure)
 
-### 2.1 «src/features/chat/ChatScreen.tsx» — 1069 → 550 سطر
-استُخرجت أربع خطافات (hooks) في **637** سطرًا، لكل منها مسؤولية واحدة، وبقيت الشاشة منسّقة فقط:
+### 2.1 `src/features/chat/ChatScreen.tsx` — 1069 → 550 lines
+Four hooks were extracted into **637** lines, each with a single responsibility, leaving the screen purely orchestrating:
 
-| الوحدة الجديدة | المسؤولية |
+| New module | Responsibility |
 |---|---|
-| «hooks/useTurns.ts» | تجميع الرسائل في «تمريرات» (turns) |
-| «hooks/useOperationProgressSync.ts» | مزامنة تقدّم العمليات عند التحميل |
-| «hooks/useChatShortcuts.ts» | Ctrl+Enter للإرسال / Escape للإيقاف |
-| «hooks/useSummaryExtraction.ts» | منطق «استخرج خلاصة» كاملًا |
+| `hooks/useTurns.ts` | Grouping messages into turns |
+| `hooks/useOperationProgressSync.ts` | Syncing operation progress on load |
+| `hooks/useChatShortcuts.ts` | Ctrl+Enter to send / Escape to stop |
+| `hooks/useSummaryExtraction.ts` | The whole "extract a summary" flow |
 
-### 2.2 «src/lib/db/repos.ts» — 706 → 10 وحدات + واجهة
-قُسّمت حسب **النطاق الدلالي** لا حسب الحجم: «operations»، «sessions»، «turns»، «identity»، «messages»، «usage»، «settings»، «clone»، «attempts»، «reconcile»، مع «index.ts» كواجهة موحّدة. **كل مواقع الاستيراد السبعة تعمل دون تغيير** لأنها تمر عبر الواجهة (لا موقع استيراد واحد عُدّل).
+### 2.2 `src/lib/db/repos.ts` — 706 → 10 modules + a facade
+Split by **semantic domain**, not by size: `operations`, `sessions`, `turns`, `identity`, `messages`, `usage`, `settings`, `clone`, `attempts`, `reconcile`, with `index.ts` as the facade. **All seven import sites work unchanged** because they go through the facade — not a single import site was edited.
 
-### 2.3 «src/types/» — 221 → 3 وحدات + واجهة
-«providers.ts» (المزودون والنماذج)، «chat.ts» (المحادثة)، «rag.ts» (الفهرسة الدلالية)، مع «index.ts» كواجهة.
+### 2.3 `src/types/` — 221 → 3 modules + a facade
+`providers.ts` (providers and models), `chat.ts` (conversation), `rag.ts` (semantic indexing), with `index.ts` as the facade.
 
-### 2.4 «src/App.tsx» — 296 → 131 سطرًا
-- «src/lib/theme/useTheme.ts» — مالك واحد لمفتاح المظهر.
-- «src/features/onboarding/OnboardingDialog.tsx» — معالج الخطوات الثلاث.
-- «src/features/keyboard/useAppShortcuts.ts» — الاختصارات العامة.
-- حُذف «MessageSquare» المكرر محليًا واستُورد من «lucide-react».
+### 2.4 `src/App.tsx` — 296 → 131 lines
+- `src/lib/theme/useTheme.ts` — single owner of the theme key.
+- `src/features/onboarding/OnboardingDialog.tsx` — the three-step handler.
+- `src/features/keyboard/useAppShortcuts.ts` — global shortcuts.
+- The locally duplicated `MessageSquare` was removed and imported from `lucide-react`.
 
-### 2.5 طبقة حماية جديدة
-«src/components/ErrorBoundary.tsx» — لم يكن للمشروع أي حدّ لأخطاء الرسم؛ أي رمي أثناء الرسم كان يُفرّغ الشجرة ويترك نافذة بيضاء بلا مخرج. الآن تُسجَّل الأخطاء ويُعرض مسار إعادة تحميل.
+### 2.5 A new protection layer
+`src/components/ErrorBoundary.tsx` — the project had **no render error boundary at all**; any throw during render emptied the tree and left a white window with no way out. Errors are now logged and a reload path is shown.
 
 ---
 
-## 3. أخطاء إنتاجية حقيقية
+## 3. Real Production Bugs
 
-### 3.1 ✅ «persistence» غير مفهرس في «rag_documents» — ميزة «حذف الملفات المؤقتة» ميتة بالكامل (أُصلح)
+### 3.1 ✅ `persistence` is not indexed on `rag_documents` — the "delete temporary files" feature is completely dead (fixed)
 
-**الدليل:**
-- «src/lib/db/db.ts:71» يعرّف المخطط v4:
-  «rag_documents: "id, source, status, uploadedAt, sessionId, folderId"» — **لا يوجد «persistence»**.
-- بينما تستعلم أربع دوال إنتاجية عبر «.where("persistence")»:
-  - «src/lib/rag/documentManager.ts:151» — «cleanupTempDocuments»
-  - «src/lib/rag/documentManager.ts:165» — «cleanupTempDocumentsForSession»
-  - «src/lib/rag/tempCleanup.ts:72» — «getTempDocumentCount»
-  - «src/lib/rag/tempCleanup.ts:83» — «getTempDocumentSize»
-- المُستدعِي: «src/features/rag/RagFileManager.tsx:55».
+**Evidence:**
+- `src/lib/db/db.ts:71` defines schema v4:
+  `rag_documents: "id, source, status, uploadedAt, sessionId, folderId"` — **no `persistence`**.
+- Yet four production functions query through `.where("persistence")`:
+  - `src/lib/rag/documentManager.ts:151` — `cleanupTempDocuments`
+  - `src/lib/rag/documentManager.ts:165` — `cleanupTempDocumentsForSession`
+  - `src/lib/rag/tempCleanup.ts:72` — `getTempDocumentCount`
+  - `src/lib/rag/tempCleanup.ts:83` — `getTempDocumentSize`
+- Caller: `src/features/rag/RagFileManager.tsx:55`.
 
-**الإثبات التشغيلي:** اختبار فعلي نفّذ «getTempDocumentCount()» على مخطط حقيقي عبر «fake-indexeddb» فرفض Dexie بـ:
-«SchemaError: KeyPath persistence on object store rag_documents is not indexed».
+**Runtime proof:** a real test ran `getTempDocumentCount()` against a real schema via `fake-indexeddb` and Dexie refused with:
+`SchemaError: KeyPath persistence on object store rag_documents is not indexed`.
 
-**الأثر:** كل مسار تنظيف الملفات المؤقتة بعد التمريرة/الجلسة يرمي خطأ عند التشغيل. الميزة موجودة في الشيفرة لكنها **لا تعمل إطلاقًا**.
+**Impact:** every temporary-file cleanup path after a turn/session throws at runtime. The feature exists in the code but **does not work at all**.
 
-**الإصلاح المقترح:** إضافة «persistence» إلى قائمة فهارس «rag_documents» — إمّا في تعريف «version(4)» نفسه (وهو الأنظف، لأن v4 لم يُصدر قطّ) أو في «version(5)» جديد إن كان هناك قاعدة تطوير محلية عند v4 بالفعل. إضافة فهرس لا تحذف بيانات: Dexie يبنيه من الصفوف الموجودة.
+**Proposed fix:** add `persistence` to the `rag_documents` index list — either in the `version(4)` definition itself (cleanest, since v4 was never released) or in a new `version(5)` if a local development database already exists at v4. Adding an index deletes no data: Dexie builds it from existing rows.
 
-**ملاحظة نطاق مهمة (صدق التقرير):** ميزة RAG بالكامل — «src/lib/rag/*» بما فيها «db.ts» المعدّل — **عمل غير مُودَع في Git بعد** (ملفات غير متتبعة في شجرة العمل). أي أن المخطط v4 **لم يُصدر إلى أي مستخدم**. فالخطأ حقيقي ومؤكَّد، لكن أثره على مستخدمين حاليين معدوم؛ ويجب إصلاحه **قبل** أول إصدار يحمل RAG، لا بعده. هذا لا يقلّل من شأنه: لو أُودع كما هو، لوُلدت ميزة ميتة عند الإصدار.
+**Important scope note (report honesty):** the entire RAG feature — `src/lib/rag/*` including the modified `db.ts` — **was still uncommitted in Git** (untracked files in the working tree). So schema v4 **has not shipped to any user**. The bug is real and confirmed, but its impact on current users is zero; it must be fixed **before** the first release that carries RAG, not after. This does not diminish it: committed as-is, it would have shipped a dead feature.
 
-**✅ أُصلح في هذه الجولة:**
-- «src/lib/db/db.ts»: أُضيف الجدول «rag_model_blobs» و«version(5)» يحمل
-  «rag_documents: "id, source, status, uploadedAt, sessionId, folderId, persistence"».
-  أُبقي «version(4)» حرفيًا كما هو حتى تُهاجَر قاعدة تطوير قائمة عند v4 بدل أن تُرفض.
-- «src/lib/rag/tempCleanup.spec.ts»: الاختبارات الخمسة التي كانت **تثبّت الخطأ** (تتوقع «SchemaError»)
-  استُبدلت باختبارات تنظيف حقيقية: حذف المؤقت وحده، وبقاء الدائم، وصحة العدّادين (2 / 350). الملف الآن 10 اختبارات.
-- «src/lib/rag/documentManager.spec.ts»: كتلتان تستبدلان تثبيت الخطأ بسلوك فعلي («cleanupTempDocuments»
-  و«cleanupTempDocumentsForSession»). الملف الآن 22 اختبارًا.
-- «src/lib/db/migration.spec.ts»: اختبار هجرة v4→v5 يثبت بقاء مستند RAG بعد الترقية وقابلية الاستعلام بالفهرس الجديد.
-- «src/lib/db/schema.spec.ts» (جديد): حارس انحدار يقرأ شيفرة الإنتاج فعليًا، يستخرج كل
-  «db.<جدول>.where("<حقل>")» (25 استعلامًا / 16 زوجًا في 9 ملفات) ويؤكد أن كل حقل مفهرس في جدوله.
-  هذا الاختبار كان سيكشف §3.1 قبل الإصدار.
+**✅ Fixed in this round:**
+- `src/lib/db/db.ts`: added the `rag_model_blobs` table and a `version(5)` carrying
+  `rag_documents: "id, source, status, uploadedAt, sessionId, folderId, persistence"`.
+  `version(4)` was kept verbatim so an existing v4 development database migrates instead of being rejected.
+- `src/lib/rag/tempCleanup.spec.ts`: the five tests that were **asserting the bug** (expecting `SchemaError`)
+  were replaced with real cleanup tests: temporary deleted alone, permanent kept, and both counters correct (2 / 350). The file is now 10 tests.
+- `src/lib/rag/documentManager.spec.ts`: two blocks replace the bug-asserting with actual behavior (`cleanupTempDocuments`
+  and `cleanupTempDocumentsForSession`). The file is now 22 tests.
+- `src/lib/db/migration.spec.ts`: a v4→v5 migration test proving a RAG document survives the upgrade and is queryable through the new index.
+- `src/lib/db/schema.spec.ts` (new): a regression guard that actually reads the production code, extracts every
+  `db.<table>.where("<field>")` (25 queries / 16 pairs across 9 files), and asserts each field is indexed in its table.
+  This test would have caught §3.1 before release.
 
-التحقق: «pnpm exec vitest run src/lib/rag/tempCleanup.spec.ts src/lib/rag/documentManager.spec.ts» ⇒ 32/32 ناجح.
+Verification: `pnpm exec vitest run src/lib/rag/tempCleanup.spec.ts src/lib/rag/documentManager.spec.ts` ⇒ 32/32 passing.
 
-### 3.2 🔴 تقسيم النص: «overlap = 0» يُضخّم الأحجام بدل إلغاء التداخل
+### 3.2 🔴 Text chunking: `overlap = 0` inflates sizes instead of removing overlap
 
-**الدليل:** «src/lib/rag/chunker.ts»
-- السطر 86: «splitWords(wordChunk).slice(-Math.ceil(overlap / 4))»
-- السطر 103: «splitSentences(currentChunk).slice(-Math.ceil(overlap / 100))»
+**Evidence:** `src/lib/rag/chunker.ts`
+- Line 86: `splitWords(wordChunk).slice(-Math.ceil(overlap / 4))`
+- Line 103: `splitSentences(currentChunk).slice(-Math.ceil(overlap / 100))`
 
-عند «overlap = 0» (قيمة مشروعة تعني «بلا تداخل»): «Math.ceil(0/4) = 0»، و«slice(-0)» === «slice(0)» أي **نسخ المصفوفة كاملة**. النتيجة: القطعة التالية تبدأ بالقطعة السابقة بأكملها وتتجاوز «chunkSize» بأضعاف.
+At `overlap = 0` (a legitimate value meaning "no overlap"): `Math.ceil(0/4) = 0`, and `slice(-0)` === `slice(0)`, i.e. **copying the entire array**. The result: the next chunk starts with the whole previous chunk and exceeds `chunkSize` many times over.
 
-**الإثبات التشغيلي:** اختبار قسّم 40 جملة بـ «{ chunkSize: 40, overlap: 0 }» فأنتج **قطعة واحدة تحتوي الجمل الأربعين كلها**.
+**Runtime proof:** a test chunked 40 sentences with `{ chunkSize: 40, overlap: 0 }` and produced **a single chunk containing all 40 sentences**.
 
-**سهولة الوصول:** ليست نظرية — شريط تمرير «تداخل القطع» في «src/features/rag/RagSettings.tsx:138-146» معرّف بـ «min={0}»، أي أن أقصى يسار الشريط (أول ما يصل إليه المستخدم باحثًا عن «بلا تداخل») هو ما يشغّل الخطأ.
+**Accessibility:** not theoretical — the "chunk overlap" slider in `src/features/rag/RagSettings.tsx:138-146` is defined with `min={0}`, so the far-left position of the slider (the first thing a user reaches for when looking for "no overlap") is what triggers the bug.
 
-**الأثر:** فهرسة النصوص الطويلة بلا تداخل تُخزَّن كقطعة عملاقة واحدة — يدمّر دقة الاسترجاع الدلالي ويُضاعف استهلاك التضمين.
+**Impact:** indexing long texts with no overlap stores them as one giant chunk — destroying semantic retrieval accuracy and multiplying embedding consumption.
 
-**✅ أُصلح في هذه الجولة** («src/lib/rag/chunker.ts:86-89» و«:103-105»):
+**✅ Fixed in this round** (`src/lib/rag/chunker.ts:86-89` and `:103-105`):
 
     const overlapWords = overlap > 0 ? splitWords(wordChunk).slice(-Math.ceil(overlap / 4)) : [];
     wordChunk = overlapWords.length > 0 ? overlapWords.join(" ") + " " + word : word;
     // ...
     const overlapSentences = overlap > 0 ? splitSentences(currentChunk).slice(-Math.ceil(overlap / 100)) : [];
 
-حُوّل الاختباران اللذان كانا يثبّتان السلوك المعطوب في «src/lib/rag/chunker.spec.ts» إلى اختبارَي انحدار
-يتحققان من انعدام التداخل وعدم تجاوز «chunkSize». النتيجة: 13/13 ناجح، وtsc/eslint نظيفان.
+The two tests in `src/lib/rag/chunker.spec.ts` that were asserting the broken behavior were turned into two regression
+tests checking that overlap is absent and `chunkSize` is not exceeded. Result: 13/13 passing, tsc/eslint clean.
 
-### 3.3 ✅ «كاش» نموذج التضمين لا يُخزّن البايتات — إعادة تحميل 480 MB في كل جلسة (أُصلح)
+### 3.3 ✅ The embedding-model cache stores no bytes — re-downloading 480 MB every session (fixed)
 
-**الدليل:** «src/lib/rag/embedder.ts»
-- «saveModelFromCache» (286-303) يكتب صفًا فى «rag_models» **ببيانات وصفية فقط** (بدون بايتات النموذج).
-- «loadModelFromCache» (270-280) **يعيد «null» دائمًا** حتى عند وجود الصف، مع تعليق صريح: «In a real implementation, we'd store the model bytes in IndexedDB. For now, return null to trigger download».
+**Evidence:** `src/lib/rag/embedder.ts`
+- `saveModelFromCache` (286-303) writes a row to `rag_models` **with metadata only** (no model bytes).
+- `loadModelFromCache` (270-280) **always returns `null`** even when the row exists, with an explicit comment: "In a real implementation, we'd store the model bytes in IndexedDB. For now, return null to trigger download".
 
-**الأثر:** الكاش كتابة بلا قراءة ⇒ كل جلسة تضمين **تعيد تنزيل النموذج من HuggingFace**. الحجم الافتراضي المُعرّف هو «sizeBytes: 480_000_000» (480 MB). هذا ضعف أداء جسيم وليس مجرد كود ميت.
+**Impact:** the cache is write-only ⇒ every embedding session **re-downloads the model from HuggingFace**. The default declared size is `sizeBytes: 480_000_000` (480 MB). This is a severe performance weakness, not merely dead code.
 
-**✅ أُصلح في هذه الجولة:**
-- جدول جديد «rag_model_blobs: "id"» يحمل البايتات، منفصل عن الصف الوصفي في «rag_models»
-  حتى لا يسحب استعلام «هل النموذج منزَّل؟» مئات الميغابايتات.
-- «embedder.ts»: «loadModelFromCache» يقرأ «db.rag_model_blobs.get(modelId)?.bytes ?? null»،
-  و«saveModelToCache» يكتب الصف الوصفي والبايتات في «db.transaction("rw", …)» واحدة.
-- «modelDownloader.ts»: «downloadModel» يخزّن البايتات التي بحوزته أصلًا (كان يرميها ويكتفي بالوسم)،
-  و«deleteModel» يحذف البايتات مع الصف.
-- اختبارا انحدار جديدان في «embedder.spec.ts»: (أ) نموذج سبق تنزيله لا يُعاد تنزيله بعد إزاحة الكاش في الذاكرة
-  — وهو بالضبط السلوك الذي كان معطوبًا؛ (ب) صف وصفي بلا بايتات (كاش ناقص) يعيد التنزيل بدل الفشل.
-- اختباران في «modelDownloader.spec.ts»: البايتات تُخزَّن في الجدول المنفصل، و«deleteModel» يمحوها.
+**✅ Fixed in this round:**
+- A new `rag_model_blobs: "id"` table holds the bytes, separate from the metadata row in `rag_models`
+  so the "is the model downloaded?" query does not pull hundreds of megabytes.
+- `embedder.ts`: `loadModelFromCache` reads `db.rag_model_blobs.get(modelId)?.bytes ?? null`,
+  and `saveModelToCache` writes the metadata row and the bytes in a single `db.transaction("rw", …)`.
+- `modelDownloader.ts`: `downloadModel` stores the bytes it already holds (it used to discard them and only set the flag),
+  and `deleteModel` deletes the bytes along with the row.
+- Two new regression tests in `embedder.spec.ts`: (a) an already-downloaded model is not re-downloaded after the in-memory
+  cache is cleared — exactly the behavior that was broken; (b) a metadata row without bytes (incomplete cache) re-downloads instead of failing.
+- Two tests in `modelDownloader.spec.ts`: bytes are stored in the separate table, and `deleteModel` wipes them.
 
-التحقق: «pnpm exec vitest run src/lib/rag/embedder.spec.ts src/lib/rag/modelDownloader.spec.ts src/lib/rag/reindexManager.spec.ts» ⇒ 33/33 ناجح.
+Verification: `pnpm exec vitest run src/lib/rag/embedder.spec.ts src/lib/rag/modelDownloader.spec.ts src/lib/rag/reindexManager.spec.ts` ⇒ 33/33 passing.
 
 ---
 
-## 4. روائح كود أُصلحت في هذه الجولة
+## 4. Code Smells Fixed in This Round
 
-| # | الموقع | المشكلة | الإصلاح |
+| # | Location | Problem | Fix |
 |---|---|---|---|
-| 1 | «src/lib/transport/transport.ts:18» | وحدة إنتاج تُصدّر «testProviderKey» (أداة اختبار) — أُضيفت فقط لتلبية مسار استيراد حرفي في اختبار | حُذف التصدير؛ الاختبار يستورد الأداة من موطنها «@/lib/providers/keyTest» |
-| 2 | «src/lib/logging.ts:58» | «loadMetrics()» عند الاستيراد — أثر جانبي عند مجرد استيراد الوحدة | تحميل كسول عند أول استخدام عبر «ensureMetricsLoaded()» |
-| 3 | «src/lib/logging.ts:179» | «initAppLogging()» غير متكررة (idempotent) — كل استدعاء يسجّل مستمعين جدد | حارس «loggingInitialized» |
-| 4 | «src/main.tsx:99-106» | مستمعا «error»/«unhandledrejection» مكرران (موجودان أيضًا في «logging.ts») ⇒ كل خطأ غير معالَج يُسجَّل مرتين | تسجيل واحد مبكر عبر «initAppLogging()» قبل أول رسم |
-| 5 | «src/main.tsx» | استيرادان منفصلان من «@/lib/db/repos» + إزاحة تهيئة مكسورة | دُمج الاستيرادان وأُصلحت الإزاحة |
-| 6 | «src/App.tsx:279-296» | SVG محلي «MessageSquare» يكرّر «lucide-react» | استيراد من «lucide-react» |
-| 7 | «package.json» | «pnpm.onlyBuiltDependencies» يتجاهله pnpm 11 ⇒ تحذير عند **كل** أمر | نُقل إلى «pnpm-workspace.yaml» (اختفى التحذير فعليًا) |
-| 8 | — | لا «engines» ولا «.nvmrc» | أُضيفا (Node ≥22.12.0 — أرضية Vite 8؛ pnpm ≥11) |
-| 9 | جذر المستودع | ملفات خردة: «search-ai.cjs»، «test-output.txt»، «LOGGING_SUMMARY.md» + مكرر «agent/» من «.agents/» | حُذفت؛ أُضيف «agent/» إلى «.gitignore» |
+| 1 | `src/lib/transport/transport.ts:18` | A production module exports `testProviderKey` (a test utility) — added only to satisfy a literal import path in a test | Export removed; the test imports the utility from its home `@/lib/providers/keyTest` |
+| 2 | `src/lib/logging.ts:58` | `loadMetrics()` at import time — a side effect from merely importing the module | Lazy load on first use via `ensureMetricsLoaded()` |
+| 3 | `src/lib/logging.ts:179` | `initAppLogging()` is not idempotent — every call registers new listeners | `loggingInitialized` guard |
+| 4 | `src/main.tsx:99-106` | Duplicate `error`/`unhandledrejection` listeners (also present in `logging.ts)) ⇒ every unhandled error logged twice | Single early registration via `initAppLogging()` before the first render |
+| 5 | `src/main.tsx` | Two separate imports from `@/lib/db/repos` + a broken initialization offset | Imports merged and the offset fixed |
+| 6 | `src/App.tsx:279-296` | A local `MessageSquare` SVG duplicating `lucide-react` | Imported from `lucide-react` |
+| 7 | `package.json` | `pnpm.onlyBuiltDependencies` is ignored by pnpm 11 ⇒ a warning on **every** command | Moved to `pnpm-workspace.yaml` (the warning actually disappeared) |
+| 8 | — | No `engines` and no `.nvmrc` | Both added (Node ≥22.12.0 — the Vite 8 floor; pnpm ≥11) |
+| 9 | Repository root | Junk files: `search-ai.cjs`, `test-output.txt`, `LOGGING_SUMMARY.md` + a duplicate `agent/` from `.agents/` | Deleted; `agent/` added to `.gitignore` |
 
 ---
 
-## 5. كود ميت / غير قابل للوصول (يُوصى بحذفه أو توثيقه)
+## 5. Dead / Unreachable Code (recommended for removal or documentation)
 
-| الموقع | الملاحظة |
+| Location | Note |
 |---|---|
-| «chunker.ts:104» | ~~الفرع الخاطئ لـ «overlapSentences.length === 0» غير قابل للوصول~~ — **زال مع إصلاح §3.2**: صار الفرع يُنفَّذ فعلًا عند «overlap = 0» |
-| «modelDownloader.ts» | ~~فرذج النجاة في «getModelUrl»~~ — **زال**: الكتالوج المكرّر ثلاثًا وخريطتا الروابط أُزيلت كلها واستُبدلت بـ«src/lib/rag/modelCatalog.ts» |
-| «embedder.ts» | ~~فرع «if (modelData)» ميت~~ — **زال مع إصلاح §3.3**: الكاش يقرأ فعليًا فصار الفرع يُنفَّذ |
-| «embedder.ts» | ~~رمي «Embedder not initialized» غير قابل للوصول~~ — **زال**: الجلسة والمُرمِّز في حقل «loaded» واحد و«ensureLoaded()» تعيد نوعًا غير قابل للعدم، فسقط الفحصان وتأكيدا non-null في كل موضع |
-| «logging.ts» | ~~«getLogBuffer» بلا مستهلك~~ — **زال**: «src/features/settings/LogViewer.tsx» يعرضه في وضع التطوير (§6.1) |
-| «logging.ts» | ~~«incrementMessageCount» لا تُستدعى~~ — **زال**: تُستدعى في «ChatScreen.tsx» عند كل تمرّة جديدة (§6.2) |
-| «logging.ts» | «resetMetrics» ما زالت مُصدَّرة بلا مستهلك إنتاجي (تُستدعى في الاختبارات فقط). **متروكة عمدًا**: واجهة تشخيص صغيرة، وحذفها لا يضيف قيمة |
+| `chunker.ts:104` | ~~The wrong `overlapSentences.length === 0` branch is unreachable~~ — **gone with the §3.2 fix**: the branch now actually executes at `overlap = 0` |
+| `modelDownloader.ts` | ~~The fallback in `getModelUrl`~~ — **gone**: the triplicated catalog and both URL maps were removed and replaced by `src/lib/rag/modelCatalog.ts` |
+| `embedder.ts` | ~~The `if (modelData)` branch is dead~~ — **gone with the §3.3 fix**: the cache actually reads now, so the branch executes |
+| `embedder.ts` | ~~The unreachable `Embedder not initialized` throw~~ — **gone**: session and tokenizer live in a single `loaded` field and `ensureLoaded()` returns a non-nullable type, so the two checks and the non-null assertions at every site fell away |
+| `logging.ts` | ~~`getLogBuffer` has no consumer~~ — **gone**: `src/features/settings/LogViewer.tsx` renders it in dev mode (§6.1) |
+| `logging.ts` | ~~`incrementMessageCount` is never called~~ — **gone**: called in `ChatScreen.tsx` on every new turn (§6.2) |
+| `logging.ts` | `resetMetrics` is still exported with no production consumer (called only in tests). **Left intentionally**: a small diagnostic API, and deleting it adds no value |
 
 ---
 
-## 6. توصيات ميزات
+## 6. Feature Recommendations
 
-### يُضاف — ✅ نُفِّذت الثلاثة
-1. ✅ **عارض سجلات تطوير** — «src/features/settings/LogViewer.tsx»: مقاييس الجولة (الجلسات/الرسائل/الأخطاء/مدة التشغيل)
-   + آخر ١٠٠ إدخال من «getLogBuffer» مع فلترة بالمستوى وتحديث تلقائي كل ثانية. لا يُعرض إلا في «import.meta.env.DEV»
-   ولا يُدرج في فهرس أقسام الإنتاج. 7 اختبارات في «LogViewer.spec.tsx»، ومصدر السجل قابل للحقن ليُختبر العرض
-   دون لمس الحالة العامة للوحدة.
-2. ✅ **عدّاد رسائل** — «incrementMessageCount()» تُستدعى في «ChatScreen.tsx» داخل «persistTurn» عند كل تمرّة جديدة
-   (الإعادة لا تضيف رسالة، فلا تُعدّ مرتين).
-3. ✅ **اختبار انحدار للمخطط** — «src/lib/db/schema.spec.ts» (§3.1).
+### To add — ✅ all three implemented
+1. ✅ **A dev log viewer** — `src/features/settings/LogViewer.tsx`: turn metrics (sessions/messages/errors/uptime)
+   + the last 100 entries from `getLogBuffer` with level filtering and a one-second auto-refresh. Shown only in `import.meta.env.DEV`
+   and not added to the production settings section index. 7 tests in `LogViewer.spec.tsx`, with the log source injectable so the view
+   can be tested without touching the module's global state.
+2. ✅ **A message counter** — `incrementMessageCount()` is called in `ChatScreen.tsx` inside `persistTurn` on every new turn
+   (a retry adds no user message, so it is not counted twice).
+3. ✅ **A schema regression test** — `src/lib/db/schema.spec.ts` (§3.1).
 
-### يُحذف — ✅ نُفِّذ
-4. ✅ فرذج «getModelUrl» الميت أُزيل، ومعه التكرار الثلاثي للكتالوج وخريطتا الروابط: كلها صارت
-   «src/lib/rag/modelCatalog.ts». و«getModelUrl» الآن **يرمي** لنموذج غير معروف بدل الرجوع الصامت إلى
-   النموذج الافتراضي — كان الرجوع الصامت ينزّل نموذجًا آخر ويسمّيه باسم النموذج المطلوب.
-5. ✅ فرع «if (modelData)» الميت زال مع تنفيذ الكاش الفعلي (§3.3).
+### To remove — ✅ implemented
+4. ✅ The dead `getModelUrl` fallback was removed, along with the triplicated catalog and both URL maps: all of it is now
+   `src/lib/rag/modelCatalog.ts`. And `getModelUrl` now **throws** for an unknown model instead of silently falling back to the
+   default — the silent fallback downloaded a different model and labelled it with the requested model's name.
+5. ✅ The dead `if (modelData)` branch is gone with the real cache implementation (§3.3).
 
-### يُعدَّل
-6. «chatController.ts» (**718** سطرًا) — أكبر وحدة إنتاج متبقية. **ملاحظة صادقة:** هو دالة واحدة «sendTurn» بإغلاق (closure) كبير، وليس وحدة متعددة المسؤوليات؛ التعقيد أصيل من منطق الإرسال المتوازي والإلغاء والمتانة. فصل آمن ممكن لـ«ربط الإشارات» و«نقاط الحفظ المتدفقة» لكنه يتطلب كائن سياق مشترك — **لم يُنفَّذ عمدًا** لأن المخاطرة على مسار الإرسال الحرج لا تستحق فائدة شكلية.
+### To change
+6. `chatController.ts` (**718** lines) — the largest remaining production unit. **An honest note:** it is a single `sendTurn` function with a large closure, not a multi-responsibility module; the complexity is intrinsic to the parallel dispatch, cancellation, and resilience logic. A safe split is possible for "signal wiring" and "streaming save points" but requires a shared context object — **deliberately not implemented** because the risk to the critical dispatch path is not worth a cosmetic benefit.
 
 ---
 
-## 7. أرقام التحقق
+## 7. Verification Numbers
 
-| الفحص | النتيجة |
+| Check | Result |
 |---|---|
-| «pnpm exec tsc --noEmit» | **PASS** (نظيف) |
-| «pnpm lint» | **PASS** (نظيف — أُصلحت 3 أخطاء سابقة في «e2e/fixtures.ts») |
-| «pnpm build» | **PASS** — الحزمة الأساسية **1,071.15 kB** (gzip 306.08 kB) |
-| «pnpm exec vitest run src/lib/rag» | **PASS** — 16 ملفًا / 211 اختبارًا |
-| تغطية «src/lib/rag» | 96.59% عبارات · 89.95% فروع · 97.87% دوال · 97.37% أسطر |
-| السلسلة الكاملة «pnpm check:all» | **PASS كاملًا (exit 0)** — typecheck + lint + coverage + build |
-| التغطية العالمية النهائية | **4314/4884 = 88.32%** عبارات · **2969/3632 = 81.74%** فروع · **1105/1281 = 86.26%** دوال · **3698/3998 = 92.49%** أسطر (العتبة 80/75/80/80) |
-| مجموعة الاختبارات | **957/957 عبر 94 ملفًا** |
+| `pnpm exec tsc --noEmit` | **PASS** (clean) |
+| `pnpm lint` | **PASS** (clean — 3 pre-existing errors in `e2e/fixtures.ts` fixed) |
+| `pnpm build` | **PASS** — main bundle **1,071.15 kB** (gzip 306.08 kB) |
+| `pnpm exec vitest run src/lib/rag` | **PASS** — 16 files / 211 tests |
+| `src/lib/rag` coverage | 96.59% statements · 89.95% branches · 97.87% functions · 97.37% lines |
+| Full chain `pnpm check:all` | **PASS in full (exit 0)** — typecheck + lint + coverage + build |
+| Final global coverage | **4314/4884 = 88.32%** statements · **2969/3632 = 81.74%** branches · **1105/1281 = 86.26%** functions · **3698/3998 = 92.49%** lines (threshold 80/75/80/80) |
+| Test suite | **957/957 across 94 files** |
 
-### 7.1 حملة تغطية الدوال — 22 ملف اختبار جديد
+### 7.1 The function-coverage campaign — 22 new test files
 
-كانت البوابة حمراء على **الدوال** تحديدًا: 969/1268 = **76.42%** مقابل عتبة 80% (أي ناقص 46 دالة). أُغلقت الفجوة بـ**22 ملف اختبار جديد / 151 اختبارًا**، **بلا أي تعديل على شيفرة إنتاجية** وبلا أي اعتمادية جديدة:
+The gate was red on **functions** specifically: 969/1268 = **76.42%** against an 80% threshold (i.e. 46 functions short). The gap was closed with **22 new test files / 151 tests**, **without touching any production code** and without any new dependency:
 
-| النطاق | ملفات جديدة | اختبارات | دوال غُطّيت |
+| Scope | New files | Tests | Functions covered |
 |---|---|---|---|
-| «src/components/ui/**» | 10 | 41 | 42 (كانت 0%) |
-| مكوّنات RAG الأربعة | 4 | 45 | 44 (كانت 0%) |
-| السجلات والخطافات والمظهر | 8 | 65 | 36 |
-| **المجموع** | **22** | **151** | **122** |
+| `src/components/ui/**` | 10 | 41 | 42 (was 0%) |
+| The four RAG components | 4 | 45 | 44 (was 0%) |
+| Logging, hooks, and theme | 8 | 65 | 36 |
+| **Total** | **22** | **151** | **122** |
 
-النتيجة النهائية بعد جولة الإصلاحات: **1105/1281 = 86.26%** — أي هامش ~6 نقاط فوق العتبة، لا مجرد عبور بالكاد.
+Final result after the fix round: **1105/1281 = 86.26%** — a margin of ~6 points above the threshold, not a bare pass.
 
-تُضاف إلى ذلك **16 ملف اختبار / 211 اختبارًا** لمكتبة «src/lib/rag» (التي كانت صفر ملفات مختبرة)، ثم **ملفا اختبار / 9 اختبارات** في جولة الإصلاح («schema.spec.ts» حارس المخطط، و«LogViewer.spec.tsx»)، و**5 اختبارات** أُضيفت إلى ملفات قائمة («embedder.spec.ts» و«modelDownloader.spec.ts» و«migration.spec.ts»). فالمستودع الآن **94 ملفًا / 957 اختبارًا**.
-
----
-
-## 8. قرارات واعية
-
-- **«repos.ts» حُذف** كملف واحد وأُعيد توزيعه على 10 وحدات — بموافقة صريحة ضمن طلب إعادة الهيكلة. المحتوى محفوظ بالكامل واختبارات طبقة البيانات خضراء.
-- **لم يُلمس «chatController.ts»** (§6.6) — مخاطرة على مسار حرج بلا فائدة شكلية.
-- **خطأ §3.1 أُصلح بترقية مخطط صريحة** («version(5)») بعد أن طلب المستخدم إصلاح كل ما في التقرير. الترقية تُهاجر قاعدة v4 قائمة بدل رفضها، وإضافة فهرس لا تحذف صفوفًا (Dexie يبنيه من الموجود)، مع اختبار هجرة يثبت ذلك.
-- **خطأ §3.2 أُصلح** لأنه منطق خالص بلا أي مساس بالبيانات المخزَّنة، وأثرُه مؤكَّد وقابل للوصول من الواجهة.
-- **كل الاختبارات الجديدة بأسماء عربية** وتتبع أحواض «fake-indexeddb» الموجودة.
+Added on top of that are **16 test files / 211 tests** for the `src/lib/rag` library (which had zero tested files), then **2 test files / 9 tests** in the fix round (`schema.spec.ts` the schema guard, and `LogViewer.spec.tsx`), and **5 tests** added to existing files (`embedder.spec.ts`, `modelDownloader.spec.ts`, and `migration.spec.ts`). The repository is now **94 files / 957 tests**.
 
 ---
 
-## 9. خطأ جديد اكتُشف أثناء تنفيذ الإصلاحات — رموز «sura-*» في Tailwind غير معلنة، فـ177 استخدامًا بلا أثر
+## 8. Conscious Decisions
 
-اكتُشف عند بناء عارض السجل (§6.1) ومحاولة اتباع اصطلاح التنسيق السائد في المشروع.
+- **`repos.ts` was deleted** as a single file and redistributed across 10 modules — under explicit consent within the restructuring request. The content is fully preserved and the data-layer tests are green.
+- **`chatController.ts` was not touched** (§6.6) — risk to a critical path with no cosmetic benefit.
+- **The §3.1 error was fixed with an explicit schema upgrade** (`version(5)`) after the user asked to fix everything in the report. The upgrade migrates an existing v4 database instead of rejecting it, and adding an index deletes no rows (Dexie builds it from what exists), with a migration test proving it.
+- **The §3.2 error was fixed** because it is pure logic with no bearing on stored data, and its impact is confirmed and reachable from the UI.
+- **All new tests use Arabic names** and follow the existing `fake-indexeddb` pools.
 
-**الدليل:**
-- «src/styles/globals.css:8-44» يعلن «@theme inline» ويُسند أسماء shadcn القياسية فقط:
-  «--color-primary» و«--color-muted-foreground» و«--color-border» و«--color-destructive»… ولا يُعلن أي «--color-sura-*».
-- رموز التصميم نفسها سليمة وتعيش في «src/styles/tokens/colors.css» كمتغيرات CSS عادية
-  («--sura-text-secondary» و«--sura-warning»…)، لكن Tailwind 4 يولّد الأدوات من فضاء «--color-*» وحده.
-- القياس على مخرج البناء الفعلي «dist/assets/index-*.css»: لا وجود لأي من «.text-sura-muted»
-  و«.bg-sura-panel» و«.text-sura-warn» و«.border-sura-border»… **إطلاقًا**، بينما «.text-muted-foreground»
-  و«.bg-popover» و«.focus:bg-accent» موجودة فعلًا — فالآلية تعمل، والمعلن هو الناقص.
+---
 
-**المقياس:** **177 استخدامًا** لـ**19 صنفًا** في عشرات الملفات، أبرزها:
+## 9. A New Error Discovered While Implementing the Fixes — the `sura-` Tailwind tokens are undeclared, so 177 usages have no effect
 
-| الصنف | الاستخدامات | الملفات |
+Discovered while building the log viewer (§6.1) and trying to follow the project's prevailing styling convention.
+
+**Evidence:**
+- `src/styles/globals.css:8-44` declares `@theme inline` and assigns only the standard shadcn names:
+  `--color-primary`, `--color-muted-foreground`, `--color-border`, `--color-destructive`… and declares **no `--color-sura-*`**.
+- The design tokens themselves are sound and live in `src/styles/tokens/colors.css` as plain CSS custom properties
+  (`--sura-text-secondary`, `--sura-warning`…), but Tailwind 4 generates utilities from the `--color-*` namespace alone.
+- Measured against the actual build output `dist/assets/index-*.css`: none of `.text-sura-muted`,
+  `.bg-sura-panel`, `.text-sura-warn`, `.border-sura-border`… exist **at all**, while `.text-muted-foreground`,
+  `.bg-popover`, and `.focus:bg-accent` are genuinely present — so the mechanism works, and what is missing is the declaration.
+
+**Scale:** **177 usages** of **19 classes** across dozens of files, the worst offenders being:
+
+| Class | Usages | Files |
 |---|---|---|
-| «text-sura-muted» | 64 | 19 |
-| «border-sura-border» | 37 | 13 |
-| «text-sura-warn» | 11 | 7 |
-| «text-sura-danger» | 11 | 6 |
-| «bg-sura-bg» | 9 | 4 |
-| «text-sura-accent» | 6 | 6 |
-| «bg-sura-accent» | 6 | 5 |
-| «bg-sura-panel» | 4 | 4 |
-| الباقي (11 صنفًا، منها «text-sura-foreground» و«bg-sura-border» و«border-sura-accent») | 29 | — |
+| `text-sura-muted` | 64 | 19 |
+| `border-sura-border` | 37 | 13 |
+| `text-sura-warn` | 11 | 7 |
+| `text-sura-danger` | 11 | 6 |
+| `bg-sura-bg` | 9 | 4 |
+| `text-sura-accent` | 6 | 6 |
+| `bg-sura-accent` | 6 | 5 |
+| `bg-sura-panel` | 4 | 4 |
+| The rest (11 classes, incl. `text-sura-foreground`, `bg-sura-border`, `border-sura-accent`) | 29 | — |
 
-**الأثر:** النص «المكتوم» ليس مكتومًا، والحدود ليست ملوّنة، وتحذيرات «text-sura-warn» وأخطاء
-«text-sura-danger» تُعرض بلون النص العادي، وخلفيات «bg-sura-panel» غير مطبَّقة. الواجهة تعمل لأن البدائل
-القياسية («text-muted-foreground»…) مستخدمة في مواضع أخرى، لكن 177 نية تصميمية تُسقَط صامتة.
+**Impact:** "muted" text is not muted, borders are not colored, `text-sura-warn` warnings and
+`text-sura-danger` errors render in the plain text color, and `bg-sura-panel` backgrounds are not applied. The UI works because the
+standard alternatives (`text-muted-foreground`…) are used in other places, but 177 design intents are silently dropped.
 
-**لماذا لم يُصلَح فورًا — هذا قرار يحتاج رأيك:** الإصلاح السطري سهل (ثمانية أسطر «--color-sura-*» في
-«@theme inline»)، لكنه **يُدخل مخالفات تباين WCAG AA في الوضع الفاتح**، لأن رموز الدلالة مضبوطة
-للاستخدام كخلفيات لا كنصوص:
+**Why it was not fixed immediately — this is a decision that needs your input:** the one-line fix is easy (eight `--color-sura-*` lines in
+`@theme inline`), but it **introduces WCAG AA contrast failures in light mode**, because the semantic tokens are tuned for use as
+backgrounds rather than as text:
 
-| الرمز | قيمته (فاتح) | التباين التقديري على «--sura-surface-primary» | حد AA للنص العادي |
+| Token | Its value (light) | Estimated contrast on `--sura-surface-primary` | AA threshold for normal text |
 |---|---|---|---|
-| «--sura-text-secondary» (لـ«sura-muted») | L=0.45 | ~5.0:1 ✅ | 4.5:1 |
-| «--sura-accent-primary» (لـ«sura-accent») | L=0.55 | ~3.4:1 ❌ | 4.5:1 |
-| «--sura-error» (لـ«sura-danger») | L=0.55 | ~3.4:1 ❌ | 4.5:1 |
-| «--sura-warning» (لـ«sura-warn») | L=0.70 | ~2.0:1 ❌ | 4.5:1 |
+| `--sura-text-secondary` (for `sura-muted`) | L=0.45 | ~5.0:1 ✅ | 4.5:1 |
+| `--sura-accent-primary` (for `sura-accent`) | L=0.55 | ~3.4:1 ❌ | 4.5:1 |
+| `--sura-error` (for `sura-danger`) | L=0.55 | ~3.4:1 ❌ | 4.5:1 |
+| `--sura-warning` (for `sura-warn`) | L=0.70 | ~2.0:1 ❌ | 4.5:1 |
 
-اليوم هذه الأصناف غير فعّالة، فالنص يرث «--sura-text-primary» (تباين ~13:1) — أي أن الخلل الحالي
-«يحمي» التباين بالمصادفة. تشغيل الرموز كما هي سيُنزل نصوص التحذير والخطأ إلى ما دون العتبة.
+Today these classes are inert, so the text inherits `--sura-text-primary` (contrast ~13:1) — meaning the current bug
+"protects" contrast by accident. Enabling the tokens as they are would push warning and error text below the threshold.
 
-**الخيارات:**
-- **أ.** إضافة أسطر «--color-sura-*» الثمانية كما هي — أصغر تغيير، لكنه يُدخل مخالفات تباين في الوضع الفاتح.
-- **ب.** إضافة الأسطر **مع** رموز نصية دلالية داكنة («--sura-warning-text» و«--sura-error-text» و«--sura-accent-text»)
-  تُسند إليها «sura-warn» و«sura-danger» و«sura-accent»، فتبقى الخلفيات على قيمها الحالية.
-- **ج.** حذف الأصناف الـ177 تدريجيًا واستبدالها بمكافئاتها القياسية العاملة («text-muted-foreground»…) —
-  الأنظف على المدى الطويل، وأكثرها كلفة وتشتيتًا.
+**Options:**
+- **A.** Add the eight `--color-sura-*` lines as they are — the smallest change, but it introduces contrast failures in light mode.
+- **B.** Add the lines **together with** dark semantic text tokens (`--sura-warning-text`, `--sura-error-text`, `--sura-accent-text`)
+  assigned to `sura-warn`, `sura-danger`, and `sura-accent`, leaving the backgrounds at their current values.
+- **C.** Gradually delete the 177 classes and replace them with their working standard equivalents (`text-muted-foreground`…) —
+  cleanest long-term, but the most expensive and most scattered.
 
-**التوصية: ب.** تحلّ الخطأ دون كسر التباين، وتبقي التغيير في ملف واحد. لكنها تغيير تصميمي مرئي في كل
-الشاشات، ولا أستطيع التحقق البصري منه من هنا — لذا **لم تُنفَّذ** في هذا الإيداع، وأُبقيت منفصلة عنه.
+**Recommendation: B.** It resolves the error without breaking contrast, and keeps the change in a single file. But it is a visible design
+change across every screen, and I cannot verify it visually from here — so it was **not implemented** in this commit and was kept
+separate from it.
