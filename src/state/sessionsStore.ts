@@ -8,6 +8,7 @@ import type { AppendMessageResult } from "@/lib/db/repos";
 import { newId } from "@/lib/id";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
 import { useComposerStore } from "./composerStore";
+import { logger } from "@/lib/logging";
 
 // المرجع: .superpowers/sdd/hardening-task-3-brief.md الخطوة 4 — حجب الحمولة القديمة حسب الجيل.
 // كل عملية تفتح/تسمّي/تحذف جلسة تُزايد الجيل تزامنيًا عند بدئها، وأي التزام متأخر
@@ -53,7 +54,13 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     const gen = get().openGeneration + 1;
     set({ openGeneration: gen });
     const meta: SessionMeta = { id: newId("s"), title: "جلسة جديدة", createdAt: Date.now(), updatedAt: Date.now(), modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false };
-    await createSession(meta);
+    try {
+      await createSession(meta);
+      logger.info("Session created", { sessionId: meta.id });
+    } catch (e) {
+      logger.error("Failed to create session", { sessionId: meta.id }, e as Error);
+      throw e;
+    }
     // الجلسة أُنشئت في Dexie مطلقًا (لا للتراجع)؛ لكن التبديل إليها يلتفت للجيل فقط
     if (get().openGeneration !== gen) return meta;
     set((s) => ({ sessions: [meta, ...s.sessions], currentId: meta.id, messages: [] }));
@@ -79,7 +86,16 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       if (get().openGeneration === gen && get().currentId === id && get().loading) set({ loading: false });
     }
   },
-  async rename(id, title) { await updateSession(id, { title }); set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title } : x)) })); },
+  async rename(id, title) {
+    try {
+      await updateSession(id, { title });
+      logger.info("Session renamed", { sessionId: id, title });
+    } catch (e) {
+      logger.error("Failed to rename session", { sessionId: id, title }, e as Error);
+      throw e;
+    }
+    set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title } : x)) }));
+  },
   async remove(id) {
     const gen = get().openGeneration + 1;
     set({ openGeneration: gen });

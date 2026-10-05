@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archiveQueueDepth, runExclusiveInArchive } from "./archiveQueue";
+import { archiveQueueDepth, archiveQueueKey, runExclusiveInArchive } from "./archiveQueue";
 
 const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -62,5 +62,33 @@ describe("runExclusiveInArchive", () => {
     });
     await Promise.all([a, b]);
     expect(order).toEqual(["a:start", "a:end", "b:start"]);
+  });
+
+  it("يوحّد المسار النسبي والمطلق إلى مفتاح واحد (كاتب/حذف)", async () => {
+    // The writer queues on "sessions/<dir>" (relative) while deletion queues on
+    // "<root>/sessions/<dir>" (absolute). Both must share the same queue entry.
+    const order: string[] = [];
+    const relative = runExclusiveInArchive("sessions/my-session", async () => {
+      order.push("writer:start");
+      await later(30);
+      order.push("writer:end");
+    });
+    const absolute = runExclusiveInArchive("C:/Users/test/Documents/Shura/sessions/my-session", async () => {
+      order.push("delete:start");
+      order.push("delete:end");
+    });
+    await Promise.all([relative, absolute]);
+    // The deletion must wait for the writer to finish (serialization)
+    expect(order).toEqual(["writer:start", "writer:end", "delete:start", "delete:end"]);
+    expect(archiveQueueDepth()).toBe(0);
+  });
+
+  it("archiveQueueKey يستخرج آخر مقطع كمفتاح قانوني", () => {
+    expect(archiveQueueKey("sessions/foo")).toBe("foo");
+    expect(archiveQueueKey("C:/Users/test/Documents/Shura/sessions/foo")).toBe("foo");
+    expect(archiveQueueKey("sessions/foo/")).toBe("foo");
+    expect(archiveQueueKey("sessions/foo\\")).toBe("foo");
+    expect(archiveQueueKey("foo")).toBe("foo");
+    expect(archiveQueueKey("")).toBe("");
   });
 });

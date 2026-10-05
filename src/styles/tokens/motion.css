@@ -1,0 +1,88 @@
+/**
+ * Shura Design Tokens — Motion
+ * 
+ * Smooth, purposeful animations with consistent timing.
+ * Respects prefers-reduced-motion.
+ * 
+ * Usage:
+ *   transition: all var(--sura-duration-normal) var(--sura-ease-out);
+ *   animation: fadeIn var(--sura-duration-normal) var(--sura-ease-out);
+ */
+
+:root {
+  /* === Duration Scale === */
+  --sura-duration-instant: 100ms;
+  --sura-duration-fast: 150ms;
+  --sura-duration-normal: 200ms;
+  --sura-duration-slow: 300ms;
+  --sura-duration-slower: 500ms;
+  
+  /* === Easing Functions === */
+  --sura-ease-linear: linear;
+  --sura-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --sura-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --sura-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --sura-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  
+  /* === Common Transitions === */
+  --sura-transition-colors: color var(--sura-duration-fast) var(--sura-ease-out),
+    background-color var(--sura-duration-fast) var(--sura-ease-out),
+    border-color var(--sura-duration-fast) var(--sura-ease-out),
+    fill var(--sura-duration-fast) var(--sura-ease-out),
+    stroke var(--sura-duration-fast) var(--sura-ease-out);
+  
+  --sura-transition-transform: transform var(--sura-duration-normal) var(--sura-ease-out);
+  --sura-transition-opacity: opacity var(--sura-duration-fast) var(--sura-ease-out);
+  --sura-transition-shadow: box-shadow var(--sura-duration-fast) var(--sura-ease-out);
+  --sura-transition-all: all var(--sura-duration-normal) var(--sura-ease-out);
+  
+  /* === Animation Keyframes === */
+  --sura-animation-fade-in: fade-in var(--sura-duration-normal) var(--sura-ease-out);
+  --sura-animation-fade-out: fade-out var(--sura-duration-normal) var(--sura-ease-out);
+  --sura-animation-slide-in: slide-in var(--sura-duration-normal) var(--sura-ease-out);
+  --sura-animation-slide-out: slide-out var(--sura-duration-normal) var(--sura-ease-out);
+  --sura-animation-scale-in: scale-in var(--sura-duration-fast) var(--sura-ease-out);
+  --sura-animation-scale-out: scale-out var(--sura-duration-fast) var(--sura-ease-out);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sura-duration-instant: 0.01ms;
+    --sura-duration-fast: 0.01ms;
+    --sura-duration-normal: 0.01ms;
+    --sura-duration-slow: 0.01ms;
+    --sura-duration-slower: 0.01ms;
+  }
+}
+
+/* Keyframe definitions */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slide-in {
+  from { transform: translateY(var(--sura-space-2)); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slide-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(var(--sura-space-2)); opacity: 0; }
+}
+
+@keyframes scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes scale-out {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(0.95); opacity: 0; }
+}

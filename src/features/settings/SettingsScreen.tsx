@@ -11,6 +11,7 @@ import { RagSettings } from "@/features/rag/RagSettings";
 import { RagFileManager } from "@/features/rag/RagFileManager";
 import { RagFolderManager } from "@/features/rag/RagFolderManager";
 import { SimpleModeToggle } from "./SimpleModeToggle";
+import { LogViewer } from "./LogViewer";
 import { ar } from "@/i18n/ar";
 import type { ProviderId } from "@/types";
 
@@ -47,7 +48,8 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   const selectProvider = (next: ProviderId) => { setPSel(next); setMSel(""); };
 
   const sections = useMemo(() => {
-    const all = [
+    // النوع صريح لأن الاستدلال يثبّت العنوان على اتحاد القيم الحرفية، فيرفض إضافة «ar.devLog».
+    const all: { id: string; title: string }[] = [
       { id: "providers", title: ar.provider },
       { id: "primary-model", title: ar.primaryModel },
       { id: "session-dir", title: ar.sessionDir },
@@ -56,6 +58,8 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
       { id: "rag-external", title: ar.ragExternalFolders },
       { id: "timeout", title: ar.timeout },
     ];
+    // عارض السجل أداة تطوير: لا يُدرج في فهرس الإنتاج أصلًا.
+    if (import.meta.env.DEV) all.push({ id: "dev-log", title: ar.devLog });
     // Simple mode keeps only the essential sections in the table of contents.
     if (simpleMode) return all.filter((s) => s.id === "primary-model" || s.id === "session-dir");
     return all;
@@ -167,6 +171,12 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
                 }}
                 className="w-32" />
             </CollapsibleSection>
+
+            {import.meta.env.DEV && (
+              <CollapsibleSection title={ar.devLog}>
+                <LogViewer />
+              </CollapsibleSection>
+            )}
           </>
         )}
 

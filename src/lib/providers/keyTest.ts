@@ -15,7 +15,21 @@ export function mapProviderError(e: unknown): string {
   if (/(429|rate)/i.test(msg)) return "تجاوز حد المعدل (429) — انتظر ثم أعد";
   if (/(Failed to fetch|NetworkError|CORS|Load failed)/i.test(msg)) return "تعذر الوصول للمزود (CORS/شبكة) — هذا المزود يتطلب تشغيل شورى كتطبيق سطح مكتب";
   if (/(abort|timeout)/i.test(msg)) return "انتهت المهلة أو أُلغي النداء";
-  return msg;
+  // [L2] Arabic error patterns for providers that return Arabic messages.
+  // Note: Order matters — check context overflow before rate limit to avoid false matches.
+  if (/(مفتاح غير صالح|غير مصرح|مصادقة)/.test(msg)) return "مفتاح غير صالح أو غير مصرح (401/403)";
+  if (/(تجاوز حد السياق|السؤال الحالي يتجاوز)/.test(msg)) return "السؤال الحالي يتجاوز حد السياق الآمن";
+  if (/(تجاوز حد المعدل|المعدل|طلبات كثيرة)/.test(msg)) return "تجاوز حد المعدل (429) — انتظر ثم أعد";
+  if (/(تعذر الوصول|شبكة|اتصال)/.test(msg)) return "تعذر الوصول للمزود (CORS/شبكة) — هذا المزود يتطلب تشغيل شورى كتطبيق سطح مكتب";
+  if (/(انتهت المهلة|أُلغي|إلغاء)/.test(msg)) return "انتهت المهلة أو أُلغي النداء";
+  // Redact potential API keys from the error message before returning it.
+  // Some providers include the key in error messages (e.g., "Invalid API key: sk-abc123").
+  // We replace anything that looks like an API key with a placeholder.
+  return msg.replace(/[a-zA-Z0-9_-]{20,}/g, (match) => {
+    // Only redact if it looks like an API key (not a common word)
+    if (/^(sk-|key-|api-)/i.test(match) || match.length > 30) return "[مفتاح محذوف]";
+    return match;
+  });
 }
 
 function errorWithStatus(status: number, body: string): Error {

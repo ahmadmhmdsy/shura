@@ -1,0 +1,56 @@
+/**
+ * Shura Design Tokens — Typography
+ * 
+ * Arabic-optimized font stack with clear hierarchy.
+ * Uses IBM Plex Sans Arabic as primary, with system fonts as fallback.
+ * 
+ * Usage:
+ *   font-family: var(--sura-font-sans);
+ *   font-size: var(--sura-text-body);
+ */
+
+:root {
+  /* === Font Families === */
+  --sura-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Tahoma", system-ui, sans-serif;
+  --sura-font-mono: "IBM Plex Mono", "Consolas", "Monaco", monospace;
+  
+  /* === Font Sizes === */
+  --sura-text-display: 2.5rem;      /* 40px — Hero text */
+  --sura-text-h1: 2rem;             /* 32px — Page titles */
+  --sura-text-h2: 1.5rem;           /* 24px — Section headings */
+  --sura-text-h3: 1.25rem;          /* 20px — Subsection headings */
+  --sura-text-h4: 1.125rem;         /* 18px — Card titles */
+  --sura-text-body: 1rem;           /* 16px — Body text */
+  --sura-text-body-sm: 0.875rem;    /* 14px — Secondary body */
+  --sura-text-caption: 0.75rem;     /* 12px — Captions, labels */
+  --sura-text-label: 0.8125rem;     /* 13px — Form labels */
+  
+  /* === Font Weights === */
+  --sura-font-regular: 400;
+  --sura-font-medium: 500;
+  --sura-font-semibold: 600;
+  --sura-font-bold: 700;
+  
+  /* === Line Heights === */
+  --sura-leading-tight: 1.25;       /* Headings */
+  --sura-leading-normal: 1.5;       /* Body text */
+  --sura-leading-relaxed: 1.75;     /* Long-form reading */
+  
+  /* === Letter Spacing === */
+  --sura-tracking-tight: -0.02em;
+  --sura-tracking-normal: 0;
+  --sura-tracking-wide: 0.02em;
+  
+  /* === Paragraph Spacing === */
+  --sura-paragraph-spacing: 1em;
+}
+
+/* Responsive typography */
+@media (max-width: 768px) {
+  :root {
+    --sura-text-display: 2rem;
+    --sura-text-h1: 1.75rem;
+    --sura-text-h2: 1.375rem;
+    --sura-text-h3: 1.125rem;
+  }
+}

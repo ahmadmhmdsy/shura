@@ -8,8 +8,10 @@
 
 import { db } from "@/lib/db/db";
 import { clearAllIndexes } from "./vectorIndex";
-import { EMBEDDING_MODELS } from "./embedder";
-import type { RagModel, RagSettings } from "@/types";
+// الكتالوج انتقل إلى "./modelCatalog" كمصدر وحيد، ويُعاد تصدير getModelInfo من
+// هنا حفاظًا على مسار الاستيراد القائم في reindexManager.spec.ts.
+export { getModelInfo } from "./modelCatalog";
+import type { RagSettings } from "@/types";
 
 export interface ReindexProgress {
   current: number;
@@ -92,9 +94,3 @@ export function validateModelSwitch(
   };
 }
 
-/**
- * Get the embedding model info for a model ID.
- */
-export function getModelInfo(modelId: string): RagModel | null {
-  return EMBEDDING_MODELS.find((m) => m.id === modelId) ?? null;
-}

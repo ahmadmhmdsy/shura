@@ -9,6 +9,10 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:browser": "playwright test --project=browser",
+    "test:e2e:tauri": "playwright test --project=tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:e2e": "tauri dev --features e2e-testing",
     "check:all": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm build",
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && vite build",
     "tauri:build:windows": "pnpm tauri build --bundles nsis"
@@ -24,6 +28,10 @@
     }
   },
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=11.0.0"
+  },
   "dependencies": {
     "@ai-sdk/google": "^4.0.63",
     "@ai-sdk/openai-compatible": "^3.0.43",
@@ -36,8 +44,12 @@
     "clsx": "^2.1.1",
     "cn": "^0.2.5",
     "dexie": "^4.4.5",
+    "hnswlib-wasm": "^0.8.2",
     "lucide-react": "^1.41.0",
+    "mammoth": "^1.13.0",
     "next-themes": "^0.4.6",
+    "onnxruntime-web": "^1.30.0",
+    "pdfjs-dist": "^6.3.289",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -45,12 +57,14 @@
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
+    "zod": "^4.6.5",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
+    "@srsholmes/tauri-playwright": "^0.4.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^7.0.1",

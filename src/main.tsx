@@ -6,19 +6,22 @@ import "./styles/globals.css";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
-import { importSessionAtomically, reconcileInterruptedTurns } from "@/lib/db/repos";
-import { hasTombstone } from "@/lib/db/repos";
+import { hasTombstone, importSessionAtomically, reconcileInterruptedTurns } from "@/lib/db/repos";
 import { isTauri } from "@/lib/transport/transport";
 import { bootstrapDesktop } from "@/lib/desktop/bootstrap";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
 import { noticeFromRecoveryReport, recoverSessionsFromDisk, type StartupNotice } from "@/lib/startupRecovery";
 import { StartupNoticeBanner } from "@/features/startup/StartupNotice";
+import { initAppLogging, logger, safeExecuteAsync } from "@/lib/logging";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 async function runNonFatalPhase(phase: () => Promise<void> | void): Promise<void> {
   try {
     await phase();
-  } catch {
+  } catch (e) {
     // A failed startup/recovery phase must not prevent the remaining phases or the first render.
+    // But we log the error so it's not completely silent.
+    console.error("Startup phase failed:", e);
   }
 }
 
@@ -93,10 +96,23 @@ function Root({ notice }: { notice: StartupNotice | null }) {
   );
 }
 
+// Global error / unhandledrejection / visibility / unload listeners are registered once,
+// here, before the first render, by the (idempotent) initAppLogging. App keeps its own call
+// for tests that render the tree directly; that call is now a no-op instead of double-reporting.
+initAppLogging();
+
+// Check if running in Tauri or browser
+const isTauriEnv = isTauri();
+logger.info("Environment detected", { isTauri: isTauriEnv, userAgent: navigator.userAgent });
+
+if (!isTauriEnv) {
+  logger.warn("Running in browser mode - some features may not work");
+}
+
 const rootElement = typeof document === "undefined" ? null : document.getElementById("root");
 if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
-  void runStartup({
+  void safeExecuteAsync(() => runStartup({
     bootstrap: async () => {
       if (isTauri()) await bootstrapDesktop();
     },
@@ -109,9 +125,11 @@ if (rootElement) {
     render: (notice) => {
       root.render(
         <React.StrictMode>
-          <Root notice={notice ?? null} />
+          <ErrorBoundary>
+            <Root notice={notice ?? null} />
+          </ErrorBoundary>
         </React.StrictMode>
       );
     },
-  });
+  }), "runStartup", undefined);
 }

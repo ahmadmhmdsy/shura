@@ -74,9 +74,16 @@ export async function readDiskTombstones(sink: FileSink, root: string): Promise<
   let names: string[];
   try {
     names = await sink.readDir(dir);
-  } catch {
-    // No tombstone directory means no deletion has been recorded yet.
-    return new Set();
+  } catch (error) {
+    // ENOENT (or the memory sink's equivalent) means no tombstone directory yet — no
+    // deletion has been recorded. Any other error (EPERM, EACCES, transient FS failure)
+    // must fail closed per the function contract, not silently treat the session as
+    // "not deleted" and risk re-importing a permanently deleted session.
+    const code = (error as { code?: string })?.code;
+    if (code === "ENOENT" || (typeof error === "object" && error !== null && /ENOENT|not found|No such file/i.test((error as Error).message))) {
+      return new Set();
+    }
+    throw new TombstoneSetError("شاهد حذف تالف: تعذّر قراءة مجموعة الشواهد");
   }
   const ids = new Set<string>();
   for (const name of names) {

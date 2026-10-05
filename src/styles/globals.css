@@ -1,117 +1,51 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./tokens/index.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: var(--sura-radius-sm);
+  --radius-md: var(--sura-radius-md);
+  --radius-lg: var(--sura-radius-lg);
+  --radius-xl: var(--sura-radius-xl);
+  --radius-2xl: var(--sura-radius-2xl);
+  --radius-3xl: var(--sura-radius-3xl);
+  --radius-4xl: var(--sura-radius-3xl);
+  
+  --color-background: var(--sura-surface-primary);
+  --color-foreground: var(--sura-text-primary);
+  --color-card: var(--sura-surface-elevated);
+  --color-card-foreground: var(--sura-text-primary);
+  --color-popover: var(--sura-surface-elevated);
+  --color-popover-foreground: var(--sura-text-primary);
+  --color-primary: var(--sura-accent-primary);
+  --color-primary-foreground: var(--sura-accent-foreground);
+  --color-secondary: var(--sura-surface-secondary);
+  --color-secondary-foreground: var(--sura-text-primary);
+  --color-muted: var(--sura-surface-secondary);
+  --color-muted-foreground: var(--sura-text-secondary);
+  --color-accent: var(--sura-accent-muted);
+  --color-accent-foreground: var(--sura-text-primary);
+  --color-destructive: var(--sura-error);
+  --color-border: var(--sura-border-primary);
+  --color-input: var(--sura-input-border);
+  --color-ring: var(--sura-accent-primary);
+  
+  --color-sidebar: var(--sura-sidebar-bg);
+  --color-sidebar-foreground: var(--sura-text-primary);
+  --color-sidebar-primary: var(--sura-accent-primary);
+  --color-sidebar-primary-foreground: var(--sura-accent-foreground);
+  --color-sidebar-accent: var(--sura-sidebar-active);
+  --color-sidebar-accent-foreground: var(--sura-text-primary);
+  --color-sidebar-border: var(--sura-sidebar-border);
+  --color-sidebar-ring: var(--sura-accent-primary);
 }
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+@theme {
+  --font-sans: var(--sura-font-sans);
+  --font-mono: var(--sura-font-mono);
 }
 
 @layer base {
@@ -120,26 +54,18 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--sura-font-sans);
   }
 }
 
-@theme {
-  --color-sura-bg: oklch(0.16 0.02 260);
-  --color-sura-panel: oklch(0.20 0.02 260);
-  --color-sura-border: oklch(0.30 0.02 260);
-  --color-sura-text: oklch(0.93 0.01 260);
-  --color-sura-muted: oklch(0.65 0.02 260);
-  --color-sura-accent: oklch(0.70 0.15 165);
-  --color-sura-danger: oklch(0.62 0.19 25);
-  --color-sura-warn: oklch(0.80 0.15 85);
-  --font-sans: "Segoe UI", "Tahoma", system-ui, sans-serif;
+html, body, #root { height: 100%; }
+body { 
+  background: var(--sura-surface-primary); 
+  color: var(--sura-text-primary); 
+  font-family: var(--sura-font-sans);
 }
 
-html, body, #root { height: 100%; }
-body { background: var(--color-sura-bg); color: var(--color-sura-text); font-family: var(--font-sans); }
-
-/* WCAG 2.3.3: honour a stated preference for reduced motion. Pulse and zoom
-   animations can trigger vestibular symptoms, so they are disabled outright. */
+/* WCAG 2.3.3: honour a stated preference for reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -149,4 +75,143 @@ body { background: var(--color-sura-bg); color: var(--color-sura-text); font-fam
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Smooth theme transition */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-duration: var(--sura-duration-normal);
+  transition-timing-function: var(--sura-ease-out);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--sura-scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sura-scrollbar-thumb);
+  border-radius: var(--sura-radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sura-scrollbar-thumb-hover);
+}
+
+/* Focus visible styles */
+:focus-visible {
+  outline: var(--sura-border-width-focus) solid var(--sura-accent-primary);
+  outline-offset: 2px;
+}
+
+/* Selection styles */
+::selection {
+  background: var(--sura-accent-primary);
+  color: var(--sura-accent-foreground);
+}
+
+/* Micro-interactions */
+
+/* Button press animation */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: transform var(--sura-duration-fast) var(--sura-ease-out),
+              box-shadow var(--sura-duration-fast) var(--sura-ease-out);
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sura-shadow-card-hover);
+}
+
+/* Smooth fade in for new elements */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(var(--sura-space-2));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up var(--sura-duration-normal) var(--sura-ease-out);
+}
+
+/* Pulse animation for loading states */
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft var(--sura-duration-slower) var(--sura-ease-in-out) infinite;
+}
+
+/* Slide in from side */
+@keyframes slide-in-start {
+  from {
+    opacity: 0;
+    transform: translateX(var(--sura-space-4));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-start {
+  animation: slide-in-start var(--sura-duration-normal) var(--sura-ease-out);
+}
+
+/* Scale in for modals */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in var(--sura-duration-fast) var(--sura-ease-out);
+}
+
+/* Shimmer effect for skeletons */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--sura-surface-tertiary) 25%,
+    var(--sura-surface-secondary) 50%,
+    var(--sura-surface-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer var(--sura-duration-slower) var(--sura-ease-in-out) infinite;
 }

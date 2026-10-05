@@ -1,39 +1,24 @@
 import { useEffect, useState, useCallback } from "react";
-import { Menu, X, Sun, Moon, HelpCircle, Plus } from "lucide-react";
+import { Menu, X, Sun, Moon, HelpCircle, Plus, MessageSquare } from "lucide-react";
 import { Sidebar } from "@/features/sessions/Sidebar";
 import { SettingsScreen } from "@/features/settings/SettingsScreen";
 import { ChatScreen } from "@/features/chat/ChatScreen";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ar } from "@/i18n/ar";
 import { StatusAnnouncer } from "@/features/chat/StatusAnnouncer";
-import { initAppLogging, logger, safeExecute, incrementSessionCount } from "@/lib/logging";
-import { registerShortcuts, type Shortcut } from "@/lib/keyboard/shortcuts";
+import { initAppLogging, logger, incrementSessionCount } from "@/lib/logging";
 import { ShortcutHelpDialog } from "@/features/keyboard/ShortcutHelpDialog";
-
-// Theme management
-type Theme = "dark" | "light";
-function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem("shura-theme");
-  if (stored === "light" || stored === "dark") return stored;
-  return "dark";
-}
-
-// Onboarding state
-function getOnboardingSeen(): boolean {
-  if (typeof window === "undefined") return true;
-  return localStorage.getItem("shura-onboarding-seen") === "true";
-}
+import { useAppShortcuts } from "@/features/keyboard/useAppShortcuts";
+import { OnboardingDialog, hasSeenOnboarding, markOnboardingSeen } from "@/features/onboarding/OnboardingDialog";
+import { useTheme } from "@/lib/theme/useTheme";
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(() => !getOnboardingSeen());
-  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [showHelp, setShowHelp] = useState(false);
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const { theme, toggleTheme } = useTheme();
 
   // Initialize logging and metrics
   useEffect(() => {
@@ -42,16 +27,10 @@ export default function App() {
   }, []);
   const currentSession = useSessionsStore((s) => (s.currentId ? s.sessions.find((x) => x.id === s.currentId) ?? null : null));
 
-  // Apply theme
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("shura-theme", theme);
-  }, [theme]);
-
   // Mark onboarding as seen when closed
   const closeOnboarding = useCallback(() => {
     setShowOnboarding(false);
-    localStorage.setItem("shura-onboarding-seen", "true");
+    markOnboardingSeen();
   }, []);
 
   // Close mobile nav on escape
@@ -63,68 +42,11 @@ export default function App() {
   }, [navOpen]);
 
   // Global keyboard shortcuts
-  const shortcuts: Shortcut[] = [
-    {
-      key: "k",
-      ctrl: true,
-      action: () => {
-        const searchInput = document.querySelector<HTMLInputElement>('input[aria-label="ابحث في الجلسات…"]');
-        searchInput?.focus();
-      },
-      description: ar.shortcutSearch,
-    },
-    {
-      key: "n",
-      ctrl: true,
-      action: () => {
-        safeExecute(() => { useSessionsStore.getState().newSession(); incrementSessionCount(); logger.info("New session created"); }, "newSession");
-      },
-      description: ar.shortcutNewSession,
-    },
-    {
-      key: "s",
-      ctrl: true,
-      shift: true,
-      action: () => setShowSettings(true),
-      description: ar.shortcutSettings,
-    },
-    {
-      key: "Escape",
-      action: () => {
-        window.dispatchEvent(new CustomEvent("shura:stop-generation"));
-      },
-      description: ar.shortcutStop,
-      when: () => {
-        const target = document.activeElement;
-        return target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA";
-      },
-    },
-    {
-      key: "?",
-      action: () => setShowHelp(true),
-      description: ar.shortcutHelp,
-      when: () => {
-        const target = document.activeElement;
-        return target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA";
-      },
-    },
-    {
-      key: ",",
-      ctrl: true,
-      action: () => setShowSettings(true),
-      description: ar.shortcutSettings,
-    },
-    {
-      key: "/",
-      ctrl: true,
-      action: () => setTheme(t => t === "dark" ? "light" : "dark"),
-      description: ar.shortcutToggleTheme,
-    },
-  ];
-
-  useEffect(() => {
-    return registerShortcuts(shortcuts);
-  }, []);
+  const shortcuts = useAppShortcuts({
+    onOpenSettings: () => setShowSettings(true),
+    onShowHelp: () => setShowHelp(true),
+    onToggleTheme: toggleTheme,
+  });
 
   return (
     <div className="flex h-full" dir="rtl">
@@ -142,7 +64,7 @@ export default function App() {
           variant="ghost"
           size="icon-sm"
           aria-label={theme === "dark" ? ar.lightTheme : ar.darkTheme}
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={toggleTheme}
           className="text-[var(--sura-text-tertiary)] hover:text-[var(--sura-text-primary)] hover:bg-[var(--sura-hover)]"
         >
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -211,86 +133,13 @@ export default function App() {
       {/* Settings */}
       {showSettings && <SettingsScreen onClose={() => setShowSettings(false)} />}
 
-      {/* Onboarding Dialog */}
-      <Dialog open={showOnboarding} onOpenChange={(v) => { if (!v) { closeOnboarding(); setOnboardingStep(0); } }}>
-        <DialogContent className="max-w-md" dir="rtl" closeLabel={ar.onboardingSkip}>
-          <DialogHeader>
-            <DialogTitle>{ar.onboardingTitle}</DialogTitle>
-            <DialogDescription className="sr-only">{ar.whatIsShuraDesc}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {onboardingStep === 0 && (
-              <div className="space-y-2">
-                <h3 className="text-[var(--sura-text-h4)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.onboardingStep1Title}</h3>
-                <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">{ar.onboardingStep1Desc}</p>
-              </div>
-            )}
-            {onboardingStep === 1 && (
-              <div className="space-y-2">
-                <h3 className="text-[var(--sura-text-h4)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.onboardingStep2Title}</h3>
-                <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">{ar.onboardingStep2Desc}</p>
-              </div>
-            )}
-            {onboardingStep === 2 && (
-              <div className="space-y-2">
-                <h3 className="text-[var(--sura-text-h4)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{ar.onboardingStep3Title}</h3>
-                <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">{ar.onboardingStep3Desc}</p>
-              </div>
-            )}
-            {/* Step indicators */}
-            <div className="flex justify-center gap-2 pt-2" aria-label={"الخطوة " + (onboardingStep + 1) + " من 3"}>
-              {[0, 1, 2].map((i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={"size-2 rounded-[var(--sura-radius-full)] transition-colors " + (i === onboardingStep ? "bg-[var(--sura-accent-primary)]" : "bg-[var(--sura-border-primary)]")}
-                  onClick={() => setOnboardingStep(i)}
-                  aria-label={"الخطوة " + (i + 1)}
-                  aria-current={i === onboardingStep ? "true" : undefined}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-between items-center">
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={closeOnboarding}>{ar.onboardingSkip}</Button>
-              <Button variant="outline" onClick={closeOnboarding}>{ar.onboardingTryExample}</Button>
-            </div>
-            <div className="flex gap-2">
-              {onboardingStep > 0 && (
-                <Button variant="ghost" onClick={() => setOnboardingStep(onboardingStep - 1)}>{ar.onboardingBack}</Button>
-              )}
-              {onboardingStep < 2
-                ? <Button onClick={() => setOnboardingStep(onboardingStep + 1)}>{ar.onboardingNext}</Button>
-                : <Button onClick={() => { closeOnboarding(); setOnboardingStep(0); }}>{ar.onboardingDone}</Button>}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Onboarding wizard */}
+      <OnboardingDialog open={showOnboarding} onClose={closeOnboarding} />
 
       {/* Shortcut Help Dialog */}
       <ShortcutHelpDialog open={showHelp} onOpenChange={setShowHelp} shortcuts={shortcuts} />
 
       <StatusAnnouncer />
     </div>
-  );
-}
-
-function MessageSquare(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
   );
 }

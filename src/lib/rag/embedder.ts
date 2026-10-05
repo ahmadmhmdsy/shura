@@ -13,8 +13,12 @@
  * indexer, and the session indexer all share one model instance.
  */
 
-import type { RagModel } from "@/types";
 import { db } from "@/lib/db/db";
+import { getModelUrl } from "./modelCatalog";
+
+// يُعاد التصدير من هنا لأن الوحدات الأخرى (documentManager وsessionIndexer وtool
+// وreindexManager وRagSettings) تستورد الكتالوج من هذا الموضع تاريخيًا.
+export { EMBEDDING_MODELS, getModelInfo, getModelUrl } from "./modelCatalog";
 
 type OrtModule = typeof import("onnxruntime-web");
 type OrtSession = Awaited<ReturnType<OrtModule["InferenceSession"]["create"]>>;
@@ -132,9 +136,9 @@ async function doLoadModel(
  * Models are downloaded once and cached in IndexedDB.
  */
 export class OnnxEmbedder implements Embedder {
-  private session: OrtSession | null = null;
-  private tokenizer: Tokenizer | null = null;
-  private modelLoaded = false;
+  // الجلسة والمُرمِّز يُضبطان معًا ولا يُفكّان أبدًا، فحقل واحد يغني عن فحصين
+  // منفصلين لـ null وعن تأكيدات non-null في كل موضع استخدام.
+  private loaded: { session: OrtSession; tokenizer: Tokenizer } | null = null;
 
   constructor(
     public readonly modelId: string,
@@ -147,19 +151,21 @@ export class OnnxEmbedder implements Embedder {
    * embedder instances through the module-level cache.
    */
   async initialize(): Promise<void> {
-    if (this.modelLoaded) return;
+    await this.ensureLoaded();
+  }
 
+  /** تحميل واحد مشترك: يعيد المحمَّل إن وُجد، وإلا يحمّله مرة واحدة. */
+  private async ensureLoaded(): Promise<{ session: OrtSession; tokenizer: Tokenizer }> {
+    if (this.loaded) return this.loaded;
     const { session, tokenizer } = await loadEmbeddingModel(this.modelId, this.dimensions);
-    this.session = session;
-    this.tokenizer = tokenizer;
-    this.modelLoaded = true;
+    this.loaded = { session, tokenizer };
+    return this.loaded;
   }
 
   /**
    * Embed a single text string.
    */
   async embed(text: string): Promise<number[]> {
-    if (!this.modelLoaded) await this.initialize();
     const results = await this.embedBatch([text]);
     return results[0];
   }
@@ -168,10 +174,7 @@ export class OnnxEmbedder implements Embedder {
    * Embed multiple texts in batch (more efficient).
    */
   async embedBatch(texts: string[]): Promise<number[][]> {
-    if (!this.modelLoaded) await this.initialize();
-    if (!this.session || !this.tokenizer) {
-      throw new Error("Embedder not initialized");
-    }
+    const { session, tokenizer } = await this.ensureLoaded();
 
     const ort = await import("onnxruntime-web");
     const embeddings: number[][] = [];
@@ -180,7 +183,7 @@ export class OnnxEmbedder implements Embedder {
     const batchSize = 32;
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
-      const batchEmbeddings = await this.embedBatchInternal(ort, batch);
+      const batchEmbeddings = await this.embedBatchInternal(ort, session, tokenizer, batch);
       embeddings.push(...batchEmbeddings);
     }
 
@@ -189,10 +192,12 @@ export class OnnxEmbedder implements Embedder {
 
   private async embedBatchInternal(
     ort: OrtModule,
+    session: OrtSession,
+    tokenizer: Tokenizer,
     texts: string[],
   ): Promise<number[][]> {
     // Tokenize
-    const tokenized = texts.map((t) => this.tokenizer!.encode(t));
+    const tokenized = texts.map((t) => tokenizer.encode(t));
     
     // Create input tensors
     const maxLen = Math.max(...tokenized.map((t) => t.length));
@@ -211,7 +216,7 @@ export class OnnxEmbedder implements Embedder {
     const maskTensor = new ort.Tensor("int64", attentionMask, [texts.length, maxLen]);
 
     // Run inference
-    const results = await this.session!.run({
+    const results = await session.run({
       input_ids: inputTensor,
       attention_mask: maskTensor,
     });
@@ -252,36 +257,24 @@ export class OnnxEmbedder implements Embedder {
 }
 
 /**
- * HuggingFace ONNX model URLs.
- */
-function getModelUrl(modelId: string): string {
-  // HuggingFace ONNX model URLs
-  const urls: Record<string, string> = {
-    "multilingual-e5-small": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/onnx/model_quantized.onnx",
-    "all-MiniLM-L6-v2": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
-  };
-  return urls[modelId] ?? urls["multilingual-e5-small"];
-}
-
-/**
  * Try to read the model bytes from IndexedDB.
  * Returns null when the model was never downloaded.
+ *
+ * البايتات في جدول rag_model_blobs منفصلة عن الصف الوصفي في rag_models، فقراءة
+ * «هل النموذج منزَّل؟» لا تسحب مئات الميغابايتات.
  */
 async function loadModelFromCache(modelId: string): Promise<ArrayBuffer | null> {
   try {
-    const cached = await db.rag_models.get(modelId);
-    if (!cached) return null;
-    // In a real implementation, we'd store the model bytes in IndexedDB
-    // For now, return null to trigger download
-    return null;
+    const cached = await db.rag_model_blobs.get(modelId);
+    return cached?.bytes ?? null;
   } catch {
     return null;
   }
 }
 
 /**
- * Record a successful model download in IndexedDB.
- * A cache write failure is non-fatal.
+ * Record a successful model download in IndexedDB: metadata in rag_models and the
+ * bytes in rag_model_blobs. A cache write failure is non-fatal.
  */
 async function saveModelToCache(
   modelId: string,
@@ -289,13 +282,16 @@ async function saveModelToCache(
   modelBytes: ArrayBuffer,
 ): Promise<void> {
   try {
-    await db.rag_models.put({
-      id: modelId,
-      modelId: modelId,
-      label: modelId,
-      dimensions: dimensions,
-      downloadedAt: Date.now(),
-      sizeBytes: modelBytes.byteLength,
+    await db.transaction("rw", [db.rag_models, db.rag_model_blobs], async () => {
+      await db.rag_models.put({
+        id: modelId,
+        modelId: modelId,
+        label: modelId,
+        dimensions: dimensions,
+        downloadedAt: Date.now(),
+        sizeBytes: modelBytes.byteLength,
+      });
+      await db.rag_model_blobs.put({ id: modelId, bytes: modelBytes });
     });
   } catch {
     // Cache failure is non-fatal
@@ -347,32 +343,4 @@ interface Tokenizer {
   encode(text: string, maxLength?: number): number[];
 }
 
-/**
- * Available embedding models.
- */
-export const EMBEDDING_MODELS: RagModel[] = [
-  {
-    id: "multilingual-e5-small",
-    modelId: "multilingual-e5-small",
-    label: "Multilingual E5 Small (recommended for Arabic)",
-    dimensions: 384,
-    downloadedAt: 0,
-    sizeBytes: 130_000_000,
-  },
-  {
-    id: "multilingual-e5-base",
-    modelId: "multilingual-e5-base",
-    label: "Multilingual E5 Base (better quality, larger)",
-    dimensions: 768,
-    downloadedAt: 0,
-    sizeBytes: 480_000_000,
-  },
-  {
-    id: "all-MiniLM-L6-v2",
-    modelId: "all-MiniLM-L6-v2",
-    label: "All MiniLM L6 v2 (English only, fast)",
-    dimensions: 384,
-    downloadedAt: 0,
-    sizeBytes: 80_000_000,
-  },
-];
+// كتالوج النماذج انتقل إلى "./modelCatalog" ويُعاد تصديره في أعلى الملف.

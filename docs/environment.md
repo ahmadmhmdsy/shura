@@ -111,8 +111,8 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 |---|---|---|
 | تثبيت بقفل مجمّد | `pnpm install --frozen-lockfile` | PASS (exit 0) |
 | البوابة الكاملة | `pnpm check:all` | PASS (exit 0) |
-| تغطية | ضمن `check:all` | 44 ملفًا / 502 اختبارًا — 87.11% statements، 80.96% branches، 85.42% functions، 92.31% lines (العتبة 80/75/80/80 لم تُخفَّض) |
-| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية 1,195.17 kB (gzip 344.67 kB) |
+| تغطية | ضمن `check:all` | 94 ملفًا / 957 اختبارًا — 88.32% statements، 81.74% branches، 86.26% functions، 92.49% lines (العتبة 80/75/80/80 لم تُخفَّض) |
+| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية 1,071.15 kB (gzip 306.08 kB) |
 | متصفح | `pnpm test:e2e` | PASS — 12/12 خلال 25.0s، بمزوّد وهمي داخل الصفحة |
 | تدقيق JS | `pnpm audit --json` | PASS — صفر ثغرة (0 info/low/moderate/high/critical)، exit 0 |
 | تنسيق Rust | `cargo fmt --check --manifest-path src-tauri/Cargo.toml` | PASS (exit 0) |
@@ -123,16 +123,21 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 
 | الملف | الحجم | gzip |
 |---|---|---|
-| `dist/assets/index-*.js` (الحزمة الأساسية) | **1,195.17 kB** | 344.67 kB |
-| `dist/assets/index-*.css` | 41.22 kB | 7.83 kB |
+| `dist/assets/index-*.js` (الحزمة الأساسية) | **1,071.15 kB** | 306.08 kB |
+| `dist/assets/pdf-*.js` (عند الطلب) | 430.93 kB | 129.04 kB |
+| `dist/assets/ort.bundle.min-*.js` (عند الطلب) | 403.16 kB | 109.06 kB |
+| `dist/assets/rag-tool-*.js` (عند الطلب) | 105.45 kB | 30.58 kB |
+| `dist/assets/rag-embedder-*.js` (عند الطلب) | 101.93 kB | 33.80 kB |
+| `dist/assets/index-*.css` | 65.30 kB | 11.40 kB |
 | `dist/assets/credentialStore-*.js` | 2.07 kB | 0.98 kB |
 | `dist/assets/dist-js-*.js` | 1.87 kB | 0.85 kB |
-| `dist/index.html` | 0.40 kB | 0.28 kB |
+| `dist/index.html` | 0.73 kB | 0.37 kB |
 
-**تحذير صادق:** الهامش بين الحزمة الأساسية والحدّ 1,200 kB هو **نحو 4.8 kB فقط** (0.4%).
-أي إضافة صغيرة تكسر الحدّ. هذه حالة «تمرّ لكنها هشّة» لا «مريحة»، والتوصية: قبل أي إضافة
-إمّا تُقسَّم الحزمة (فصل حزمة `ai` والمزوّدين) أو يُرفع الحدّ بقرار موثّق — ولا يُرفع الحدّ
-لمجرد تجاوز الفشل.
+**ملاحظة صادقة:** الهامش بين الحزمة الأساسية والحدّ 1,200 kB هو الآن **نحو 128.65 kB** (10.7%)
+بعد فصل شيفرة RAG (`rag-embedder` و`rag-tool` و`ort.bundle.min` و`pdf`) إلى حزم تُحمَّل عند الطلب.
+قبل الفصل كان الهامش ≈ 4.8 kB فقط (0.4%) وكانت أي إضافة صغيرة تكسر الحدّ. الحدّ نفسه **لم يُخفَّض
+ولم يُرفع** — التحسّن جاء من تقسيم الشيفرة لا من إضعاف العتبة. لم يُقسَّم بعد ما تبقّى في الحزمة
+الأساسية، فأي توسّع جديد ينبغي أن يُقيَّم مقابل الهامش الحالي.
 
 تحذيرات Vite المعروفة بلا أثر: `INEFFECTIVE_DYNAMIC_IMPORT` (استيراد ديناميكي لا ينقل وحدة
 لأنها مستوردة ساكنًا في مكان آخر) — تظهر لكل من `src/lib/db/db.ts` و`@tauri-apps/api/core.js`.

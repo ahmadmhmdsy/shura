@@ -1,0 +1,146 @@
+/**
+ * Shura Design Tokens — Colors
+ * 
+ * Semantic color system with RTL-first approach.
+ * All colors use OKLCH for perceptually uniform lightness.
+ * 
+ * Usage:
+ *   color: var(--sura-text-primary);
+ *   background: var(--sura-surface-primary);
+ */
+
+:root {
+  /* === Surface Colors === */
+  --sura-surface-primary: oklch(0.98 0.005 260);
+  --sura-surface-secondary: oklch(0.96 0.005 260);
+  --sura-surface-tertiary: oklch(0.94 0.005 260);
+  --sura-surface-elevated: oklch(1 0 0);
+  --sura-surface-overlay: oklch(0 0 0 / 0.5);
+  
+  /* === Text Colors === */
+  --sura-text-primary: oklch(0.20 0.02 260);
+  --sura-text-secondary: oklch(0.45 0.02 260);
+  --sura-text-tertiary: oklch(0.55 0.02 260);
+  --sura-text-disabled: oklch(0.65 0.02 260);
+  --sura-text-inverse: oklch(0.98 0.005 260);
+  
+  /* === Accent Colors (Teal/Cyan — trust, clarity) === */
+  --sura-accent-primary: oklch(0.55 0.15 165);
+  --sura-accent-secondary: oklch(0.65 0.15 165);
+  --sura-accent-tertiary: oklch(0.75 0.15 165);
+  --sura-accent-muted: oklch(0.90 0.05 165);
+  --sura-accent-foreground: oklch(0.98 0.005 260);
+  
+  /* === Semantic Colors === */
+  --sura-success: oklch(0.60 0.15 145);
+  --sura-success-muted: oklch(0.90 0.05 145);
+  --sura-warning: oklch(0.70 0.15 85);
+  --sura-warning-muted: oklch(0.95 0.05 85);
+  --sura-error: oklch(0.55 0.19 25);
+  --sura-error-muted: oklch(0.95 0.05 25);
+  --sura-info: oklch(0.60 0.15 250);
+  --sura-info-muted: oklch(0.90 0.05 250);
+  
+  /* === Border Colors === */
+  --sura-border-primary: oklch(0.88 0.01 260);
+  --sura-border-secondary: oklch(0.82 0.01 260);
+  --sura-border-accent: oklch(0.70 0.10 165);
+  
+  /* === Interactive Colors === */
+  --sura-hover: oklch(0.94 0.005 260);
+  --sura-active: oklch(0.90 0.005 260);
+  --sura-focus-ring: oklch(0.55 0.15 165 / 0.3);
+  
+  /* === Sidebar Colors === */
+  --sura-sidebar-bg: oklch(0.97 0.005 260);
+  --sura-sidebar-border: oklch(0.88 0.01 260);
+  --sura-sidebar-hover: oklch(0.94 0.005 260);
+  --sura-sidebar-active: oklch(0.90 0.05 165);
+  
+  /* === Chat Colors === */
+  --sura-chat-user-bg: oklch(0.55 0.15 165);
+  --sura-chat-user-text: oklch(0.98 0.005 260);
+  --sura-chat-assistant-bg: oklch(0.96 0.005 260);
+  --sura-chat-assistant-text: oklch(0.20 0.02 260);
+  --sura-chat-system-bg: oklch(0.94 0.05 85);
+  --sura-chat-system-text: oklch(0.40 0.05 85);
+  
+  /* === Input Colors === */
+  --sura-input-bg: oklch(1 0 0);
+  --sura-input-border: oklch(0.88 0.01 260);
+  --sura-input-border-focus: oklch(0.55 0.15 165);
+  --sura-input-placeholder: oklch(0.55 0.02 260);
+  
+  /* === Scrollbar Colors === */
+  --sura-scrollbar-thumb: oklch(0.80 0.01 260);
+  --sura-scrollbar-thumb-hover: oklch(0.70 0.01 260);
+  --sura-scrollbar-track: transparent;
+}
+
+.dark {
+  /* === Surface Colors === */
+  --sura-surface-primary: oklch(0.16 0.02 260);
+  --sura-surface-secondary: oklch(0.20 0.02 260);
+  --sura-surface-tertiary: oklch(0.24 0.02 260);
+  --sura-surface-elevated: oklch(0.22 0.02 260);
+  --sura-surface-overlay: oklch(0 0 0 / 0.7);
+  
+  /* === Text Colors === */
+  --sura-text-primary: oklch(0.93 0.01 260);
+  --sura-text-secondary: oklch(0.75 0.01 260);
+  --sura-text-tertiary: oklch(0.65 0.01 260);
+  --sura-text-disabled: oklch(0.50 0.01 260);
+  --sura-text-inverse: oklch(0.20 0.02 260);
+  
+  /* === Accent Colors === */
+  --sura-accent-primary: oklch(0.70 0.15 165);
+  --sura-accent-secondary: oklch(0.75 0.15 165);
+  --sura-accent-tertiary: oklch(0.80 0.15 165);
+  --sura-accent-muted: oklch(0.30 0.05 165);
+  --sura-accent-foreground: oklch(0.98 0.005 260);
+  
+  /* === Semantic Colors === */
+  --sura-success: oklch(0.70 0.15 145);
+  --sura-success-muted: oklch(0.30 0.05 145);
+  --sura-warning: oklch(0.80 0.15 85);
+  --sura-warning-muted: oklch(0.35 0.05 85);
+  --sura-error: oklch(0.62 0.19 25);
+  --sura-error-muted: oklch(0.35 0.05 25);
+  --sura-info: oklch(0.70 0.15 250);
+  --sura-info-muted: oklch(0.30 0.05 250);
+  
+  /* === Border Colors === */
+  --sura-border-primary: oklch(0.30 0.02 260);
+  --sura-border-secondary: oklch(0.35 0.02 260);
+  --sura-border-accent: oklch(0.50 0.10 165);
+  
+  /* === Interactive Colors === */
+  --sura-hover: oklch(0.24 0.02 260);
+  --sura-active: oklch(0.28 0.02 260);
+  --sura-focus-ring: oklch(0.70 0.15 165 / 0.4);
+  
+  /* === Sidebar Colors === */
+  --sura-sidebar-bg: oklch(0.18 0.02 260);
+  --sura-sidebar-border: oklch(0.30 0.02 260);
+  --sura-sidebar-hover: oklch(0.24 0.02 260);
+  --sura-sidebar-active: oklch(0.30 0.05 165);
+  
+  /* === Chat Colors === */
+  --sura-chat-user-bg: oklch(0.70 0.15 165);
+  --sura-chat-user-text: oklch(0.98 0.005 260);
+  --sura-chat-assistant-bg: oklch(0.24 0.02 260);
+  --sura-chat-assistant-text: oklch(0.93 0.01 260);
+  --sura-chat-system-bg: oklch(0.35 0.05 85);
+  --sura-chat-system-text: oklch(0.80 0.05 85);
+  
+  /* === Input Colors === */
+  --sura-input-bg: oklch(0.20 0.02 260);
+  --sura-input-border: oklch(0.30 0.02 260);
+  --sura-input-border-focus: oklch(0.70 0.15 165);
+  --sura-input-placeholder: oklch(0.65 0.01 260);
+  
+  /* === Scrollbar Colors === */
+  --sura-scrollbar-thumb: oklch(0.40 0.02 260);
+  --sura-scrollbar-thumb-hover: oklch(0.50 0.02 260);
+  --sura-scrollbar-track: transparent;
+}

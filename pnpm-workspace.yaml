@@ -1,2 +1,7 @@
 allowBuilds:
   msw: false
+  protobufjs: true
+
+# pnpm 11 no longer reads the "pnpm" field in package.json; build approvals live here.
+onlyBuiltDependencies:
+  - protobufjs

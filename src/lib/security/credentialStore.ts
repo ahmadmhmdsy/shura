@@ -91,8 +91,12 @@ export function createCredentialStore(backend: CredentialBackend): CredentialSto
 const DEVICE_KEY_ID = "shura.device-credential-key";
 let deviceKey: CryptoKey | null = null;
 
-// The key is generated once per install and stored non-extractable in IndexedDB, so
-// page scripts can use it but never read it out.
+// The key is generated once per install and stored in IndexedDB as a JWK. The CryptoKey
+// object is non-extractable (page scripts can use it but never read it out), but the JWK
+// in IndexedDB is accessible to any script running in the same origin. This is a known
+// limitation of web-based credential storage — the OS keychain on desktop provides stronger
+// isolation. The AES-GCM encryption still protects against casual inspection and XSS attacks
+// that don't have direct IndexedDB access.
 async function loadDeviceKey(): Promise<CryptoKey> {
   if (deviceKey) return deviceKey;
   const subtle = subtleOrThrow();

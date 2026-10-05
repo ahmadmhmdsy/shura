@@ -1,0 +1,45 @@
+/**
+ * Shura Design Tokens — Spacing
+ * 
+ * 8px base grid with consistent spacing scale.
+ * All spacing values are multiples of 4px (half-grid) or 8px (full-grid).
+ * 
+ * Usage:
+ *   padding: var(--sura-space-4);
+ *   margin-block: var(--sura-space-2);
+ *   gap: var(--sura-space-3);
+ */
+
+:root {
+  /* === Spacing Scale (8px base) === */
+  --sura-space-0: 0;
+  --sura-space-1: 0.25rem;   /* 4px */
+  --sura-space-2: 0.5rem;    /* 8px */
+  --sura-space-3: 0.75rem;   /* 12px */
+  --sura-space-4: 1rem;      /* 16px */
+  --sura-space-5: 1.25rem;   /* 20px */
+  --sura-space-6: 1.5rem;    /* 24px */
+  --sura-space-8: 2rem;      /* 32px */
+  --sura-space-10: 2.5rem;   /* 40px */
+  --sura-space-12: 3rem;     /* 48px */
+  --sura-space-16: 4rem;     /* 64px */
+  --sura-space-20: 5rem;     /* 80px */
+  --sura-space-24: 6rem;     /* 96px */
+  
+  /* === Component-Specific Spacing === */
+  --sura-padding-button: var(--sura-space-2) var(--sura-space-4);
+  --sura-padding-input: var(--sura-space-2) var(--sura-space-3);
+  --sura-padding-card: var(--sura-space-4);
+  --sura-padding-dialog: var(--sura-space-6);
+  
+  /* === Layout Spacing === */
+  --sura-sidebar-width: 16rem;        /* 256px */
+  --sura-sidebar-width-collapsed: 4rem; /* 64px */
+  --sura-header-height: 3.5rem;       /* 56px */
+  --sura-composer-min-height: 5rem;  /* 80px */
+  --sura-composer-max-height: 12rem; /* 192px */
+  
+  /* === Border Width === */
+  --sura-border-width: 1px;
+  --sura-border-width-focus: 2px;
+}

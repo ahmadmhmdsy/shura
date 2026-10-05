@@ -47,6 +47,7 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       { id: "kimi-k2.6", label: "Kimi K2.6", pricing: staticPricing(0.6, 2.5) },
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", pricing: staticPricing(0.1, 0.4) },
       { id: "minimax-m2.7", label: "MiniMax M2.7", pricing: staticPricing(0.3, 1.2) },
+      { id: "longcat-2.5-preview-free", label: "LongCat 2.5 Preview (Free)", contextLength: 1000000, pricing: staticPricing(0, 0) },
     ],
   },
 };

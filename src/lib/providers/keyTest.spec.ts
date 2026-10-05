@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { testProviderKey, setTransportFetch } from "@/lib/transport/transport";
+import { testProviderKey } from "@/lib/providers/keyTest";
+import { setTransportFetch } from "@/lib/transport/transport";
 
 const okCompletion = (text = "جاهز") => ({ choices: [{ message: { role: "assistant", content: text } }], usage: { prompt_tokens: 5, completion_tokens: 1 } });
 

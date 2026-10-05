@@ -37,7 +37,8 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-[var(--sura-surface-overlay)] backdrop-blur-sm",
+        "data-[state=closed]:animate-[var(--sura-animation-fade-out)] data-[state=open]:animate-[var(--sura-animation-fade-in)]",
         className
       )}
       {...props}
@@ -61,7 +62,9 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--sura-radius-dialog)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-elevated)] p-6 shadow-[var(--sura-shadow-dialog)] outline-none",
+          "data-[state=closed]:animate-[var(--sura-animation-scale-out)] data-[state=open]:animate-[var(--sura-animation-scale-in)]",
+          "sm:max-w-lg",
           className
         )}
         {...props}
@@ -70,9 +73,9 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-4 right-4 rounded-[var(--sura-radius-sm)] p-1 opacity-70 transition-[var(--sura-transition-all)] hover:opacity-100 hover:bg-[var(--sura-hover)] focus:ring-2 focus:ring-[var(--sura-accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--sura-surface-elevated)] focus:outline-hidden disabled:pointer-events-none"
           >
-            <XIcon />
+            <XIcon className="size-4" />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
@@ -85,7 +88,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn("flex flex-col gap-2 text-center sm:text-start", className)}
       {...props}
     />
   )
@@ -125,7 +128,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn("text-[var(--sura-text-h3)] leading-[var(--sura-leading-tight)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]", className)}
       {...props}
     />
   )
@@ -138,7 +141,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]", className)}
       {...props}
     />
   )

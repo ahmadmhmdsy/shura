@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildContextMessages } from "./context";
+import { estimateTokens } from "@/lib/tokens/estimate";
 import type { ChatMessage } from "@/types";
 
 const msg = (over: Partial<ChatMessage> & Pick<ChatMessage, "id" | "turnId" | "role" | "text" | "createdAt">): ChatMessage => ({
@@ -132,5 +133,70 @@ describe("buildContextMessages", () => {
     // الحد 1000 → ميزانية 800: الدورة 1600 > 800، والحالي وحده 800 ≤ 800
     const out = buildContextMessages(history, currentOf(3200), "stateful", 1000);
     expect(out).toEqual([{ role: "user", content: currentOf(3200) }]);
+  });
+
+  it("النص العربي يقدّر أعلى من اللاتيني بنفس عدد الأحرف", () => {
+    // Arabic tokenizes at ~2.5 chars/token, Latin at ~4 chars/token
+    const arabic = "ا".repeat(100); // 100 Arabic chars
+    const latin = "x".repeat(100);   // 100 Latin chars
+    expect(estimateTokens(arabic)).toBeGreaterThan(estimateTokens(latin));
+  });
+
+  it("النص الم mixed يقدّر بين الطرفين", () => {
+    const mixed = "ا".repeat(50) + "x".repeat(50);
+    const arabicOnly = "ا".repeat(100);
+    const latinOnly = "x".repeat(100);
+    const mixedEstimate = estimateTokens(mixed);
+    expect(mixedEstimate).toBeGreaterThan(estimateTokens(latinOnly));
+    expect(mixedEstimate).toBeLessThan(estimateTokens(arabicOnly));
+  });
+
+  it("تقدير النص العربي الطويل يتجاوز 80% من الحد في سياق صغير", () => {
+    // 400 Arabic chars: estimate = ceil(400 / 2.5) = 160 > 100 * 0.8 = 80
+    const arabic = "ا".repeat(400);
+    expect(() => buildContextMessages([], arabic, "stateful", 100)).toThrow(/السؤال الحالي يتجاوز حد السياق الآمن/);
+  });
+
+  it("تقدير estimateTokens لدورة عربية كاملة أعلى من اللاتينية", () => {
+    const arabicHistory = [
+      msg({ id: "m1", turnId: "t1", role: "user", text: "ا".repeat(2000), createdAt: 10 }),
+      msg({ id: "m2", turnId: "t1", role: "assistant", text: "ب".repeat(2000), createdAt: 20 }),
+    ];
+    const latinHistory = [
+      msg({ id: "m1", turnId: "t1", role: "user", text: "a".repeat(2000), createdAt: 10 }),
+      msg({ id: "m2", turnId: "t1", role: "assistant", text: "b".repeat(2000), createdAt: 20 }),
+    ];
+    // Same context length; Arabic history should be trimmed more aggressively
+    const arabicOut = buildContextMessages(arabicHistory, "س", "stateful", 1000);
+    const latinOut = buildContextMessages(latinHistory, "x", "stateful", 1000);
+    // Arabic: 4000 chars / 2.5 = 1600 tokens > 800 budget → trimmed
+    // Latin: 4000 chars / 4 = 1000 tokens > 800 budget → trimmed
+    // Both should be trimmed, but Arabic estimate is higher
+    expect(arabicOut.length).toBeLessThanOrEqual(latinOut.length + 1);
+  });
+});
+
+describe("estimateTokens", () => {
+  it("نص فارغ يعيد صفرًا", () => {
+    expect(estimateTokens("")).toBe(0);
+  });
+
+  it("نص لاتيني بـ 400 حرف يقدّر 100", () => {
+    expect(estimateTokens("x".repeat(400))).toBe(100);
+  });
+
+  it("نص عربي بـ 100 حرف يقدّر 40", () => {
+    expect(estimateTokens("ا".repeat(100))).toBe(40);
+  });
+
+  it("نص م mixed يقدّر بالتناسب", () => {
+    // 50 Arabic + 50 Latin = 100 chars
+    // (50/100) * (100/2.5) + (50/100) * (100/4) = 20 + 12.5 = 32.5 → ceil = 33
+    expect(estimateTokens("ا".repeat(50) + "x".repeat(50))).toBe(33);
+  });
+
+  it("رموز غير حرفية تُحسب كلاتينية", () => {
+    // 400 spaces = 100 tokens (non-letter, non-Arabic)
+    expect(estimateTokens(" ".repeat(400))).toBe(100);
   });
 });

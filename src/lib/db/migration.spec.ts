@@ -36,6 +36,40 @@ describe("ShuraDB v2 migration", () => {
     await upgraded.close();
   });
 
+  it("v5 يضيف فهرس persistence دون فقدان مستندات RAG", async () => {
+    const legacy = new Dexie(DB_NAME);
+    legacy.version(4).stores({
+      sessions: "id, updatedAt",
+      messages: "id, sessionId, [sessionId+turnId], createdAt",
+      usage_events: "id, sessionId, ts, providerId",
+      settings: "key",
+      turns: "id, sessionId, createdAt, status",
+      tombstones: "id, deletedAt",
+      operation_leases: "sessionId, operationId, status, updatedAt",
+      credentials: "providerId",
+      rag_documents: "id, source, status, uploadedAt, sessionId, folderId",
+      rag_chunks: "id, documentId, chunkIndex, [documentId+chunkIndex]",
+      rag_folders: "id, path, status",
+      rag_models: "id, modelId",
+    });
+    await legacy.open();
+    // المخطط v4 لا يفهرس persistence: الكتابة تمر، والاستعلام يفشل.
+    await legacy.table("rag_documents").put({
+      id: "d1", source: "upload", persistence: "temp", fileName: "a.txt",
+      fileType: "txt", fileSize: 10, status: "indexed", uploadedAt: 1,
+      chunkCount: 0, embeddingModelId: "multilingual-e5-small",
+    });
+    await legacy.close();
+
+    const upgraded = new ShuraDB(DB_NAME);
+    await upgraded.open();
+
+    expect((await upgraded.rag_documents.get("d1"))?.persistence).toBe("temp");
+    expect(await upgraded.rag_documents.where("persistence").equals("temp").count()).toBe(1);
+    expect(upgraded.rag_model_blobs).toBeDefined();
+    await upgraded.close();
+  });
+
   it("keeps a tombstone after deleting a session", async () => {
     await createSession(meta("s2"));
     await deleteSessionData("s2");

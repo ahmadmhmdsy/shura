@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, RotateCcw, Square, ChevronDown } from "lucide-react";
+import { Copy, RotateCcw, Square, ChevronDown, AlertCircle, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,22 @@ import { ar } from "@/i18n/ar";
 import type { ChatMessage } from "@/types";
 
 const COPY_ERROR_MESSAGE = "تعذر نسخ النص";
+
+// Model-specific color coding for visual distinction
+const PROVIDER_COLORS: Record<string, { border: string; bg: string; accent: string }> = {
+  openrouter: { border: "border-l-emerald-500/50", bg: "bg-emerald-500/5", accent: "text-emerald-500" },
+  anthropic: { border: "border-l-amber-500/50", bg: "bg-amber-500/5", accent: "text-amber-500" },
+  openai: { border: "border-l-sky-500/50", bg: "bg-sky-500/5", accent: "text-sky-500" },
+  google: { border: "border-l-rose-500/50", bg: "bg-rose-500/5", accent: "text-rose-500" },
+  groq: { border: "border-l-violet-500/50", bg: "bg-violet-500/5", accent: "text-violet-500" },
+  mistral: { border: "border-l-orange-500/50", bg: "bg-orange-500/5", accent: "text-orange-500" },
+  deepseek: { border: "border-l-cyan-500/50", bg: "bg-cyan-500/5", accent: "text-cyan-500" },
+};
+
+function getProviderStyle(providerId: string | undefined) {
+  if (!providerId) return { border: "border-l-sura-border", bg: "", accent: "text-sura-muted" };
+  return PROVIDER_COLORS[providerId] ?? { border: "border-l-sura-border", bg: "", accent: "text-sura-muted" };
+}
 
 async function copyText(text: string): Promise<void> {
   try {
@@ -26,19 +42,29 @@ export interface ResultCardProps {
   onStop(message: ChatMessage): void; onRetry(message: ChatMessage): void;
   disabled?: boolean;
   stopDisabled?: boolean | ((message: ChatMessage) => boolean);
+  isBestAnswer?: boolean;
+  onMarkBest?: () => void;
 }
 
-export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, disabled = false, stopDisabled = false }: ResultCardProps) {
+export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, disabled = false, stopDisabled = false, isBestAnswer = false, onMarkBest }: ResultCardProps) {
   const cardStopDisabled = typeof stopDisabled === "function" ? stopDisabled(msg) : stopDisabled;
   const [openCustom, setOpenCustom] = useState(false);
   const label = msg.providerId ? PROVIDERS[msg.providerId].label : "—";
   const usage = msg.usage;
+  const providerStyle = getProviderStyle(msg.providerId);
   return (
-    <div className={"border border-sura-border rounded-lg bg-sura-bg flex flex-col " + (horizontal ? "min-w-80 flex-1" : "w-full")}>
+    <div className={"border border-sura-border border-l-4 " + providerStyle.border + " " + providerStyle.bg + " rounded-lg flex flex-col " + (horizontal ? "min-w-80 flex-1" : "w-full")}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-sura-border">
+        <div className={"size-2 rounded-full " + providerStyle.accent + " bg-current"} />
         <Badge variant="secondary">{label}</Badge>
         <span className="text-xs text-sura-muted truncate">{msg.modelId}</span>
+        {isBestAnswer && <Badge className="gap-1"><Trophy className="size-3" /> {ar.bestAnswer}</Badge>}
         <div className="flex-1" />
+        {onMarkBest && (
+          <Button size="icon" variant="ghost" aria-label={ar.bestAnswer} onClick={onMarkBest} className={isBestAnswer ? "text-sura-accent" : ""}>
+            <Trophy className="size-3.5" />
+          </Button>
+        )}
         <Button size="icon" variant="ghost" aria-label="نسخ" onClick={() => { void copyText(msg.text); }}><Copy className="size-3.5" /></Button>
         {msg.status === "streaming"
           ? <Button size="icon" variant="ghost" aria-label={ar.stop} disabled={cardStopDisabled} onClick={() => onStop(msg)}><Square className="size-3.5" /></Button>
@@ -55,7 +81,21 @@ export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, dis
       <div role="status" aria-live="polite" aria-busy={msg.status === "streaming"} className="p-3 flex-1 overflow-y-auto">
         {msg.status === "streaming" && <span className="block text-xs text-sura-muted animate-pulse">{ar.streaming}</span>}
         {msg.status === "stopped" && <span className="block text-xs text-sura-warn">{ar.stopped}</span>}
-        {msg.status === "error" && msg.error && <p className="text-sura-danger text-sm">{msg.error}</p>}
+        {msg.status === "error" && msg.error && (
+          <div className="flex items-start gap-2 rounded border border-sura-danger/40 bg-sura-danger/10 p-2 mb-2" role="alert">
+            <AlertCircle className="size-4 text-sura-danger shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sura-danger text-sm">{msg.error}</p>
+              <button
+                type="button"
+                className="mt-1 text-xs text-sura-muted hover:text-sura-foreground transition-colors flex items-center gap-1"
+                onClick={() => onRetry(msg)}
+              >
+                <RotateCcw className="size-3" /> {ar.errorRetryAll}
+              </button>
+            </div>
+          </div>
+        )}
         {msg.text && <Markdown text={msg.text} />}
         {msg.sidecarWarning && <p className="mt-2 text-xs text-sura-warn whitespace-pre-wrap">{msg.sidecarWarning}</p>}
       </div>

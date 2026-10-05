@@ -46,11 +46,11 @@ describe("SettingsScreen", () => {
 
   it("مسار الحفظ: الافتراضي بلا قيمة محفوظة، والقيمة المحفوظة عند وجودها", () => {
     const { unmount } = render(<SettingsScreen onClose={() => {}} />);
-    expect(screen.getByDisplayValue("Documents\\Shura (يعمل داخل تطبيق سطح المكتب)")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Documents/Shura (يعمل داخل تطبيق سطح المكتب)")).toBeInTheDocument();
     unmount();
-    useSettingsStore.setState({ sessionRootDir: "D:\\جلسات شورى" });
+    useSettingsStore.setState({ sessionRootDir: "D:/جلسات شورى" });
     render(<SettingsScreen onClose={() => {}} />);
-    expect(screen.getByDisplayValue("D:\\جلسات شورى")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("D:/جلسات شورى")).toBeInTheDocument();
   });
 
   it("المهلة تعرض الثواني والإلزام عند blur يكتب مللي (30 ⇒ 30000)", async () => {

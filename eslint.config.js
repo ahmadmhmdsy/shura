@@ -13,6 +13,11 @@ export default tseslint.config(
     files: ["**/*.{ts,tsx}"],
     languageOptions: { ecmaVersion: 2022, globals: globals.browser },
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // Library-typed callbacks (e.g. the Tauri IPC mocks in e2e/fixtures.ts) must declare
+      // a parameter they cannot use; a leading underscore states that intent.
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    },
   },
 );

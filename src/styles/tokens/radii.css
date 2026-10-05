@@ -1,0 +1,28 @@
+/**
+ * Shura Design Tokens — Border Radii
+ * 
+ * Consistent radius scale for rounded corners.
+ * 
+ * Usage:
+ *   border-radius: var(--sura-radius-md);
+ */
+
+:root {
+  /* === Radius Scale === */
+  --sura-radius-none: 0;
+  --sura-radius-sm: 0.25rem;    /* 4px */
+  --sura-radius-md: 0.375rem;   /* 6px */
+  --sura-radius-lg: 0.5rem;     /* 8px */
+  --sura-radius-xl: 0.75rem;    /* 12px */
+  --sura-radius-2xl: 1rem;      /* 16px */
+  --sura-radius-3xl: 1.5rem;    /* 24px */
+  --sura-radius-full: 9999px;
+  
+  /* === Component-Specific Radii === */
+  --sura-radius-button: var(--sura-radius-md);
+  --sura-radius-input: var(--sura-radius-md);
+  --sura-radius-card: var(--sura-radius-lg);
+  --sura-radius-dialog: var(--sura-radius-xl);
+  --sura-radius-badge: var(--sura-radius-full);
+  --sura-radius-avatar: var(--sura-radius-full);
+}

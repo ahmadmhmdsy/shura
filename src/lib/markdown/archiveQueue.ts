@@ -5,9 +5,17 @@
 
 const chains = new Map<string, Promise<unknown>>();
 
-/** Trailing slashes and backslashes are not distinct archive directories. */
+/**
+ * Canonical queue key: the last path segment (the session folder name).
+ * The writer queues on a relative path ("sessions/<dir>") while deletion queues
+ * on an absolute path ("<root>/sessions/<dir>"). Both share the same final segment,
+ * which is unique per session (it contains the session id), so this is a safe
+ * canonical key that serializes operations across both callers.
+ */
 export function archiveQueueKey(path: string): string {
-  return path.replace(/[\\/]+$/, "");
+  const normalized = path.replace(/[\\/]+$/, "");
+  const lastSlash = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
 }
 
 export function archiveQueueDepth(): number {

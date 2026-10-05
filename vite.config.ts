@@ -41,8 +41,30 @@ export default defineConfig({
   },
   // Tooling that writes through a sibling temp directory (for example a test runner staging
   // a spec as e2e/.app.spec.ts.<pid>.<uuid>.tmpdir/app.spec.ts.tmp) makes chokidar watch a file
-  // that is replaced mid-read; on Windows that aborts the dev server with EBUSY.
-  server: { watch: { ignored: ["**/.*.tmpdir/**"] } },
+  // that is replaced mid-read; on Windows that aborts the dev server with EBUSY. The cargo
+  // build under src-tauri/target has the same effect while tauri dev runs both side by side.
+  server: {
+    // Bind IPv4 explicitly: the Tauri webview and the e2e bridge both dial
+    // 127.0.0.1, and an IPv6-only (::1) bind is unreachable from the webview.
+    host: "127.0.0.1",
+    // Fixed port so tauri.conf.json devUrl can point at it deterministically
+    // (5173 is occupied by another project on this machine).
+    port: 5174,
+    watch: { ignored: ["**/.*.tmpdir/**", "**/src-tauri/target/**"] },
+    proxy: {
+      // tauri-plugin-playwright's injected bridge polls these relative URLs
+      // from the webview; forward them to the plugin's HTTP callback server.
+      "/pw-poll": "http://127.0.0.1:6275",
+      "/pw": "http://127.0.0.1:6275",
+    },
+  },
+  preview: {
+    proxy: {
+      // Same bridge proxy for the preview server the e2e suite runs against.
+      "/pw-poll": "http://127.0.0.1:6275",
+      "/pw": "http://127.0.0.1:6275",
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,

@@ -153,6 +153,17 @@ export const ar = {
   // [Impeccable] Settings navigation
   searchSettings: "ابحث في الإعدادات…",
   settingsSections: "الأقسام",
+  // [وضع التطوير] عارض سجل التشغيل
+  devLog: "سجل التشغيل",
+  devLogDesc: "آخر ١٠٠ رسالة مسجَّلة في هذه الجلسة ومقاييس التشغيل. لوحة تطوير لا تُعرض في بناء الإنتاج.",
+  devLogSessions: "الجلسات",
+  devLogMessages: "الرسائل",
+  devLogErrors: "الأخطاء",
+  devLogUptime: "مدة التشغيل",
+  devLogLevel: "المستوى",
+  devLogAll: "الكل",
+  devLogRefresh: "تحديث",
+  devLogEmpty: "لا توجد رسائل مسجَّلة بعد.",
   onboardingTryExample: "جرّب مثالًا",
   onboardingBack: "السابق",
   // [Impeccable] Context mode badge
@@ -175,4 +186,9 @@ export const ar = {
   exportCount: "{n} رسالة ستُضمَّن في الملف",
   exportButton: "تصدير",
   cancel: "إلغاء",
+  // Error boundary
+  errorBoundaryTitle: "حدث خطأ غير متوقع",
+  errorBoundaryDesc: "تعذّر عرض الواجهة. أعد التحميل للمتابعة؛ بياناتك المحفوظة لم تتأثر.",
+  errorBoundaryDetails: "تفاصيل الخطأ",
+  errorBoundaryReload: "إعادة التحميل",
 } as const;

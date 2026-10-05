@@ -34,8 +34,13 @@ const okModelResponse = () => ({
 });
 
 describe("lazy embedding model loading", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    // يُستورد بعد resetModules ليكون نفس نسخة الوحدة التي سيستوردها embedder،
+    // فلا ينشأ اتصالان مختلفان بقاعدة البيانات.
+    const { db } = await import("@/lib/db/db");
+    await db.rag_models.clear();
+    await db.rag_model_blobs.clear();
     mockCreateSession.mockReset();
     mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
@@ -169,5 +174,45 @@ describe("lazy embedding model loading", () => {
     const embedder = new OnnxEmbedder("multilingual-e5-small", 384);
 
     await expect(embedder.embed("مرحبا")).rejects.toThrow("boom");
+  });
+
+  it("يستخدم كاش IndexedDB ولا يعيد تنزيل نموذج سبق تنزيله", async () => {
+    mockCreateSession.mockResolvedValue({ run: async () => ({}) });
+    mockFetch.mockResolvedValue(okModelResponse());
+
+    const { loadEmbeddingModel } = await importEmbedder();
+
+    await loadEmbeddingModel("multilingual-e5-small", 384);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // تحميل نموذج آخر يُزيح الكاش في الذاكرة، فيبقى كاش IndexedDB هو الحائل
+    // الوحيد دون إعادة تنزيل النموذج الأول — وهو ما كان معطوبًا: كتابة بلا قراءة،
+    // أي إعادة تنزيل مئات الميغابايتات في كل جلسة.
+    await loadEmbeddingModel("all-MiniLM-L6-v2", 384);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    await loadEmbeddingModel("multilingual-e5-small", 384);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("صف وصفي بلا بايتات (كاش ناقص): يعيد التنزيل بدل الفشل", async () => {
+    const { db } = await import("@/lib/db/db");
+    await db.rag_models.put({
+      id: "multilingual-e5-small",
+      modelId: "multilingual-e5-small",
+      label: "x",
+      dimensions: 384,
+      downloadedAt: 1,
+      sizeBytes: 16,
+    });
+    mockCreateSession.mockResolvedValue({ run: async () => ({}) });
+    mockFetch.mockResolvedValue(okModelResponse());
+
+    const { loadEmbeddingModel } = await importEmbedder();
+    await loadEmbeddingModel("multilingual-e5-small", 384);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect((await db.rag_model_blobs.get("multilingual-e5-small"))?.bytes.byteLength).toBe(16);
   });
 });

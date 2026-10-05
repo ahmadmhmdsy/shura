@@ -7,9 +7,13 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       type={type}
       data-slot="input"
       className={cn(
-        "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
-        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+        "h-9 w-full min-w-0 rounded-[var(--sura-radius-input)] border border-[var(--sura-input-border)] bg-[var(--sura-input-bg)] px-3 py-1 text-[var(--sura-text-body)] shadow-[var(--sura-shadow-button)] transition-[var(--sura-transition-all)] outline-none",
+        "selection:bg-[var(--sura-accent-primary)] selection:text-[var(--sura-accent-foreground)]",
+        "placeholder:text-[var(--sura-input-placeholder)]",
+        "hover:border-[var(--sura-border-secondary)]",
+        "focus-visible:border-[var(--sura-input-border-focus)] focus-visible:ring-[var(--sura-border-width-focus)] focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-surface-primary)]",
+        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+        "aria-invalid:border-[var(--sura-error)] aria-invalid:ring-[var(--sura-error)]/20",
         className
       )}
       {...props}

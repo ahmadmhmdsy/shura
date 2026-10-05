@@ -1,22 +1,22 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-[var(--sura-radius-badge)] border border-transparent px-2 py-0.5 text-[var(--sura-text-caption)] font-[var(--sura-font-medium)] whitespace-nowrap transition-[var(--sura-transition-colors)] focus-visible:ring-[var(--sura-border-width-focus)] focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-surface-primary)] aria-invalid:border-[var(--sura-error)] aria-invalid:ring-[var(--sura-error)]/20 [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
-        secondary:
-          "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
-        destructive:
-          "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
-        outline:
-          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 [a&]:hover:underline",
+        default: "bg-[var(--sura-accent-primary)] text-[var(--sura-accent-foreground)] [a&]:hover:bg-[var(--sura-accent-secondary)]",
+        secondary: "bg-[var(--sura-surface-secondary)] text-[var(--sura-text-secondary)] [a&]:hover:bg-[var(--sura-surface-tertiary)]",
+        destructive: "bg-[var(--sura-error)] text-white [a&]:hover:bg-[var(--sura-error)]/90",
+        outline: "border-[var(--sura-border-primary)] text-[var(--sura-text-secondary)] [a&]:hover:bg-[var(--sura-hover)] [a&]:hover:text-[var(--sura-text-primary)]",
+        ghost: "[a&]:hover:bg-[var(--sura-hover)] [a&]:hover:text-[var(--sura-text-primary)]",
+        link: "text-[var(--sura-accent-primary)] underline-offset-4 [a&]:hover:underline",
+        success: "bg-[var(--sura-success-muted)] text-[var(--sura-success)]",
+        warning: "bg-[var(--sura-warning-muted)] text-[var(--sura-warning)]",
+        info: "bg-[var(--sura-info-muted)] text-[var(--sura-info)]",
       },
     },
     defaultVariants: {

@@ -17,6 +17,9 @@ test-results/
 # data left behind by a build step, not project content; it must never be committed.
 review-artifacts/
 report.tmp
+# Stray duplicate of .agents/ left behind by skill tooling. The canonical skill copy is
+# .agents/ (the path skills-lock.json points at), so this directory is never committed.
+agent/
 docs/reviews/*
 # The hardened release smoke record is a deliverable and stays tracked.
 !docs/reviews/2026-09-24-shura-hardening-smoke.md

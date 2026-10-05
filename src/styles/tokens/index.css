@@ -1,0 +1,16 @@
+/**
+ * Shura Design Tokens — Index
+ * 
+ * Unified export for all design tokens.
+ * Import this file to access all tokens.
+ * 
+ * Usage:
+ *   @import "@/styles/tokens";
+ */
+
+@import "./colors.css";
+@import "./typography.css";
+@import "./spacing.css";
+@import "./radii.css";
+@import "./shadows.css";
+@import "./motion.css";
