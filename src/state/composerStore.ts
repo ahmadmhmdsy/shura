@@ -39,7 +39,12 @@ export function emptyComposerDraft(): ComposerDraft {
 }
 
 /** Stable read-only fallback for selectors; getDraft intentionally keeps its historical fresh-object API. */
-export const EMPTY_COMPOSER_DRAFT: ComposerDraft = emptyComposerDraft();
+export const EMPTY_COMPOSER_DRAFT: ComposerDraft = Object.freeze(emptyComposerDraft());
+
+/** قصّ آمن على حدود نقاط الشيفرة: `slice` وحدها قد تشطر زوجًا بديلًا (محرفًا خارج BMP). */
+function truncateCodePoints(text: string, max: number): string {
+  return text.length <= max ? text : [...text].slice(0, max).join("");
+}
 
 function withoutKey(record: Record<string, string>, key: string): Record<string, string> {
   const { [key]: _drop, ...rest } = record;
@@ -74,12 +79,12 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
     });
   },
   setShared(sessionId, text) {
-    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), sharedPrompt: text.slice(0, LIMITS.sharedPromptMax) } } }));
+    set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), sharedPrompt: truncateCodePoints(text, LIMITS.sharedPromptMax) } } }));
   },
   setCustom(sessionId, targetId, text) {
     set((s) => ({ drafts: { ...s.drafts, [sessionId]: {
       ...(s.drafts[sessionId] ?? emptyComposerDraft()),
-      customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: text.slice(0, LIMITS.customPromptMax) },
+      customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: truncateCodePoints(text, LIMITS.customPromptMax) },
     } } }));
   },
   clearCustoms(sessionId) {

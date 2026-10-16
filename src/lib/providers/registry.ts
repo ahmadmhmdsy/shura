@@ -4,6 +4,9 @@ import type { LanguageModel } from "ai";
 import type { ModelInfo, ProviderConfig, ProviderId, Usage } from "@/types";
 import { KeyedError } from "@/lib/errors/keyedError";
 
+// [T7.6/Q7] Every non-null static price is provenance-checked in ./pricingSources.ts
+// (source URL + as-of date + value); its spec fails if a priced model has no source,
+// a rate differs, or a source has no matching model.
 const staticPricing = (inP: number, outP: number) => ({ inputPerMTok: inP, outputPerMTok: outP });
 
 const APP_REFERER = (import.meta.env?.VITE_APP_REFERER as string | undefined) ?? "http://localhost:5173";
@@ -33,9 +36,13 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     id: "minimax", label: "MiniMax", browserDirect: true, kind: "openai-compatible",
     baseURL: "https://api.minimax.io/v1", modelsSource: "static",
     keyCheckUrl: "https://api.minimax.io/v1/models", keyCheckAuth: "bearer",
+    // [T7.6/Q7] MiniMax publishes no readable per-token table (its pricing page is
+    // JS-rendered - only the audio table is served) and third-party listings disagree,
+    // so no price can be cited. Same rule as opencodego above: no price without a
+    // published source; the honest value is "unknown" (null, shown as "—").
     staticModels: [
-      { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 204800, pricing: staticPricing(0.3, 1.2) },
-      { id: "MiniMax-Text-01", label: "MiniMax Text 01", contextLength: 1000192, pricing: staticPricing(0.2, 1.1) },
+      { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 204800, pricing: null },
+      { id: "MiniMax-Text-01", label: "MiniMax Text 01", contextLength: 1000192, pricing: null },
     ],
   },
   opencodego: {

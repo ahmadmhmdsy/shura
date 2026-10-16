@@ -3,9 +3,12 @@ export interface Shortcut {
   ctrl?: boolean;
   shift?: boolean;
   alt?: boolean;
-  action: () => void;
+  /** Absent on display-only rows the help dialog lists but nothing registers. */
+  action?: () => void;
   description: string;
   when?: () => boolean;
+  /** Shown in the help dialog only; never registered as a live handler. */
+  displayOnly?: boolean;
 }
 
 export function isShortcutMatch(event: KeyboardEvent, shortcut: Shortcut): boolean {
@@ -32,12 +35,12 @@ export function isShortcutMatch(event: KeyboardEvent, shortcut: Shortcut): boole
 export function registerShortcuts(shortcuts: Shortcut[]): () => void {
   const onKeyDown = (event: KeyboardEvent) => {
     for (const shortcut of shortcuts) {
-      if (isShortcutMatch(event, shortcut)) {
-        if (shortcut.when && !shortcut.when()) continue;
-        event.preventDefault();
-        shortcut.action();
-        return;
-      }
+      if (shortcut.displayOnly || !shortcut.action) continue;
+      if (!isShortcutMatch(event, shortcut)) continue;
+      if (shortcut.when && !shortcut.when()) continue;
+      event.preventDefault();
+      shortcut.action();
+      return;
     }
   };
   window.addEventListener("keydown", onKeyDown);
@@ -49,7 +52,7 @@ export function formatShortcut(shortcut: Shortcut): string {
   if (shortcut.ctrl) parts.push("Ctrl");
   if (shortcut.shift) parts.push("Shift");
   if (shortcut.alt) parts.push("Alt");
-  const key = shortcut.key === "Escape" ? "Esc" : shortcut.key === "?" ? "?" : shortcut.key.toUpperCase();
+  const key = shortcut.key === "Escape" ? "Esc" : shortcut.key === "Enter" ? "Enter" : shortcut.key === "?" ? "?" : shortcut.key.toUpperCase();
   parts.push(key);
   return parts.join("+");
 }

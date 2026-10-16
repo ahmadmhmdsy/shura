@@ -44,18 +44,30 @@ async function webCredentialStore(): Promise<CredentialStore> {
 }
 
 let store: CredentialStore | null = null;
+let storePromise: Promise<CredentialStore> | null = null;
 let override: CredentialStore | null = null;
+
+async function buildCredentialStore(): Promise<CredentialStore> {
+  if (isTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return createKeychainCredentialStore(invoke as Invoke);
+  }
+  return webCredentialStore();
+}
 
 /** The process-wide credential store, built once for the current platform. */
 export async function initializeCredentialStore(): Promise<CredentialStore> {
   if (override) return override;
   if (store) return store;
-  if (isTauri()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    store = createKeychainCredentialStore(invoke as Invoke);
-  } else {
-    store = await webCredentialStore();
+  // Cache the in-flight promise, not just the resolved store: concurrent callers (the
+  // settings panel and a startup migration) must not build the store twice.
+  if (!storePromise) {
+    storePromise = buildCredentialStore().catch((error) => {
+      storePromise = null;
+      throw error;
+    });
   }
+  store = await storePromise;
   return store;
 }
 

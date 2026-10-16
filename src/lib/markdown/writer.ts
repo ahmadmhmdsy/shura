@@ -1,7 +1,7 @@
 import { runExclusiveInArchive } from "./archiveQueue";
 import { uiText } from "@/i18n";
 import { UNKNOWN_COST, formatCost } from "@/lib/usage/cost";
-import { archiveRootOf, readDiskTombstones } from "./archivePaths";
+import { archiveRootOf, isSafePathSegment, readDiskTombstones } from "./archivePaths";
 import type { FileSink } from "./sink";
 import { redactExternalError } from "@/lib/security/redact";
 import type { ModelInfo, ProviderId, SessionMeta, TargetSnapshot, Turn, TurnStatus, Usage } from "@/types";
@@ -201,7 +201,8 @@ function normalizeSessionMeta(value: unknown, onDiskDir?: string): SessionMeta {
       : null,
     layoutMode: value.layoutMode === "horizontal" ? "horizontal" : "vertical",
     onDisk: true,
-    onDiskDir,
+    // يمرّ مجلد القرص بسياسة المقطع الآمن: قيمة محمّلة من meta.json لا تُقبل إن حملت فاصلًا أو "..".
+    onDiskDir: isSafePathSegment(onDiskDir) ? onDiskDir : undefined,
     contextMode: value.contextMode === "stateless" ? "stateless" : "stateful",
     targets: Array.isArray(value.targets) ? (value.targets as TargetConfigLike[]) : [],
   };
@@ -524,6 +525,10 @@ export async function appendTurn(sink: FileSink, dir: string, meta: SessionMeta,
       updatedAt: Math.max(previous?.updatedAt ?? 0, meta.updatedAt, turn.createdAt),
       turns: [...(previous?.turns ?? []), turn],
     };
+    // ponytail: attempt files land before the manifest commit marker, so a crash between
+    // these two writes orphans one turns/<dir> file that recovery ignores (recovery.spec.ts).
+    // The leak is bounded by crash count and never referenced by a manifest; a startup sweep
+    // would buy a scan for no correctness gain.
     await writeAttemptFiles(sink, dir, turn);
     await publishManifest(sink, dir, manifest);
   });

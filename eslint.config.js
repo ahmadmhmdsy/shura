@@ -78,9 +78,10 @@ export default tseslint.config(
     //    Every Class-4 site - a thrown error, toast or notice the user reads - is now a
     //    resource key translated at its boundary, so `src/features/**` and every other
     //    non-UI file is guarded again. The list may only shrink; adding a file needs a
-    //    recorded reason and one of those classes. The one known Class-4 candidate still
-    //    inside it, `parser.ts`:304 (a recovery-report detail), is recorded in the T3.2c
-    //    notes of docs/plans/2026-10-05-production-readiness-progress.md.
+    //    recorded reason and one of those classes. [T7.6/Q8] the last Class-4
+    //    candidates - the recovery-report details in `parser.ts` (a failed quarantine
+    //    move and usage restored with no provider snapshot) - are now resource keys;
+    //    `parser.ts` stays listed for its thrown, redacted validation messages (Class 5).
     // The colour guards stay active in every exempted file.
     files: [
       "src/i18n/**",

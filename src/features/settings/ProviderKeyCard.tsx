@@ -58,7 +58,7 @@ export function ProviderKeyCard({ id }: { id: ProviderId }) {
       {limitFailure && <p role="alert" className="text-xs text-sura-danger">{errorText(t, limitFailure)}</p>}
       <div className="flex items-center gap-2">
         {/* The test must use the saved key, never an unsaved draft. */}
-        <Button size="sm" variant="outline" disabled={testing || !saved.trim()}
+        <Button size="sm" variant="outline" disabled={testing || !saved.trim() || p.staticModels.length === 0}
           onClick={() => { setTesting(true); testProviderKey(id, saved, p.staticModels[0].id).then((r) => { setOk(r.ok); // [T7.3] حدّ العرض: التفصيل يُمرّر على المُنقّي القياسي مرة أخرى مع المفتاح المحفوظ،
             // فلا يعتمد العرض على أن طبقة المكتبة نزعت كل شيء.
             setResult(redactExternalError(r.detail, { secrets: [saved] })); }).finally(() => setTesting(false)); }}>

@@ -74,6 +74,10 @@ export function useAppShortcuts({ onOpenSettings, onShowHelp, onToggleTheme }: A
       action: () => onToggleTheme(),
       description: t("keyboard.toggleTheme"),
     },
+    // Chat-scoped shortcuts registered in ChatScreen/Composer; listed here only so the
+    // help dialog is complete. displayOnly keeps them out of registerShortcuts.
+    { key: "Enter", ctrl: true, description: t("keyboard.send"), displayOnly: true },
+    { key: "1-9", ctrl: true, description: t("keyboard.focusTarget"), displayOnly: true },
   ];
 
   useEffect(() => {

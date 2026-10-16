@@ -74,7 +74,7 @@ export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, dis
       {customPrompt && (
         <div className="border-b border-sura-border px-3 py-1.5">
           <button className="text-xs text-sura-muted flex items-center gap-1" onClick={() => setOpenCustom(!openCustom)}>
-            <ChevronDown className={"size-3.5 transition-transform " + (openCustom ? "" : "-rotate-90")} /> {t("chat.customQuestion")}
+            <ChevronDown className={"size-3.5 transition-transform " + (openCustom ? "" : "-rotate-90 rtl:rotate-90")} /> {t("chat.customQuestion")}
           </button>
           {openCustom && <p className="text-xs mt-1 whitespace-pre-wrap">{customPrompt}</p>}
         </div>

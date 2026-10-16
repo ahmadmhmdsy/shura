@@ -46,10 +46,10 @@ pnpm tauri:build:windows   # حزمة تثبيت NSIS (بيئة x64 Native Tools
 
 | الفحص | النتيجة |
 |---|---|
-| `pnpm test` (vitest) | **<!--G:counts.testsPassed-->1161<!--/G-->/<!--G:counts.tests-->1164<!--/G--> اختبارًا عبر <!--G:counts.files-->108<!--/G--> ملفًا** — بلا شبكة حقيقية ولا مفتاح (fetch مزيّف محقون إلى طبقة النقل) |
-| `pnpm test:coverage` | **PASS** عند عتبات 80/75/80/80 (<!--G:cov.statements-->88.84<!--/G-->% statements · <!--G:cov.branches-->82.48<!--/G-->% branches · <!--G:cov.functions-->86.46<!--/G-->% functions · <!--G:cov.lines-->92.72<!--/G-->% lines) |
+| `pnpm test` (vitest) | **<!--G:counts.testsPassed-->1167<!--/G-->/<!--G:counts.tests-->1170<!--/G--> اختبارًا عبر <!--G:counts.files-->109<!--/G--> ملفًا** — بلا شبكة حقيقية ولا مفتاح (fetch مزيّف محقون إلى طبقة النقل) |
+| `pnpm test:coverage` | **PASS** عند عتبات 80/75/80/80 (<!--G:cov.statements-->88.83<!--/G-->% statements · <!--G:cov.branches-->82.51<!--/G-->% branches · <!--G:cov.functions-->86.42<!--/G-->% functions · <!--G:cov.lines-->92.70<!--/G-->% lines) |
 | `pnpm typecheck` / `pnpm lint` | PASS (مشروعان: `src` و`tsconfig.node.json`) |
-| `pnpm build` + `pnpm check:bundle` | PASS — الحزمة الأساسية <!--G:bundle.entry.kb-->1,109.55<!--/G--> kB (gzip <!--G:bundle.entry.gzip-->312.92<!--/G--> kB) مقابل ميزانية 1,200,000 بايت؛ الهامش <!--G:bundle.headroom.kb-->90.45<!--/G--> kB. البوابة تقيس البايت الخام لا رقم kB المستدير (`scripts/check-bundle.mjs`) |
+| `pnpm build` + `pnpm check:bundle` | PASS — الحزمة الأساسية <!--G:bundle.entry.kb-->1,110.38<!--/G--> kB (gzip <!--G:bundle.entry.gzip-->313.11<!--/G--> kB) مقابل ميزانية 1,200,000 بايت؛ الهامش <!--G:bundle.headroom.kb-->89.62<!--/G--> kB. البوابة تقيس البايت الخام لا رقم kB المستدير (`scripts/check-bundle.mjs`) |
 | `pnpm test:e2e:browser` (Playwright + Chromium) | **24/24** على بناء الإنتاج، بمزوّد **وهمي داخل الصفحة** — لا مفتاح ولا حساب ولا إنفاق |
 | `pnpm audit:check` | PASS — كل تنبيه مسجَّل في `docs/security/dependency-advisories.md` بتبرير وتاريخ إعادة مراجعة. (`pnpm audit --json` الخام يعيد exit 1 بـ11 تنبيهًا: 1 حرج، 5 مرتفع، 5 متوسط — لا «صفر ثغرة» كما قيل سابقًا.) |
 | `cargo fmt --check` / `cargo check --locked` / `cargo test --locked` | PASS — 11 اختبار Rust |
@@ -97,12 +97,12 @@ pnpm tauri build    # بناء إنتاج
 
    ⇒ استخدام OpenCode Go يتطلب **غلاف سطح المكتب**؛ في وضع الويب يظهر بحالة «يتطلب تطبيق سطح المكتب» بدل فشل صامت.
 4. هدف **MSI** في حزم Tauri معطل على هذا الجهاز (غياب .NET 3.5) — استخدم NSIS.
-5. **ميزانية الحزمة الأساسية:** <!--G:bundle.entry.kb-->1,109.55<!--/G--> kB مقابل حدّ 1,200,000 بايت (هامش ≈ <!--G:bundle.headroom.kb-->90.45<!--/G--> kB). اتّسع الهامش بعد فصل شيفرة RAG إلى حزم منفصلة، لكن `dist/index.html` يحمّلها مسبقًا عبر `modulepreload` لأن نقاط دخول RAG تُستورد ساكنًا، فالحمولة الفعلية عند الإقلاع <!--G:bundle.eager.kb-->1,325.42<!--/G--> kB — مسجّلة كـLV-09 في المراجعة وتُغلق في T1.3 Step 9؛ والحدّ نفسه لم يُخفَّض ولم يُرفع — انظر `docs/environment.md` §8.2.
+5. **ميزانية الحزمة الأساسية:** <!--G:bundle.entry.kb-->1,110.38<!--/G--> kB مقابل حدّ 1,200,000 بايت (هامش ≈ <!--G:bundle.headroom.kb-->89.62<!--/G--> kB). اتّسع الهامش بعد فصل شيفرة RAG إلى حزم منفصلة، لكن `dist/index.html` يحمّلها مسبقًا عبر `modulepreload` لأن نقاط دخول RAG تُستورد ساكنًا، فالحمولة الفعلية عند الإقلاع <!--G:bundle.eager.kb-->1,326.25<!--/G--> kB — مسجّلة كـLV-09 في المراجعة وتُغلق في T1.3 Step 9؛ والحدّ نفسه لم يُخفَّض ولم يُرفع — انظر `docs/environment.md` §8.2.
 6. **اختبار المتصفح يغطّي نسخة الويب (المزوّد وهمي)، لا غلاف سطح المكتب:** الكتابة على القرص فعليًا تحت `$DOCUMENT/Shura` واسترجاعها بعد فقدان القاعدة لم يُختبرا آليًا — تبقى `SKIPPED: متطلب بشري`.
 
 ## قائمة الفحص اليدوي — نتائج صادقة (المهمة 15)
 
-السيناريوهات حرفية من الخطة. التقسيم: ما غطته اختبارات آلية (vitest <!--G:counts.testsPassed-->1161<!--/G-->/<!--G:counts.tests-->1164<!--/G--> + Playwright 24/24) مقابل ما يتطلب إنسانًا في بيئة تفاعلية. **لم يُدَّعِ شيء لم يحدث.**
+السيناريوهات حرفية من الخطة. التقسيم: ما غطته اختبارات آلية (vitest <!--G:counts.testsPassed-->1167<!--/G-->/<!--G:counts.tests-->1170<!--/G--> + Playwright 24/24) مقابل ما يتطلب إنسانًا في بيئة تفاعلية. **لم يُدَّعِ شيء لم يحدث.**
 
 | # | البند | الحكم |
 |---|---|---|

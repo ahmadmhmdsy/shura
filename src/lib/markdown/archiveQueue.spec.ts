@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archiveQueueDepth, archiveQueueKey, runExclusiveInArchive } from "./archiveQueue";
+import { archiveQueueDirs, archiveQueueKey, runExclusiveInArchive } from "./archiveQueue";
 
 const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -17,7 +17,7 @@ describe("runExclusiveInArchive", () => {
     });
     await Promise.all([first, second]);
     expect(order).toEqual(["a1:start", "a1:end", "a2:start", "a2:end"]);
-    expect(archiveQueueDepth()).toBe(0);
+    expect(archiveQueueDirs()).toBe(0);
   });
 
   it("يسمح لمجلدات مختلفة بالتقدم معًا", async () => {
@@ -47,7 +47,7 @@ describe("runExclusiveInArchive", () => {
     await expect(failed).rejects.toThrow("فشل مقصود");
     await expect(next).resolves.toBeUndefined();
     expect(order).toEqual(["b1", "b2"]);
-    expect(archiveQueueDepth()).toBe(0);
+    expect(archiveQueueDirs()).toBe(0);
   });
 
   it("يوحّد المسارات المتكافئة إلى مفتاح واحد", async () => {
@@ -80,7 +80,7 @@ describe("runExclusiveInArchive", () => {
     await Promise.all([relative, absolute]);
     // The deletion must wait for the writer to finish (serialization)
     expect(order).toEqual(["writer:start", "writer:end", "delete:start", "delete:end"]);
-    expect(archiveQueueDepth()).toBe(0);
+    expect(archiveQueueDirs()).toBe(0);
   });
 
   it("archiveQueueKey يستخرج آخر مقطع كمفتاح قانوني", () => {

@@ -18,7 +18,7 @@ export function archiveQueueKey(path: string): string {
   return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
 }
 
-export function archiveQueueDepth(): number {
+export function archiveQueueDirs(): number {
   return chains.size;
 }
 

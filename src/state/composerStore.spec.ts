@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_COMPOSER_DRAFT, useComposerStore } from "./composerStore";
+import { LIMITS } from "@/lib/limits";
 import type { TargetConfig } from "@/types";
 
 // المرجع: .superpowers/sdd/hardening-task-3-brief.md الخطوة 3 — عقد المخزن الموقّع بمعرف الجلسة.
@@ -119,5 +120,21 @@ describe("composerStore — مسودة موقّعة بمعرف الجلسة", ()
     s.clearSession("s1");
     expect(s.drafts["s1"]).toBeUndefined();
     expect(s.getDraft("s1").sharedPrompt).toBe("");
+  });
+
+  it("EMPTY_COMPOSER_DRAFT مجمّد فلا تلوّثه الكتابة العرضية", () => {
+    expect(Object.isFrozen(EMPTY_COMPOSER_DRAFT)).toBe(true);
+  });
+
+  it("القصّ آمن على حدود نقاط الشيفرة: لا يشطر زوجًا بديلًا عند الحد", () => {
+    const emoji = "😀";
+    const max = LIMITS.sharedPromptMax;
+    // max-1 BMP + emoji = max code points لكن max+1 وحدة UTF-16، فيجب قصّ نقطة واحدة فقط.
+    useComposerStore.getState().setShared("s1", "ا".repeat(max - 1) + emoji + "زائد");
+    const value = useComposerStore.getState().getDraft("s1").sharedPrompt;
+    expect([...value]).toHaveLength(max);
+    expect(value.endsWith(emoji)).toBe(true);
+    // لا يوجد بديل عالٍ بلا بديل منخفض يتبعه (نصف زوج)
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(value)).toBe(false);
   });
 });

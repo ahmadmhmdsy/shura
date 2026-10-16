@@ -375,6 +375,7 @@ export const en = {
   },
   keyboard: {
     send: "Send",
+    focusTarget: "Focus target",
     newSession: "New session",
     search: "Search",
     stop: "Stop",
@@ -440,6 +441,10 @@ export const en = {
     quarantinedArchive: "Quarantined a corrupt archive: {dir} ({reason})",
     skippedDeletedSession: "Skipped a deleted session: {id}",
     recoveryReportTitle: "Archive recovery report",
+    // [T7.6/Q8] the last Class-4 recovery-report details: a failed quarantine move and
+    // usage restored with no provider snapshot. {detail} is an already-redacted error.
+    quarantineFolderFailed: "Could not move the folder to quarantine: {detail}",
+    recoveryUnattributedUsage: "{count} restored messages carry usage with no saved provider attribution - kept unattributed",
   },
   exportDialog: {
     session: "Export session",

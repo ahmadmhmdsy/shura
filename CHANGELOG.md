@@ -17,7 +17,7 @@ published, and keep the limitation list below with that release.
 This entry summarises milestones M0-M8 of `docs/plans/2026-10-05-production-readiness-plan.md`: the
 first production-readiness pass over a working application, not its first feature release. M6
 (packaging, desktop verification and release) is complete except a Windows desktop-E2E CI job; M7
-(backlog and documentation reconciliation) is complete except the Low backlog (T7.6); and M8 (the
+(backlog and documentation reconciliation) is complete (T7.1-T7.6); and M8 (the
 2026-10-16 review reconciliation) is complete. Each milestone has a row in the table at the end.
 
 ### Added
@@ -98,6 +98,18 @@ first production-readiness pass over a working application, not its first featur
   string; it now passes the console text, the persisted `lastError.message` and the
   `unhandledrejection` reason through the single sanctioned redactor `redactExternalError`
   (M8/T8.4, finding L2).
+- **The shortcut help dialog lists every real shortcut.** `Ctrl+Enter` (send) and `Ctrl+1`-`Ctrl+9`
+  (focus target) worked but were missing from the in-app list; they are now shown as display-only
+  rows, so the help matches the keys the app actually binds (T7.2 finding, resolved in T7.6).
+- **The chat result chevron mirrors in Arabic.** It was always rotated one way; it now flips under
+  RTL (`rtl:rotate-90`), so the expand indicator points the correct way in a right-to-left layout
+  (T7.6).
+- Low-backlog hardening with no user-visible behaviour change: the archive writer validates a stored
+  `onDiskDir` before use, the composer truncates on code-point boundaries instead of splitting an
+  emoji, the composer's empty draft object is frozen, a provider card's Test button is disabled when
+  no static model exists, the key-check URL is built with the URL parser instead of string
+  concatenation, the credential store caches its in-flight initialization, and the archive queue's
+  counter is renamed `archiveQueueDirs` for what it actually counts (T7.6).
 
 ### Security
 
@@ -151,5 +163,5 @@ first production-readiness pass over a working application, not its first featur
 | M4 - Architecture and maintainability | `persistTurn` extracted out of `ChatScreen.tsx`; the file-budget guard test |
 | M5 - Accessibility hardening | axe suite over the screen states; numeric token-contrast contract; reflow, landmark and focus-ring fixes; the human pass script |
 | M6 - Packaging, desktop verification and release | Windows NSIS installer built and inspected (unsigned, `shura_0.1.0_x64-setup.exe`, 4,095,495 bytes, 2026-09-25); semver 0.1.0 in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`; `CHANGELOG.md` created; the desktop Playwright suite green through `cdp` (6 passed); the opt-in live suite (`pnpm test:e2e:live`, 1 passed in 9.9 s); `docs/release-checklist.md` with the release gate as a tick-list (section 5) and the backout record (section 6). Complete except T6.1 Step 3 - a Windows desktop-E2E CI job blocked on a cost decision |
-| M7 - Post-review reconciliation (complete except T7.6) | T7.1: the 2026-09-28 milestone file reconciled 60/60 boxes (31 implemented, 26 carried into T7.3-T7.6, 2 closed) with inline file:line evidence. T7.2: `pnpm docs:numbers:check` exit 0 and 18 stale claims corrected across `README.md`, `docs/environment.md`, `docs/troubleshooting.md` and `docs/user-guide.md`, every one re-checked by hand; Q6 resolved (reviews stay local). Delivered through T7.5 on 2026-10-12 (T7.1 reconciliation, T7.2 truthfulness pass, T7.3 one redactor, T7.4 usage salvage, T7.5 persistence tests); only the Low backlog T7.6 remains |
+| M7 - Post-review reconciliation | T7.1: the 2026-09-28 milestone file reconciled 60/60 boxes (31 implemented, 26 carried into T7.3-T7.6, 2 closed) with inline file:line evidence. T7.2: `pnpm docs:numbers:check` exit 0 and 18 stale claims corrected across `README.md`, `docs/environment.md`, `docs/troubleshooting.md` and `docs/user-guide.md`, every one re-checked by hand; Q6 resolved (reviews stay local). T7.3 one redactor; T7.4 usage salvage; T7.5 persistence tests; delivered 2026-10-12. T7.6 (2026-10-16): the 2026-09-28 milestone-7 Low backlog reconciled - 20 items, 11 fixed and 9 recorded `accepted - Low`, plus the shortcut-help finding; `pnpm check:all` PASS |
 | M8 - Review reconciliation (2026-10-16) | A read-only review of the uncommitted hardening tree returned PASS WITH CONCERNS; all six findings fixed - the temp-cleanup policy is wired, DOCX is routed, the dead `apiEmbedder` and `sonner` modules are deleted, error text is redacted at the logging sink, and summary persistence is extracted out of `useSummaryExtraction.ts` (M8/T8.1-T8.6) |

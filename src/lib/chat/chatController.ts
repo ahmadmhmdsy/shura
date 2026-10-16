@@ -139,7 +139,6 @@ function snapshotForPrompt(
     promptText: prompt.text,
     hasShared: prompt.hasShared,
     hasCustom: prompt.hasCustom,
-    ...(_target ? {} : {}),
   };
 }
 
@@ -210,7 +209,9 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     };
     bind(operationSignal);
     const external = args.externalSignalFor(targetId);
-    bind(external ?? operationSignal);
+    // Skip the second bind when the external signal IS the operation signal, or the
+    // same abort would be wired twice.
+    if (external !== operationSignal) bind(external);
     const entry: BoundSignal = {
       signal: controller.signal,
       cleanup: () => {

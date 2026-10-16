@@ -51,9 +51,12 @@ function errorWithStatus(status: number, body: string): Error {
 async function keyListingCheck(providerId: ProviderId, apiKey: string, headers: Record<string, string>): Promise<Response | null> {
   const config = getProvider(providerId);
   if (!config.keyCheckUrl) return null;
-  const url = config.keyCheckAuth === "query"
-    ? config.keyCheckUrl + "?key=" + encodeURIComponent(apiKey)
-    : config.keyCheckUrl;
+  let url = config.keyCheckUrl;
+  if (config.keyCheckAuth === "query") {
+    const withKey = new URL(config.keyCheckUrl);
+    withKey.searchParams.set("key", apiKey);
+    url = withKey.toString();
+  }
   const init = new Headers(headers);
   if (config.keyCheckAuth !== "query") init.set("Authorization", "Bearer " + apiKey);
   const response = await getTransportFetch()(url, { method: "GET", headers: init, signal: AbortSignal.timeout(15_000) });

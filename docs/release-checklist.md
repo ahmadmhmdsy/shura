@@ -110,12 +110,14 @@ command was run against the build being shipped; open rows must not be ticked by
       passed. **PASS 2026-10-12:** 11 advisories registered; the production graph has 1 moderate, registered.
 - [ ] **Point 6 - this checklist is fully ticked.** Proves: a human read every row and no gate passes by
       inference. **NOT YET:** point 3, gate A3, gate A4 and this row are open.
-- [x] **Point 7 - no provider displays an unsourced price.** Proves: T2.9 deleted every hardcoded OpenCode Go
-      rate, so an unpriced model renders the no-value glyph instead of a fabricated `$0.000000`. **PASS for
-      OpenCode Go 2026-10-12.** The plan's headline reads 'no provider' while its parenthetical scopes the rule
-      to OpenCode Go; `google`/`minimax` (and `openrouter`'s static fallback) still display hand-written rates
-      with no attribution. **Q7 is open** - if the headline is authoritative, this row is not PASS until Q7 is
-      answered (`TASKS.md` `## Waiting On`).
+- [x] **Point 7 - no provider displays an unsourced price.** Proves: every displayed rate is either unknown
+      (`null`, rendered as the no-value glyph) or traceable to a published page. **PASS 2026-10-16** for the whole
+      surface: T2.9 deleted every hardcoded OpenCode Go rate, and Q7 is now answered -
+      `src/lib/providers/pricingSources.ts` records a source URL + as-of date + rate for every non-null static
+      price (`google` `gemini-2.5-pro` 1.25/10 `<=200k`, `gemini-2.5-flash` 0.30/2.50; `openrouter`
+      `openai/gpt-4o` 2.50/10, `anthropic/claude-sonnet-4.5` 3/15), enforced by `pricingSources.spec.ts`
+      (no priced model without a source, no rate drift, no orphan source). MiniMax publishes no readable
+      per-token table, so its two rates are `null` - the same rule as OpenCode Go.
 
 ### 5.1 Gates the plan mandates outside the seven points
 
@@ -134,7 +136,9 @@ command was run against the build being shipped; open rows must not be ticked by
 - [ ] **A4 - installer smoke on a clean machine (T6.5 Step 3).** Proves: the NSIS installer installs, the app
       starts, and an upgrade/uninstall behaves. **PARTIAL and corrected:** an installed `0.1.0` copy exists on
       the development host (section 1), so the installer does install and the installed app has written data;
-      **no clean external machine and no uninstall cycle** were exercised.
+      **no clean external machine and no uninstall cycle** were exercised. **How to run it (5.3):** use
+      **Windows Sandbox** - a disposable clean host on the same machine - so the developer's installed copy is
+      untouched. This stays a human gate.
 - [ ] **A5 - the candidate is cut from the current tree.** **NOT YET:** the only installer on disk is the
       2026-09-25 build (5.2), and the tree has changed since (T1.x-T6.x), so a release must rebuild and re-run
       every row above against the new artifact.
@@ -150,6 +154,24 @@ command was run against the build being shipped; open rows must not be ticked by
   `FileVersion 0.1.0`, 2026-09-25 19:52:20), and it has written 4 session archives to
   `Documents\Shura\sessions`.
 - The E2E suites pick the newest `app.exe` under `src-tauri/target/`, which is currently the `debug` build.
+
+### 5.3 Clean-machine smoke via Windows Sandbox (how to run A4)
+
+Windows Sandbox is a disposable clean Windows host on the same machine, so the developer's installed copy is
+never touched. Enable it once (Windows 10/11 Pro: *Turn Windows features on or off* -> *Windows Sandbox*,
+reboot). Then, against the freshly built candidate:
+
+1. Build: `pnpm tauri:build:windows` ->
+   `src-tauri/target/release/bundle/nsis/shura_0.1.0_x64-setup.exe`.
+2. Map the installer folder into the Sandbox (drag the installer onto the Sandbox window, or add a
+   `<MappedFolder>` for `src-tauri/target/release/bundle/nsis`) and run the setup inside the Sandbox.
+3. **Install:** the app launches, the first-run screen exposes a `main` landmark, and a provider key saves
+   (Settings) - i.e. the credential backend works on a clean profile.
+4. **Upgrade:** build a second installer with a bumped patch version, run it over the first, and confirm the
+   installed app updates and any written archives survive.
+5. **Uninstall:** remove via *Apps & features*; confirm no leftover service, no running process, and that
+   `%LOCALAPPDATA%\shura` and `Documents\Shura` behave as documented (section 6.3).
+6. Record PASS/FAIL per step here and tick A4; any failure becomes a task.
 
 ## 6. Backout and downgrade (T6.8 Step 2)
 

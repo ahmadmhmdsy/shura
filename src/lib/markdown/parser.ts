@@ -2,6 +2,7 @@ import type { FileSink } from "./sink";
 import { quarantineDirOf, readDiskTombstones, RESERVED_ARCHIVE_DIRS } from "./archivePaths";
 import { redactExternalError } from "@/lib/security/redact";
 import { LIMITS } from "@/lib/limits";
+import { uiText } from "@/i18n";
 import { buildRecoveredUsageEvent } from "./recoveryUsage";
 import { ArchiveValidationError, readArchiveManifest, renderSessionMarkdown, type ArchiveManifest, type ArchiveTurn } from "./writer";
 import type { ChatMessage, ContextMode, ProviderId, SessionMeta, TurnAttempt, TurnRecord, TurnStatus, UsageEvent } from "@/types";
@@ -242,7 +243,7 @@ async function quarantineFolder(sink: FileSink, rootDir: string, name: string, n
     // The source stays untouched so a failed quarantine never destroys user data.
     return {
       ok: false,
-      reason: redactExternalError(error, { maxCodePoints: RECOVERY_ERROR_MAX_CHARS }) + " (تعذّر نقل المجلد إلى الحجر)",
+      reason: uiText.t("errors.quarantineFolderFailed", { detail: redactExternalError(error, { maxCodePoints: RECOVERY_ERROR_MAX_CHARS }) }),
     };
   }
 }
@@ -301,7 +302,7 @@ export async function recoverFromDisk(sink: FileSink, rootDir: string, options: 
       continue;
     }
     if (typeof restored.unattributedUsage === "number") {
-      report.errors.push("استهلاك بلا نسبة مزوّد محفوظ على الرسالة دون اختراع مزوّد: " + restored.unattributedUsage);
+      report.errors.push(uiText.t("errors.recoveryUnattributedUsage", { count: restored.unattributedUsage }));
     }
     report.imported.push(restored);
   }

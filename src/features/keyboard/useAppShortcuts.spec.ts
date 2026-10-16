@@ -34,10 +34,10 @@ function setup() {
 }
 
 describe("useAppShortcuts", () => {
-  it("يعيد قائمة الاختصارات السبعة مع أوصافها", () => {
+  it("يعيد قائمة الاختصارات مع أوصافها، وتلحقها صفوف عرض الدردشة", () => {
     const { result } = setup();
-    expect(result.current).toHaveLength(7);
-    expect(result.current.map((s) => s.key)).toEqual(["k", "n", "s", "Escape", "?", ",", "/"]);
+    expect(result.current).toHaveLength(9);
+    expect(result.current.map((s) => s.key)).toEqual(["k", "n", "s", "Escape", "?", ",", "/", "Enter", "1-9"]);
     expect(result.current[0].description).toBe(ar.keyboard.search);
     expect(result.current[1].description).toBe(ar.keyboard.newSession);
     expect(result.current[2].description).toBe(ar.keyboard.settings);
@@ -45,6 +45,13 @@ describe("useAppShortcuts", () => {
     expect(result.current[4].description).toBe(ar.keyboard.help);
     expect(result.current[5].description).toBe(ar.keyboard.settings);
     expect(result.current[6].description).toBe(ar.keyboard.toggleTheme);
+    expect(result.current[7].description).toBe(ar.keyboard.send);
+    expect(result.current[8].description).toBe(ar.keyboard.focusTarget);
+    // The two chat rows are display-only: the help list shows them, registerShortcuts skips them.
+    expect(result.current[7].displayOnly).toBe(true);
+    expect(result.current[8].displayOnly).toBe(true);
+    expect(result.current[7].action).toBeUndefined();
+    expect(result.current[8].action).toBeUndefined();
   });
 
   it("Ctrl+K يركّز حقل البحث في الجلسات", () => {

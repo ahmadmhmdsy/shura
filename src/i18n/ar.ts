@@ -418,6 +418,7 @@ export const ar: Resources = {
   },
   keyboard: {
     send: "إرسال",
+    focusTarget: "تركيز على الهدف",
     newSession: "جلسة جديدة",
     search: "بحث",
     stop: "إيقاف",
@@ -482,6 +483,8 @@ export const ar: Resources = {
     quarantinedArchive: "عُزل أرشيف تالف: {dir} ({reason})",
     skippedDeletedSession: "تم تجاوز جلسة محذوفة: {id}",
     recoveryReportTitle: "تقرير استرجاع الأرشيف",
+    quarantineFolderFailed: "تعذّر نقل المجلد إلى الحجر: {detail}",
+    recoveryUnattributedUsage: "استهلاك بلا نسبة مزوّد محفوظ على الرسالة دون اختراع مزوّد: {count}",
   },
   exportDialog: {
     session: "تصدير الجلسة",

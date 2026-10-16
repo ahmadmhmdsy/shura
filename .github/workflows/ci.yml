@@ -104,6 +104,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build the NSIS installer
         run: pnpm tauri:build:windows
+      # [T6.1 step 3] The desktop suite drives this job's just-built WebView2 app over
+      # CDP (client attach, so it downloads no browser) and reuses dist/. The web job
+      # keeps --project=browser; the tauri project cannot run on headless Linux.
+      - name: Desktop end-to-end suite (Tauri webview)
+        run: pnpm test:e2e:desktop
       - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
