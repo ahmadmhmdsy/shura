@@ -1,13 +1,18 @@
+import { uiText } from "@/i18n";
 import { appendMessage, claimOperationLease, getTurn, persistTurnAttempt, recordUsage, releaseOperationLease, supersedeTurnAttempts, updateSessionIfOperation, updateTurnAttemptStatus } from "@/lib/db/repos";
 import { newId } from "@/lib/id";
 import { buildTurnTargets } from "./turnBuilder";
+import { KeyedError, errorText } from "@/lib/errors/keyedError";
 import { dispatchTurn } from "./dispatch";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { appendTurn, writeSessionMeta } from "@/lib/markdown/writer";
+import { isTerminal } from "@/lib/db/repos/identity";
 import type { BuiltPrompt, ChatMessage, ContextMode, ModelInfo, ProviderId, SessionMeta, TargetSnapshot, Turn, TurnAttempt, TurnStatus } from "@/types";
 
 export interface SendCallbacks {
   onDelta(operationId: string, targetId: string, chunk: string, attemptId: string, turnId?: string, messageId?: string): void;
+  /** [T2.7/LV-02] حالة التفكير الحيّة؛ اختيارية كي لا تُلزم المستدعين الذين لا يعرضونها. */
+  onReasoning?(operationId: string, targetId: string, active: boolean, attemptId: string, turnId?: string, messageId?: string): void;
   onStatus(operationId: string, targetId: string, status: ChatMessage["status"], error: string | undefined, attemptId: string, turnId?: string, messageId?: string): void;
   onDropped(operationId: string, targetIds: string[], attemptId: string, turnId?: string): void;
   onWarning?(message: string): void;
@@ -138,8 +143,10 @@ function snapshotForPrompt(
   };
 }
 
-function statusForOutcomes(outcomes: readonly { status: "done" | "stopped" | "error" }[]): TurnStatus {
+function statusForOutcomes(outcomes: readonly { status: TurnStatus }[]): TurnStatus {
   if (outcomes.some((outcome) => outcome.status === "error")) return "error";
+  // [NM-02] بث مقطوع ليس نجاحًا: نتيجة واحدة مقطوعة تمنع وسم الدور done.
+  if (outcomes.some((outcome) => outcome.status === "truncated")) return "truncated";
   if (outcomes.length > 0 && outcomes.every((outcome) => outcome.status === "stopped")) return "stopped";
   return "done";
 }
@@ -167,7 +174,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
   const built = sourceAttempt
     ? { prompts: promptsFromAttempt(sourceAttempt), dropped: [] as string[] }
     : buildTurnTargets(turn, args.targets, args.syncMode);
-  if (built.prompts.length === 0) throw new Error("لا توجد أهداف صالحة للإرسال");
+  if (built.prompts.length === 0) throw new KeyedError("errors.noValidTargets");
   const archiveTurn = sourceAttempt ? turnFromAttempt(sourceAttempt) : turn;
   const targets: TargetSnapshot[] = sourceAttempt
     ? cloneSnapshots(sourceAttempt.targets)
@@ -264,9 +271,9 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     const terminalStatuses: TurnStatus[] = [];
     for (const row of durableRows.values()) {
       if (row.role !== "assistant" && row.kind !== "result" && row.kind !== "synthesis") continue;
-      if (row.status === "done" || row.status === "error" || row.status === "stopped") {
+      if (isTerminal(row.status)) {
         // A terminal primary is immutable. If cancellation raced its final
-        // append, preserve that exact done/error/stopped row and its status.
+        // append, preserve that exact terminal row and its status.
         terminalStatuses.push(row.status);
         continue;
       }
@@ -283,21 +290,23 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         return result.accepted;
       }).catch(() => false);
       terminalStatuses.push("stopped");
-      if (!accepted) warn("تعذر حفظ حالة الإيقاف للرسالة");
+      if (!accepted) warn(uiText.t("chat.stoppedSaveFailed"));
     }
     if (canonicalAttempt) {
       const attemptStatus: TurnStatus = terminalStatuses.length === 0
         ? "stopped"
         : terminalStatuses.includes("error")
           ? "error"
-          : terminalStatuses.every((status) => status === "stopped")
-            ? "stopped"
-            : "done";
+          : terminalStatuses.includes("truncated")
+            ? "truncated"
+            : terminalStatuses.every((status) => status === "stopped")
+              ? "stopped"
+              : "done";
       // A terminal primary row is durable even when the attempt record cannot be
       // updated. Report the inconsistency instead of silently leaving the attempt
       // looking live until a later startup reconciliation repairs it.
       const attemptUpdated = await updateAttemptStatus(attemptStatus);
-      if (!attemptUpdated) warn("تعذر تحديث حالة المحاولة بعد الإيقاف");
+      if (!attemptUpdated) warn(uiText.t("chat.attemptStatusAfterStopFailed"));
     }
     return [];
   };
@@ -310,12 +319,12 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
    */
   const finalizeSetupFailure = async (error: unknown): Promise<ChatMessage[]> => {
     if (stopStreams) await stopStreams().catch(() => undefined);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(uiText.t, error);
     const finals: Record<string, ChatMessage> = {};
     let primaryFailed = false;
     for (const row of durableRows.values()) {
       if (row.role !== "assistant" && row.kind !== "result" && row.kind !== "synthesis") continue;
-      if (row.status === "done" || row.status === "error" || row.status === "stopped") {
+      if (isTerminal(row.status)) {
         finals[row.targetId ?? ""] = row;
         continue;
       }
@@ -328,7 +337,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       }
     }
     const attemptUpdated = await updateAttemptStatus("error");
-    if (primaryFailed || !attemptUpdated) warn("تعذر تثبيت النتيجة الأساسية أو حالة المحاولة");
+    if (primaryFailed || !attemptUpdated) warn(uiText.t("chat.primaryOrAttemptPinFailed"));
     return Object.values(finals);
   };
 
@@ -375,14 +384,14 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     if (archiveTurn.sharedPrompt?.trim()) {
       assertOwned();
       const accepted = await emit(userMsg(session.id, turn.id, opId, archiveTurn.sharedPrompt.trim(), "shared", undefined, canonicalAttempt.id, canonicalAttempt.attempt));
-      if (!accepted) throw new Error("تعذر حفظ سؤال المحاولة");
+      if (!accepted) throw new KeyedError("errors.attemptPromptSaveFailed");
       assertOwned();
     }
     for (const prompt of built.prompts) {
       if (!prompt.hasCustom) continue;
       assertOwned();
       const accepted = await emit(userMsg(session.id, turn.id, opId, prompt.text, "custom", prompt.targetId, canonicalAttempt.id, canonicalAttempt.attempt));
-      if (!accepted) throw new Error("تعذر حفظ سؤال المحاولة");
+      if (!accepted) throw new KeyedError("errors.attemptPromptSaveFailed");
       assertOwned();
     }
 
@@ -410,7 +419,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     }));
     for (const message of assistantRows) {
       assertOwned();
-      if (!(await emit(message))) throw new Error("تعذر حفظ بطاقة البث");
+      if (!(await emit(message))) throw new KeyedError("errors.streamCardSaveFailed");
       assertOwned();
     }
 
@@ -421,7 +430,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       try {
         await writeSessionMeta(sink, dir, session);
       } catch {
-        warn("تعذر إنشاء ملف أرشفة الجلسة");
+        warn(uiText.t("chat.archiveMetaCreateFailed"));
       }
       assertOwned();
     }
@@ -431,7 +440,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         try { superseded = await supersedeTurnAttempts(turn.id, previousAttemptIds); } catch { /* retry below */ }
         if (!isOwned()) break;
       }
-      if (!superseded && isOwned()) warn("تعذر تحديث سجل المحاولة السابقة");
+      if (!superseded && isOwned()) warn(uiText.t("chat.previousAttemptUpdateFailed"));
     }
 
     const streams = new Map<string, StreamState>();
@@ -528,6 +537,12 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
           const message = assistantRows.find((candidate) => candidate.targetId === targetId);
           if (isOwned() && message) observe(() => cb.onDelta(callbackOperationId, targetId, chunk, canonicalAttempt!.id, turn.id, message.id));
         },
+        onReasoning: (callbackOperationId, targetId, active) => {
+          // لا نقطة حفظ ولا تراكم نص: الحالة تُنشر فورًا لأن نافذة «يفكّر» قد لا يصحبها أي نص بعد.
+          if (callbackOperationId !== opId || !signalsLive() || closingTargets.has(targetId) || !streams.has(targetId)) return;
+          const message = assistantRows.find((candidate) => candidate.targetId === targetId);
+          if (isOwned() && message) observe(() => cb.onReasoning?.(callbackOperationId, targetId, active, canonicalAttempt!.id, turn.id, message.id));
+        },
       });
     } catch (dispatchErr) {
       if (isCancellation(dispatchErr)) return finalizeCancelled();
@@ -542,7 +557,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         const text = streams.get(targetId)?.accum ?? "";
         const final: ChatMessage = { ...row, text, status: "error", error: message };
         const accepted = await emitTerminal(final);
-        if (!accepted) warn("تعذر حفظ النتيجة الأساسية بعد خطأ الاتصال");
+        if (!accepted) warn(uiText.t("chat.primarySaveAfterDispatchErrorFailed"));
         if (accepted || durableRows.get(row.id)?.status === "error") {
           fallback[targetId] = final;
           const callbackRow = assistantRows.find((candidate) => candidate.targetId === targetId);
@@ -552,7 +567,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       await drainStreams();
       if (!isOwned()) return finalizeCancelled();
       const attemptUpdated = await updateAttemptStatus("error");
-      if (!attemptUpdated) warn("تعذر تحديث حالة المحاولة بعد خطأ الاتصال");
+      if (!attemptUpdated) warn(uiText.t("chat.attemptStatusAfterDispatchErrorFailed"));
       return Object.values(fallback);
     }
     await drainStreams();
@@ -572,7 +587,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
     let primaryFailed = false;
 
     if (!outcomeContractValid) {
-      const contractError = "تعذر تحقق نتائج الإرسال الأساسية";
+      const contractError = uiText.t("chat.outcomeContractFailed");
       const terminalStatus: "error" | "stopped" = operationSignal.aborted ? "stopped" : "error";
       for (const row of assistantRows) {
         const targetId = row.targetId;
@@ -590,7 +605,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         if (!accepted) primaryFailed = true;
         finals[targetId] = accepted
           ? final
-          : { ...final, status: "error" as const, error: final.error ?? "تعذر حفظ النتيجة الأساسية" };
+          : { ...final, status: "error" as const, error: final.error ?? uiText.t("errors.resultSaveFailed") };
         if (isOwned()) {
           observe(() => cb.onStatus(opId, targetId, final.status, final.error, canonicalAttempt!.id, turn.id, row.id));
         }
@@ -598,7 +613,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       if (!isOwned()) return finalizeCancelled();
       warn(contractError);
       const attemptUpdated = await updateAttemptStatus(terminalStatus);
-      if (primaryFailed || !attemptUpdated) warn("تعذر تثبيت النتيجة الأساسية أو حالة المحاولة");
+      if (primaryFailed || !attemptUpdated) warn(uiText.t("chat.primaryOrAttemptPinFailed"));
       return Object.values(finals);
     }
 
@@ -620,10 +635,10 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       if (!accepted && durableRows.get(row.id)?.status !== outcome.status) primaryFailed = true;
       const published = accepted
         ? final
-        : { ...final, status: "error" as const, error: final.error ?? "تعذر حفظ النتيجة الأساسية" };
+        : { ...final, status: "error" as const, error: final.error ?? uiText.t("errors.resultSaveFailed") };
       finals[outcome.targetId] = published;
       if (!accepted) {
-        warn("تعذر تثبيت النتيجة الأساسية");
+        warn(uiText.t("chat.primaryPinFailed"));
         if (isOwned()) observe(() => cb.onStatus(opId, outcome.targetId, published.status, published.error, canonicalAttempt!.id, turn.id, row.id));
       } else if (isOwned()) {
         observe(() => cb.onStatus(opId, outcome.targetId, outcome.status, outcome.error, canonicalAttempt!.id, turn.id, row.id));
@@ -642,12 +657,12 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         if (!row) continue;
         if (!isOwned()) return finalizeCancelled();
         const current = durableRows.get(row.id);
-        if (current && (current.status === "done" || current.status === "error" || current.status === "stopped")) continue;
+        if (current && isTerminal(current.status)) continue;
         const recovery: ChatMessage = {
           ...row,
           text: outcome.text,
           status: "error",
-          error: "تعذر حفظ النتيجة الأساسية",
+          error: uiText.t("errors.resultSaveFailed"),
           usage: outcome.usage,
         };
         if (await emitTerminal(recovery)) {
@@ -657,7 +672,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       }
     }
     if (primaryFailed || !attemptUpdated) {
-      warn("تعذر تثبيت النتيجة الأساسية أو حالة المحاولة");
+      warn(uiText.t("chat.primaryOrAttemptPinFailed"));
       return Object.values(finals);
     }
 
@@ -677,13 +692,15 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         inputTokens: outcome.usage?.inputTokens ?? 0,
         outputTokens: outcome.usage?.outputTokens ?? 0,
         cachedInputTokens: outcome.usage?.cachedInputTokens ?? 0,
+        // [T2.4/NL-01] العدد المكتوب كان يسقط من صف السجل فيبقى غير مرئي حتى لو قرأه التحويل.
+        cacheWriteInputTokens: outcome.usage?.cacheWriteInputTokens ?? 0,
         costUSD: outcome.usage?.costUSD ?? null,
         toolCalls: 0,
         durationMs: outcome.ms,
         status: outcome.status === "error" ? "error" : "ok",
         attemptId: canonicalAttempt.id,
         operationId: opId,
-      }).then(() => ({})).catch(() => ({ targetId: outcome.targetId, warning: "تعذر حفظ حدث الاستهلاك" })));
+      }).then(() => ({})).catch(() => ({ targetId: outcome.targetId, warning: uiText.t("chat.usageEventSaveFailed") })));
     }
     if (dir && isFilePersistActive()) {
       sidecars.push(appendTurn(sink, dir, session, {
@@ -710,7 +727,7 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
         return {};
       }).catch((e: unknown) => {
         console.error("Archive failed:", e);
-        return { warning: "تعذر أرشفة النتيجة على القرص" };
+        return { warning: uiText.t("chat.archiveFailed") };
       }));
     }
     const sidecarResults = await Promise.allSettled(sidecars);
@@ -726,10 +743,10 @@ export async function sendTurn(args: SendArgs, cb: SendCallbacks): Promise<ChatM
       if (!isOwned()) return finalizeCancelled();
       const targetWarnings = warnings[outcome.targetId];
       if (!targetWarnings?.length) continue;
-      const row = { ...finals[outcome.targetId], sidecarWarning: targetWarnings.join(" ؛ ") };
+      const row = { ...finals[outcome.targetId], sidecarWarning: targetWarnings.join(uiText.t("common.warningSeparator")) };
       finals[outcome.targetId] = row;
       const accepted = await emitTerminal(row);
-      if (!accepted) warn(targetWarnings.join(" ؛ "));
+      if (!accepted) warn(targetWarnings.join(uiText.t("common.warningSeparator")));
     }
     return Object.values(finals);
   } catch (error) {

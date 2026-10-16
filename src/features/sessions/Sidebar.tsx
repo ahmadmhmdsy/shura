@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { redactExternalError } from "@/lib/security/redact";
-import { ar } from "@/i18n/ar";
+import { errorText, isKeyedError } from "@/lib/errors/keyedError";
+import { useUiText } from "@/i18n";
 import type { SessionMeta } from "@/types";
 
 interface DeleteNotice { session: SessionMeta; message: string; retryable: boolean; }
 
 export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { t, plural } = useUiText();
   const { sessions, currentId, load, newSession, open, rename, remove } = useSessionsStore();
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -25,15 +27,16 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       if (result.warning) {
         setNotice({ session, message: result.warning, retryable: result.retryable === true });
       } else {
-        toast.success("تم حذف الجلسة");
+        toast.success(t("sessions.deleted"));
       }
     } catch (error) {
-      setNotice({ session, message: redactExternalError(error), retryable: true });
+      // [T3.2c] الخطأ المُفتَّح يُترجَم بلغة الواجهة؛ وما دونه يمرّ بالحجب المحدود كما كان.
+      setNotice({ session, message: isKeyedError(error) ? errorText(t, error) : redactExternalError(error), retryable: true });
     }
   };
 
   const handleDelete = (session: SessionMeta) => {
-    if (window.confirm(ar.confirmDelete)) {
+    if (window.confirm(t("sessions.confirmDelete"))) {
       void runDelete(session);
     }
   };
@@ -47,13 +50,13 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <h1 className="text-[var(--sura-text-h3)] font-[var(--sura-font-bold)] text-[var(--sura-text-primary)]">
-          {ar.app}
+          {t("app.name")}
         </h1>
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={onOpenSettings}
-          aria-label={ar.settings}
+          aria-label={t("settings.title")}
           className="text-[var(--sura-text-tertiary)] hover:text-[var(--sura-text-primary)]"
         >
           <Settings className="size-4" />
@@ -67,7 +70,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           onClick={() => void newSession()}
         >
           <Plus className="size-4" />
-          {ar.newSession}
+          {t("app.newSession")}
         </Button>
       </div>
 
@@ -78,8 +81,8 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={ar.searchSessions}
-            aria-label={ar.searchSessions}
+            placeholder={t("sessions.search")}
+            aria-label={t("sessions.search")}
             className="ps-9"
           />
         </div>
@@ -88,27 +91,27 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       {/* Delete Notice */}
       {notice && (
         <div role="alert" className="mx-3 mb-2 rounded-[var(--sura-radius-md)] border border-[var(--sura-error)]/40 bg-[var(--sura-error-muted)] p-3">
-          <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-error)]">{notice.message}</p>
+          <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-error-text)]">{notice.message}</p>
           {notice.retryable && (
             <Button
               variant="ghost"
               size="sm"
-              className="mt-2 text-[var(--sura-error)] hover:text-[var(--sura-error)]"
+              className="mt-2 text-[var(--sura-error-text)] hover:text-[var(--sura-error-text)]"
               onClick={() => void runDelete(notice.session)}
             >
-              إعادة المحاولة
+              {t("common.retry")}
             </Button>
           )}
         </div>
       )}
 
       {/* Sessions List */}
-      <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="الجلسات">
+      <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label={t("sessions.list")}>
         {filteredSessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <MessageSquare className="size-8 text-[var(--sura-text-tertiary)]" />
             <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
-              {query ? "لا توجد نتائج" : "لا توجد جلسات بعد"}
+              {query ? t("sessions.noResults") : t("sessions.empty")}
             </p>
             {!query && (
               <Button
@@ -117,56 +120,61 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
                 onClick={() => void newSession()}
                 className="text-[var(--sura-accent-primary)]"
               >
-                إنشاء جلسة جديدة
+                {t("sessions.create")}
               </Button>
             )}
           </div>
         ) : (
           <div className="space-y-0.5">
+            {/* الصفّ حاوٍ غير تفاعلي: زرّ الفتح وزرّا التعديل والحذف أشقّاء. تضمينهما داخل زرّ
+                واحد كان يُخفي التعديل والحذف عن قارئ الشاشة، ويصادره axe كـ nested-interactive. */}
             {filteredSessions.map((s) => (
-              <button
+              <div
                 key={s.id}
-                type="button"
+                data-testid="session-row"
                 className={cn(
                   "group relative flex w-full items-center gap-2 rounded-[var(--sura-radius-md)] px-3 py-2 text-start transition-[var(--sura-transition-all)] cursor-pointer",
                   "hover:bg-[var(--sura-sidebar-hover)]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-sidebar-bg)]",
                   s.id === currentId && "bg-[var(--sura-sidebar-active)] hover:bg-[var(--sura-sidebar-active)]"
                 )}
                 onClick={() => void open(s.id)}
-                aria-current={s.id === currentId ? "true" : undefined}
               >
                 <MessageSquare className={cn(
                   "size-4 shrink-0",
                   s.id === currentId ? "text-[var(--sura-accent-primary)]" : "text-[var(--sura-text-tertiary)]"
                 )} />
 
-                <div className="flex-1 min-w-0">
-                  {editing === s.id ? (
-                    <input
-                      type="text"
-                      defaultValue={s.title}
-                      autoFocus
-                      onBlur={(e) => {
-                        void rename(s.id, e.target.value.trim() || s.title)
-                        setEditing(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-                        if (e.key === "Escape") setEditing(null)
-                      }}
-                      className="w-full bg-transparent text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] outline-none border-b border-[var(--sura-accent-primary)]"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
+                {editing === s.id ? (
+                  <input
+                    type="text"
+                    defaultValue={s.title}
+                    autoFocus
+                    onBlur={(e) => {
+                      void rename(s.id, e.target.value.trim() || s.title)
+                      setEditing(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                      if (e.key === "Escape") setEditing(null)
+                    }}
+                    className="flex-1 min-w-0 bg-transparent text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] outline-none border-b border-[var(--sura-accent-primary)]"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="flex-1 min-w-0 text-start cursor-pointer rounded-[var(--sura-radius-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-sidebar-bg)]"
+                    onClick={(e) => { e.stopPropagation(); void open(s.id); }}
+                    aria-current={s.id === currentId ? "true" : undefined}
+                  >
                     <p className={cn(
                       "truncate text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)]",
                       s.id === currentId ? "text-[var(--sura-text-primary)]" : "text-[var(--sura-text-secondary)]"
                     )}>
                       {s.title}
                     </p>
-                  )}
-                </div>
+                  </button>
+                )}
 
                 <div className={cn(
                   "flex items-center gap-0.5",
@@ -180,24 +188,24 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
                       e.stopPropagation()
                       setEditing(s.id)
                     }}
-                    aria-label={ar.rename}
+                    aria-label={t("common.rename")}
                   >
                     <Edit3 className="size-3" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="size-6 text-[var(--sura-error)] hover:text-[var(--sura-error)]"
+                    className="size-6 text-[var(--sura-error-text)] hover:text-[var(--sura-error-text)]"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleDelete(s)
                     }}
-                    aria-label={ar.delete}
+                    aria-label={t("common.delete")}
                   >
                     <Trash2 className="size-3" />
                   </Button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -206,7 +214,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       {/* Footer */}
       <div className="border-t border-[var(--sura-sidebar-border)] px-3 py-2">
         <p className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
-          {sessions.length} جلسة
+          {plural("sessions.count", sessions.length)}
         </p>
       </div>
     </aside>

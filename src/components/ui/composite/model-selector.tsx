@@ -4,6 +4,7 @@ import { Check, ChevronDown } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useUiText } from "@/i18n"
 
 export interface ModelOption {
   id: string
@@ -27,10 +28,11 @@ function ModelSelector({
   models,
   value,
   onValueChange,
-  placeholder = "اختر النموذج…",
+  placeholder,
   disabled = false,
   className,
 }: ModelSelectorProps) {
+  const { t, plural } = useUiText()
   const [open, setOpen] = React.useState(false)
   const selectedModel = models.find((m) => m.id === value)
 
@@ -46,7 +48,7 @@ function ModelSelector({
         aria-haspopup="listbox"
       >
         <span className="truncate">
-          {selectedModel ? selectedModel.label : placeholder}
+          {selectedModel ? selectedModel.label : (placeholder ?? t("models.placeholder"))}
         </span>
         <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
       </Button>
@@ -65,7 +67,7 @@ function ModelSelector({
             <div className="max-h-60 overflow-y-auto p-1">
               {models.length === 0 ? (
                 <div className="px-3 py-2 text-[var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
-                  لا توجد نماذج متاحة
+                  {t("models.empty")}
                 </div>
               ) : (
                 models.map((model) => (
@@ -91,13 +93,13 @@ function ModelSelector({
                       </span>
                       <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
                         {model.provider}
-                        {model.contextLength && ` • ${model.contextLength.toLocaleString()} رمز`}
+                        {model.contextLength && ` • ${plural("models.tokens", model.contextLength)}`}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {model.isFree && (
                         <Badge variant="secondary" className="text-[var(--sura-text-caption)]">
-                          مجاني
+                          {t("models.free")}
                         </Badge>
                       )}
                       {value === model.id && (

@@ -1,4 +1,5 @@
 import type { BuiltPrompt, Turn } from "@/types";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 export interface TurnTargetInput { targetId: string; providerId: string; modelId: string; }
 
@@ -12,11 +13,11 @@ export function buildTurnTargets(
   const shared = turn.sharedPrompt?.trim() || null;
 
   if (syncMode) {
-    if (!shared) throw new Error("اكتب سؤالًا موحدًا أولاً — وضع الربط مُفعّل ويُرسل نفس السؤال للجميع");
+    if (!shared) throw new KeyedError("errors.syncNeedsSharedPrompt");
     // [دور إصلاح مأذون — بند 4 من المراجعة الختامية] حارس الفرع الموحد: أهداف صفرية كانت تبني
     // تمريرة فارغة (بلا بطاقات) وتكتبها في Dexie والقرص؛ الرمي برسالة موجّهة يغلق ذلك
     // (الفرع غير الموحد يرمي أصلًا حين لا يُبنى أي prompt).
-    if (targets.length === 0) throw new Error("أضف نموذجًا واحدًا على الأقل قبل الإرسال");
+    if (targets.length === 0) throw new KeyedError("chat.noTargets");
     return {
       prompts: targets.map((t) => ({ targetId: t.targetId, providerId: t.providerId as BuiltPrompt["providerId"], modelId: t.modelId, text: shared, hasShared: true, hasCustom: false })),
       dropped: [],
@@ -31,6 +32,6 @@ export function buildTurnTargets(
     const text = custom && shared ? shared + CUSTOM_SEPARATOR + custom : (custom ?? shared!);
     prompts.push({ targetId: t.targetId, providerId: t.providerId as BuiltPrompt["providerId"], modelId: t.modelId, text, hasShared: shared !== null, hasCustom: custom !== null });
   }
-  if (prompts.length === 0) throw new Error("اكتب سؤالًا — لا يوجد موحد ولا مخصص لأي نموذج");
+  if (prompts.length === 0) throw new KeyedError("errors.noPromptForAnyTarget");
   return { prompts, dropped };
 }

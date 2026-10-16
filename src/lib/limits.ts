@@ -1,3 +1,5 @@
+import { KeyedError } from "@/lib/errors/keyedError";
+
 // Hard input ceilings. Every boundary that accepts untrusted text enforces one of
 // these before the value reaches storage, a provider, or the disk, so a single runaway
 // input cannot exhaust memory, disk, or a paid request.
@@ -20,6 +22,10 @@ export function isWithinLimit(text: string, max: number): boolean {
   return text.length <= max;
 }
 
-export function limitError(field: string, max: number): string {
-  return `${field} يتجاوز الحد المسموح (${max} حرفًا)`;
+/**
+ * [T3.2b] خطأ مُفتَّح لا نصّ: `field` نصّ مفعول يمرّ كوسيط، والحدّ يُترجَم عند العرض بلغة
+ * الواجهة النشطة بدل أن يُبنى النصّ بلغة لحظة الرمي.
+ */
+export function limitError(field: string, max: number): KeyedError {
+  return new KeyedError("errors.limitExceeded", { field, max });
 }

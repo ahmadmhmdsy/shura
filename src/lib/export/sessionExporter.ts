@@ -1,4 +1,5 @@
 import type { ChatMessage, SessionMeta } from "@/types";
+import { UNKNOWN_COST, formatCost } from "@/lib/usage/cost";
 
 /** Format an epoch-milliseconds timestamp as an ISO-8601 string for export artifacts. */
 function formatTimestamp(ts: number): string {
@@ -37,7 +38,7 @@ export function exportSessionAsMarkdown(session: SessionMeta, messages: ChatMess
     lines.push(`**النموذج:** ${messageModel(message)}`);
     lines.push(`**الحالة:** ${message.status}`);
     if (message.usage) {
-      const cost = message.usage.costUSD == null ? "—" : `$${message.usage.costUSD.toFixed(6)}`;
+      const cost = formatCost(message.usage.costUSD, UNKNOWN_COST);
       lines.push(
         `**الاستهلاك:** ${message.usage.inputTokens} مدخلات / ${message.usage.outputTokens} مخرجات / تكلفة ${cost}`,
       );

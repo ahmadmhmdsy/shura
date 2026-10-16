@@ -17,7 +17,6 @@ function Switch({
       data-size={size}
       className={cn(
         "peer group/switch inline-flex shrink-0 items-center rounded-[var(--sura-radius-full)] border border-transparent shadow-[var(--sura-shadow-button)] transition-[var(--sura-transition-all)] outline-none",
-        "focus-visible:ring-[var(--sura-border-width-focus)] focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-surface-primary)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "data-[size=default]:h-[1.15rem] data-[size=default]:w-8 data-[size=sm]:h-3.5 data-[size=sm]:w-6",
         "data-[state=checked]:bg-[var(--sura-accent-primary)] data-[state=unchecked]:bg-[var(--sura-border-secondary)]",

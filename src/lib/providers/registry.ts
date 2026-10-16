@@ -2,6 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
 import type { ModelInfo, ProviderConfig, ProviderId, Usage } from "@/types";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 const staticPricing = (inP: number, outP: number) => ({ inputPerMTok: inP, outputPerMTok: outP });
 
@@ -39,15 +40,23 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
   },
   opencodego: {
     id: "opencodego", label: "OpenCode Go", browserDirect: false, kind: "openai-compatible",
-    baseURL: "https://opencode.ai/zen/go/v1", modelsSource: "static",
+    baseURL: "https://opencode.ai/zen/go/v1", modelsSource: "live",
+    // [T2.8/LV-04] نقطة القائمة هي نفسها نقطة فحص المفتاح: النداء المجهول يعيد 45 معرّفًا
+    // بينما المصرّح يعيد 38، فالقائمة بلا مفتاح تعرض نماذج يرفضها المزود بـ401.
+    liveModelsUrl: "https://opencode.ai/zen/go/v1/models",
+    catalogNeedsKey: true,
     keyCheckUrl: "https://opencode.ai/zen/go/v1/models", keyCheckAuth: "bearer",
     sessionHeaderName: "x-opencode-session",
+    // [T2.9/LV-03] المزود لا ينشر سعرًا ولا حد سياق: /models يعيد id/object/created/owned_by فقط
+    // (مقيس 2026-10-11 على 38 نموذجًا). كل رقم كان مكتوبًا هنا اختراعٌ يصل البطاقة كـ$0.000000،
+    // والصادق هو «غير معروف»: computeCost يعيد null والواجهة تعرض «—»، وحد السياق يسقط إلى
+    // الحد المفترض 128k معلَّمًا بـ«~» (T2.5). لا سعر بلا مصدر منشور.
     staticModels: [
-      { id: "glm-5.3", label: "GLM-5.3", pricing: staticPricing(0.6, 2.2) },
-      { id: "kimi-k2.6", label: "Kimi K2.6", pricing: staticPricing(0.6, 2.5) },
-      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", pricing: staticPricing(0.1, 0.4) },
-      { id: "minimax-m2.7", label: "MiniMax M2.7", pricing: staticPricing(0.3, 1.2) },
-      { id: "longcat-2.5-preview-free", label: "LongCat 2.5 Preview (Free)", contextLength: 1000000, pricing: staticPricing(0, 0) },
+      { id: "glm-5.3", label: "GLM-5.3", pricing: null },
+      { id: "kimi-k2.6", label: "Kimi K2.6", pricing: null },
+      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", pricing: null },
+      { id: "minimax-m2.7", label: "MiniMax M2.7", pricing: null },
+      { id: "longcat-2.5-preview-free", label: "LongCat 2.5 Preview (Free)", pricing: null },
     ],
   },
 };
@@ -56,7 +65,7 @@ export function listProviderIds(): ProviderId[] { return Object.keys(PROVIDERS) 
 
 export function getProvider(id: ProviderId): ProviderConfig {
   const p = PROVIDERS[id];
-  if (!p) throw new Error(`مزود غير معروف: ${String(id)}`);
+  if (!p) throw new KeyedError("errors.unknownProvider");
   return p;
 }
 
@@ -97,7 +106,7 @@ export type CostUsage = Pick<Usage, "inputTokens" | "outputTokens"> & Partial<Pi
 export type FetchLike = typeof fetch;
 
 export function buildLanguageModel(providerId: ProviderId, apiKey: string, modelId: string, fetchImpl: FetchLike, extraHeaders?: Record<string, string>): LanguageModel {
-  if (!apiKey.trim()) throw new Error(`مفتاح API للمزود ${getProvider(providerId).label} غير مضبوط — أضفه من الإعدادات`);
+  if (!apiKey.trim()) throw new KeyedError("errors.apiKeyMissing", { provider: getProvider(providerId).label });
   const p = getProvider(providerId);
   const headers = { ...headersFor(providerId), ...(extraHeaders ?? {}) };
   if (p.kind === "google") {

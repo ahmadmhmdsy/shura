@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://openrouter.ai https://generativelanguage.googleapis.com https://api.minimax.io https://opencode.ai ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
+      "csp": "default-src 'self'; connect-src 'self' https://openrouter.ai https://generativelanguage.googleapis.com https://api.minimax.io https://opencode.ai ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
     }
   },
   "bundle": {

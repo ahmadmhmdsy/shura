@@ -1,5 +1,6 @@
 import { getProvider, type FetchLike } from "./registry";
 import { getTransportFetch } from "@/lib/transport/transport";
+import { KeyedError } from "@/lib/errors/keyedError";
 import type { ModelInfo, ModelPricing, ProviderId } from "@/types";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -52,12 +53,20 @@ export interface FetchModelCatalogOptions {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** [T2.8/LV-04] مفتاح المزود حين تكون قائمته مرتبطة بالاستحقاق؛ يُرسَل ترويسة Authorization. */
+  apiKey?: string;
 }
 
 export async function fetchModelCatalog(providerId: ProviderId, options: FetchModelCatalogOptions = {}): Promise<ModelInfo[]> {
   const provider = getProvider(providerId);
   if (provider.modelsSource !== "live" || !provider.liveModelsUrl) {
-    throw new Error(`مزود ${provider.label} لا يوفّر قائمة موديلات مباشرة`);
+    throw new KeyedError("errors.catalogNotLive", { provider: provider.label });
+  }
+  // [T2.8/LV-04] قائمة مرتبطة بالاستحقاق: النداء المجهول يعيد معرّفات لا يملك المفتاح حقّها،
+  // فيُرفض النداء بلا مفتاح بدل عرض قائمة مضلِّلة يعقبها 401 عند أول سؤال.
+  const apiKey = options.apiKey?.trim() ?? "";
+  if (provider.catalogNeedsKey && !apiKey) {
+    throw new KeyedError("errors.catalogNeedsKey", { provider: provider.label });
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -73,18 +82,22 @@ export async function fetchModelCatalog(providerId: ProviderId, options: FetchMo
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`انتهت مهلة جلب قائمة الموديلات (${timeoutMs}ms)`));
+      reject(new KeyedError("errors.catalogTimeout", { ms: timeoutMs }));
     }, timeoutMs);
   });
   try {
     const response = await Promise.race([
       (options.fetchImpl ?? getTransportFetch())(provider.liveModelsUrl, {
         signal: controller.signal,
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          // [T2.8/LV-04] مفتاح المزود يُرسل فقط إلى قائمة تحتاجه؛ القائمة العامة تبقى مجهولة.
+          ...(provider.catalogNeedsKey ? { Authorization: "Bearer " + apiKey } : {}),
+        },
       }),
       timeout,
     ]);
-    if (!response.ok) throw new Error(`تعذر جلب قائمة الموديلات (${response.status})`);
+    if (!response.ok) throw new KeyedError("errors.catalogFetchFailed", { status: response.status });
     const body = (await response.json()) as { data?: unknown };
     const rows = Array.isArray(body.data) ? (body.data as CatalogEntry[]) : [];
     return rows.map(normalizeModelEntry).filter((model): model is ModelInfo => model !== null);

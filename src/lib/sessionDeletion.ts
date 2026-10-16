@@ -3,6 +3,9 @@ import { assertSafeSessionDir, isSafePathSegment, tombstonesDirOf } from "./mark
 import type { FileSink } from "./markdown/sink";
 import { deleteSessionData } from "./db/repos";
 import { redactExternalError } from "./security/redact";
+import { KeyedError } from "./errors/keyedError";
+import { uiText } from "@/i18n";
+import type { ResourceKey, TextArgs } from "@/i18n";
 import type { SessionMeta } from "@/types";
 
 export interface DeleteSessionResult {
@@ -11,10 +14,10 @@ export interface DeleteSessionResult {
   retryable?: boolean;
 }
 
-export class SessionDeletionError extends Error {
+export class SessionDeletionError extends KeyedError {
   readonly retryable = true;
-  constructor(message: string) {
-    super(message);
+  constructor(key: ResourceKey, args?: TextArgs) {
+    super(key, args);
     this.name = "SessionDeletionError";
   }
 }
@@ -29,7 +32,7 @@ export const DEFAULT_ARCHIVE_ROOT = "sessions";
 
 /** The witness is the commit marker of a deletion: temp file then rename. */
 export async function writeDiskTombstone(sink: FileSink, id: string, rootDir = DEFAULT_ARCHIVE_ROOT, now: () => number = Date.now): Promise<void> {
-  if (!isSafePathSegment(id)) throw new SessionDeletionError("معرّف الجلسة غير صالح لكتابة شاهد الحذف");
+  if (!isSafePathSegment(id)) throw new SessionDeletionError("errors.invalidSessionIdTombstone");
   const dir = tombstonesDirOf(rootDir);
   const path = dir + "/" + id + ".json";
   const temp = path + ".tmp";
@@ -53,7 +56,7 @@ export async function deleteSessionDurably(
   rootDir = DEFAULT_ARCHIVE_ROOT,
   options: DeleteSessionOptions = {},
 ): Promise<DeleteSessionResult> {
-  if (typeof session?.id !== "string" || !session.id) throw new SessionDeletionError("معرّف الجلسة غير صالح للحذف");
+  if (typeof session?.id !== "string" || !session.id) throw new SessionDeletionError("errors.invalidSessionIdDeletion");
   // A present but empty/unsafe onDiskDir is corruption and must be rejected; only an
   // absent value means "this session has no archive".
   const onDiskDir = session.onDiskDir === undefined ? null : assertSafeSessionDir(session.onDiskDir);
@@ -70,7 +73,7 @@ export async function deleteSessionDurably(
       await deleteData(session.id);
     } catch (error) {
       // The session stays visible and the witness stays: the caller can retry safely.
-      throw new SessionDeletionError("تعذر حذف بيانات الجلسة: " + redactExternalError(error));
+      throw new SessionDeletionError("errors.sessionDataDeleteFailed", { detail: redactExternalError(error) });
     }
     if (!onDiskDir) return { deleted: true };
     try {
@@ -81,7 +84,7 @@ export async function deleteSessionDurably(
       // archive bytes are reported as a retryable warning instead of being hidden.
       return {
         deleted: true,
-        warning: "تعذر حذف ملفات الأرشيف: " + redactExternalError(error),
+        warning: uiText.t("errors.archiveDeleteFailed", { detail: redactExternalError(error) }),
         retryable: true,
       };
     }

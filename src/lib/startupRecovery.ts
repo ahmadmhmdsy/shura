@@ -1,6 +1,7 @@
 import { recoverFromDisk, type RecoveryReport, type RestoredSession } from "@/lib/markdown/parser";
 import type { FileSink } from "@/lib/markdown/sink";
 import { redactExternalError } from "@/lib/security/redact";
+import { uiText } from "@/i18n";
 
 export interface StartupNotice {
   title: string;
@@ -51,7 +52,7 @@ export async function recoverSessionsFromDisk(deps: RecoverSessionsDeps): Promis
       }
       imported.push(session);
     } catch (error) {
-      report.errors.push("تعذر استيراد جلسة مستعادة: " + redactExternalError(error));
+      report.errors.push(uiText.t("errors.sessionImportFailed", { detail: redactExternalError(error) }));
     }
   }
   report.imported = imported;
@@ -63,12 +64,12 @@ export async function recoverSessionsFromDisk(deps: RecoverSessionsDeps): Promis
 export function noticeFromRecoveryReport(report: RecoveryReport): StartupNotice | null {
   const details: string[] = [];
   for (const entry of report.quarantined) {
-    details.push("عُزل أرشيف تالف: " + entry.dir + " (" + entry.reason + ")");
+    details.push(uiText.t("errors.quarantinedArchive", { dir: entry.dir, reason: entry.reason }));
   }
   for (const id of report.skippedTombstoned) {
-    details.push("تم تجاوز جلسة محذوفة: " + id);
+    details.push(uiText.t("errors.skippedDeletedSession", { id }));
   }
   for (const error of report.errors) details.push(error);
   if (!details.length) return null;
-  return { title: "تقرير استرجاع الأرشيف", details };
+  return { title: uiText.t("errors.recoveryReportTitle"), details };
 }

@@ -1,7 +1,11 @@
 /**
  * File format detection and text extraction.
- * Supports: txt, md, json, csv, log, pdf
+ * Supports: txt, md, json, csv, log, pdf, docx
  */
+
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
+import { extractDocxText } from "./docxExtractor";
 
 export interface ExtractedText {
   text: string;
@@ -24,6 +28,7 @@ export function detectFileType(fileName: string): string {
     csv: "csv",
     log: "log",
     pdf: "pdf",
+    docx: "docx",
   };
   return typeMap[ext] ?? "unknown";
 }
@@ -47,6 +52,8 @@ export async function extractText(
   switch (fileType) {
     case "pdf":
       return extractPdfText(file);
+    case "docx":
+      return extractDocxText(file);
     case "md":
     case "txt":
     case "json":
@@ -67,9 +74,9 @@ export async function extractText(
 async function extractPdfText(file: File | Blob): Promise<ExtractedText> {
   const pdfjsLib = await import("pdfjs-dist");
   
-  // Set worker source
+  // عامل pdf.js محلي (D3/ADR 0004): كان يُحمَّل من CDN فينفّذ كودًا بعيدًا.
   pdfjsLib.GlobalWorkerOptions.workerSrc = 
-    "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
+    pdfWorkerUrl;
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;

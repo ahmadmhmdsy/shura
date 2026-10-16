@@ -1,5 +1,9 @@
 export function sseResponse(chunks: string[], usage?: { prompt_tokens: number; completion_tokens: number }): Response {
   const lines: string[] = chunks.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
+  // [T2.2/NM-02] سبب النهاية ليس تفصيلًا تجميليًا: بدونه يُحلّ البث عند SDK إلى
+  // finishReason === "error" («انتهى جسم الاستجابة بلا سبب نهاية») — أي أنه انقطاع.
+  // كان غيابه هنا يجعل كل بثوث الاختبارات تبدو ناجحة وهي ليست كذلك، فيخفى NM-02.
+  lines.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
   lines.push(`data: ${JSON.stringify({ choices: [{ delta: {} }], usage: usage ?? { prompt_tokens: 7, completion_tokens: 3 } })}\n\n`);
   lines.push("data: [DONE]\n\n");
   const body = new ReadableStream({ start(c) { for (const l of lines) c.enqueue(new TextEncoder().encode(l)); c.close(); } });

@@ -1,4 +1,6 @@
 import { runExclusiveInArchive } from "./archiveQueue";
+import { uiText } from "@/i18n";
+import { UNKNOWN_COST, formatCost } from "@/lib/usage/cost";
 import { archiveRootOf, readDiskTombstones } from "./archivePaths";
 import type { FileSink } from "./sink";
 import { redactExternalError } from "@/lib/security/redact";
@@ -55,7 +57,7 @@ export interface TurnFileData {
 
 const ILLEGAL = /[<>:"/\\|?*]/g;
 const ARCHIVE_ERROR_MAX_CHARS = 512;
-const TURN_STATUSES: readonly TurnStatus[] = ["pending", "streaming", "done", "stopped", "error"];
+const TURN_STATUSES: readonly TurnStatus[] = ["pending", "streaming", "done", "stopped", "error", "truncated"];
 const ATTEMPT_KINDS = ["send", "retry", "summary"] as const;
 const DIR_NAME_PATTERN = /^turns\/t\d{2,}$/;
 
@@ -170,7 +172,7 @@ export function sessionFolderName(title: string, id: string, createdAt: number):
 
 export function usageRow(u: Usage | null): string {
   if (!u) return "| الاستهلاك | غير متوفر |\n";
-  const cost = u.costUSD == null ? "—" : "$" + u.costUSD.toFixed(6);
+  const cost = formatCost(u.costUSD, UNKNOWN_COST);
   return `| المدخلات | ${u.inputTokens} |\n| المخرجات | ${u.outputTokens} |\n| الكاش | ${u.cachedInputTokens} |\n| التكلفة | ${cost} |\n`;
 }
 
@@ -377,11 +379,19 @@ function resultBody(target: ArchiveTurn, result: ArchiveResult): string {
   return result.text;
 }
 
+/**
+ * The archive's timestamp format. The locale is deliberately not part of it: it comes from
+ * the one app formatter (`uiText.formatDate`), so the archive follows the active language
+ * instead of the fixed `"ar"` it used to carry (T3.3/D3). The options are the explicit form
+ * of what `toLocaleString` used to produce by default, so an Arabic archive is byte-identical.
+ */
+const ARCHIVE_TIMESTAMP_FORMAT: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "medium" };
+
 /** Deterministic full-document render: the manifest is the only source of truth. */
 export function renderSessionMarkdown(manifest: ArchiveManifest): string {
   let out = `# جلسة: ${manifest.meta.title}\n`;
   for (const [index, turn] of manifest.turns.entries()) {
-    out += `\n## تمرّة ${index + 1} — ${new Date(turn.createdAt).toLocaleString("ar")}\n`;
+    out += `\n## تمرّة ${index + 1} — ${uiText.formatDate(turn.createdAt, ARCHIVE_TIMESTAMP_FORMAT)}\n`;
     if (turn.sharedPrompt) out += `\n> ${turn.sharedPrompt}\n`;
     for (const prompt of turn.prompts.filter((p) => p.hasCustom)) {
       out += `\n> **خاص بـ ${prompt.modelId}:** ${prompt.customPrompt ?? prompt.promptText}\n`;

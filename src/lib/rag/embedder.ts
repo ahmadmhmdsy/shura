@@ -13,14 +13,26 @@
  * indexer, and the session indexer all share one model instance.
  */
 
-import { db } from "@/lib/db/db";
-import { getModelUrl } from "./modelCatalog";
+import { getTransportFetch } from "@/lib/transport/transport";
+import { getModelInfo, getModelUrl, tokenizerAssetId } from "./modelCatalog";
+import {
+  getModelBytes,
+  getTokenizerAsset,
+  putModelQuietly,
+  putTokenizerAsset,
+} from "./modelCache";
+// الأصول التنفيذية تُحزم محليًا (T1.3، القرار D3، ADR 0004): كان المحرك يسحب ملف
+// wasm من CDN فينفّذ كودًا من أصل بعيد - وهو ما رفضه script-src 'self' أصلًا.
+// استيراد ?url يعطي مسار الملف المُصدَر بلا تحميل وحدة المحرك، وكائن { wasm, mjs }
+// هو ما يدعمه onnxruntime-web فعليًا في env.wasm.wasmPaths.
+import ortWasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
+import ortWasmMjsUrl from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 
 // يُعاد التصدير من هنا لأن الوحدات الأخرى (documentManager وsessionIndexer وtool
 // وreindexManager وRagSettings) تستورد الكتالوج من هذا الموضع تاريخيًا.
 export { EMBEDDING_MODELS, getModelInfo, getModelUrl } from "./modelCatalog";
 
-type OrtModule = typeof import("onnxruntime-web");
+type OrtModule = typeof import("onnxruntime-web/wasm");
 type OrtSession = Awaited<ReturnType<OrtModule["InferenceSession"]["create"]>>;
 
 export interface Embedder {
@@ -32,13 +44,12 @@ export interface Embedder {
 
 /** Default embedding model, used when no model is specified. */
 const DEFAULT_MODEL_ID = "multilingual-e5-small";
-const DEFAULT_MODEL_DIMENSIONS = 384;
 
 /** A fully loaded embedding model: ONNX inference session + tokenizer. */
 export interface LoadedEmbeddingModel {
   modelId: string;
   session: OrtSession;
-  tokenizer: Tokenizer;
+  tokenizer: TextTokenizer;
 }
 
 // Module-level cache: the model is loaded once per process and shared by every
@@ -55,7 +66,6 @@ let modelLoadError: Error | null = null;
  */
 export async function loadEmbeddingModel(
   modelId: string = DEFAULT_MODEL_ID,
-  dimensions: number = DEFAULT_MODEL_DIMENSIONS,
 ): Promise<LoadedEmbeddingModel> {
   if (cachedModel?.modelId === modelId) {
     return cachedModel;
@@ -64,7 +74,7 @@ export async function loadEmbeddingModel(
     return modelLoadPromise;
   }
 
-  modelLoadPromise = doLoadModel(modelId, dimensions);
+  modelLoadPromise = doLoadModel(modelId);
   try {
     const loaded = await modelLoadPromise;
     cachedModel = loaded;
@@ -97,35 +107,39 @@ export function getModelLoadError(): Error | null {
  * Perform the actual load: dynamic ONNX Runtime import, IndexedDB cache
  * lookup, download on a cache miss, and tokenizer initialization.
  */
-async function doLoadModel(
-  modelId: string,
-  dimensions: number,
-): Promise<LoadedEmbeddingModel> {
-  // Dynamic import to avoid loading ONNX Runtime until needed
-  const ort = await import("onnxruntime-web");
+async function doLoadModel(modelId: string): Promise<LoadedEmbeddingModel> {
+  // Dynamic import to avoid loading ONNX Runtime until needed. الوجهة ./wasm هي
+  // بناء مسار wasm وحده: البناء الافتراضي (ort.bundle) يحمل JSEP ويسحب
+  // ort-wasm-simd-threaded.jsep.wasm بحجم 28.3 م.ب، والتطبيق لا يستعمل WebGPU،
+  // فبناء wasm وحده يكفي ويوفّر 14.1 م.ب من كل نسخة ومن ذاكرة التشغيل.
+  const ort = await import("onnxruntime-web/wasm");
 
-  // Set WASM paths (CDN for web, local for Tauri)
-  ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+  // مسار أصول المحرك محلي: لا كود قابل للتنفيذ يُسحب من الشبكة.
+  ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortWasmMjsUrl };
 
   // Load model from IndexedDB or download
-  const modelData = await loadModelFromCache(modelId);
+  const modelData = await getModelBytes(modelId);
   let session: OrtSession;
   if (modelData) {
     session = await ort.InferenceSession.create(modelData);
   } else {
     // Download model and cache it
     const modelUrl = getModelUrl(modelId);
-    const response = await fetch(modelUrl);
+    // التنزيل عبر النقل الموحّد: plugin-http تحت Tauri (يحكمه سماح http:default
+    // فلا حاجة لفتح connect-src)، وfetch العادي في الويب.
+    const response = await getTransportFetch()(modelUrl);
     if (!response.ok) {
       throw new Error(`Model download failed: ${response.status} ${response.statusText}`);
     }
     const modelBytes = await response.arrayBuffer();
-    await saveModelToCache(modelId, dimensions, modelBytes);
+    // الكتابة عبر كاتب الكاش الوحيد (T1.6)، وفشلها غير قاتل: البايتات تمرّ إلى
+    // المحرك في الذاكرة، فإفشال تحميل نجح لأن الكاش لم يُكتب خسارة بلا مقابل.
+    await putModelQuietly(modelId, modelBytes);
     session = await ort.InferenceSession.create(modelBytes);
   }
 
   // Initialize tokenizer
-  const tokenizer = await loadTokenizer();
+  const tokenizer = await loadTokenizer(modelId);
   return { modelId, session, tokenizer };
 }
 
@@ -138,7 +152,7 @@ async function doLoadModel(
 export class OnnxEmbedder implements Embedder {
   // الجلسة والمُرمِّز يُضبطان معًا ولا يُفكّان أبدًا، فحقل واحد يغني عن فحصين
   // منفصلين لـ null وعن تأكيدات non-null في كل موضع استخدام.
-  private loaded: { session: OrtSession; tokenizer: Tokenizer } | null = null;
+  private loaded: { session: OrtSession; tokenizer: TextTokenizer } | null = null;
 
   constructor(
     public readonly modelId: string,
@@ -155,9 +169,9 @@ export class OnnxEmbedder implements Embedder {
   }
 
   /** تحميل واحد مشترك: يعيد المحمَّل إن وُجد، وإلا يحمّله مرة واحدة. */
-  private async ensureLoaded(): Promise<{ session: OrtSession; tokenizer: Tokenizer }> {
+  private async ensureLoaded(): Promise<{ session: OrtSession; tokenizer: TextTokenizer }> {
     if (this.loaded) return this.loaded;
-    const { session, tokenizer } = await loadEmbeddingModel(this.modelId, this.dimensions);
+    const { session, tokenizer } = await loadEmbeddingModel(this.modelId);
     this.loaded = { session, tokenizer };
     return this.loaded;
   }
@@ -176,7 +190,7 @@ export class OnnxEmbedder implements Embedder {
   async embedBatch(texts: string[]): Promise<number[][]> {
     const { session, tokenizer } = await this.ensureLoaded();
 
-    const ort = await import("onnxruntime-web");
+    const ort = await import("onnxruntime-web/wasm");
     const embeddings: number[][] = [];
 
     // Process in batches of 32 for efficiency
@@ -193,7 +207,7 @@ export class OnnxEmbedder implements Embedder {
   private async embedBatchInternal(
     ort: OrtModule,
     session: OrtSession,
-    tokenizer: Tokenizer,
+    tokenizer: TextTokenizer,
     texts: string[],
   ): Promise<number[][]> {
     // Tokenize
@@ -256,91 +270,83 @@ export class OnnxEmbedder implements Embedder {
   }
 }
 
+/** أقصى عدد معرّفات يُمرَّر إلى النموذج، ويشمل رمزَي البداية والنهاية. */
+const MAX_TOKEN_LENGTH = 512;
+
 /**
- * Try to read the model bytes from IndexedDB.
- * Returns null when the model was never downloaded.
+ * واجهة المُرمِّز التي يحتاجها المضمّن وحده: نص إلى معرّفات.
  *
- * البايتات في جدول rag_model_blobs منفصلة عن الصف الوصفي في rag_models، فقراءة
- * «هل النموذج منزَّل؟» لا تسحب مئات الميغابايتات.
+ * لا يتسرّب نوع مكتبة الترميز إلى بقية التطبيق، فيبقى استبدالها لاحقًا محصورًا هنا.
  */
-async function loadModelFromCache(modelId: string): Promise<ArrayBuffer | null> {
-  try {
-    const cached = await db.rag_model_blobs.get(modelId);
-    return cached?.bytes ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Record a successful model download in IndexedDB: metadata in rag_models and the
- * bytes in rag_model_blobs. A cache write failure is non-fatal.
- */
-async function saveModelToCache(
-  modelId: string,
-  dimensions: number,
-  modelBytes: ArrayBuffer,
-): Promise<void> {
-  try {
-    await db.transaction("rw", [db.rag_models, db.rag_model_blobs], async () => {
-      await db.rag_models.put({
-        id: modelId,
-        modelId: modelId,
-        label: modelId,
-        dimensions: dimensions,
-        downloadedAt: Date.now(),
-        sizeBytes: modelBytes.byteLength,
-      });
-      await db.rag_model_blobs.put({ id: modelId, bytes: modelBytes });
-    });
-  } catch {
-    // Cache failure is non-fatal
-  }
-}
-
-/**
- * Load the tokenizer for the model.
- */
-async function loadTokenizer(): Promise<Tokenizer> {
-  // For MVP, use a simple whitespace tokenizer
-  // In production, use a proper SentencePiece/BPE tokenizer
-  return new SimpleTokenizer();
-}
-
-/**
- * Simple whitespace tokenizer for MVP.
- * Can be replaced with a proper SentencePiece tokenizer later.
- */
-class SimpleTokenizer {
-  private vocab = new Map<string, number>();
-  private nextId = 1;
-
-  constructor() {
-    // Special tokens
-    this.vocab.set("<pad>", 0);
-    this.vocab.set("<unk>", 1);
-    this.vocab.set("<cls>", 2);
-    this.vocab.set("<sep>", 3);
-  }
-
-  encode(text: string, maxLength = 512): number[] {
-    const tokens = text.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
-    const ids = [2]; // <cls>
-    for (const token of tokens.slice(0, maxLength - 2)) {
-      let id = this.vocab.get(token);
-      if (id === undefined) {
-        id = this.nextId++;
-        this.vocab.set(token, id);
-      }
-      ids.push(id);
-    }
-    ids.push(3); // <sep>
-    return ids;
-  }
-}
-
-interface Tokenizer {
+export interface TextTokenizer {
   encode(text: string, maxLength?: number): number[];
+}
+
+// نسخة واحدة لكل نموذج، محفوظة كوعد حتى يشارك المتصلون المتزامنون التحميل نفسه.
+// ويُحذف الوعد عند الفشل، فلا يعلق فشل عابر في الذاكرة وتمكن إعادة المحاولة.
+const tokenizerCache = new Map<string, Promise<TextTokenizer>>();
+
+/**
+ * تحميل مُرمِّز النموذج من ملفَّيه عبر كاش النماذج، وإعادة نسخة واحدة لكل معرّف.
+ *
+ * نموذج غير معروف يرمي خطأً، ولا يوجد مُرمِّز بديل صامت: المُرمِّز هو ما يحدّد فضاء
+ * المتجهات، وتقسيم المسافات يعطي معرّفات لا معنى لها تتغيّر بتغيّر ترتيب الكلمات،
+ * فتصبح تضمينات الجلسات السابقة غير قابلة للمقارنة بعد إعادة التشغيل (NH-01).
+ */
+export async function loadTokenizer(modelId: string): Promise<TextTokenizer> {
+  const cached = tokenizerCache.get(modelId);
+  if (cached) return cached;
+
+  const loading = doLoadTokenizer(modelId).catch((error: unknown) => {
+    tokenizerCache.delete(modelId);
+    throw error;
+  });
+  tokenizerCache.set(modelId, loading);
+  return loading;
+}
+
+async function doLoadTokenizer(modelId: string): Promise<TextTokenizer> {
+  const info = getModelInfo(modelId);
+  if (!info) throw new Error(`Unknown embedding model: ` + modelId);
+
+  // الملفان معًا: `tokenizer.json` يحمل المفردات، و`tokenizer_config.json` يحمل
+  // الإعدادات التي تبني عليها المكتبة المُرمِّز (منها مقبض التقطيع المسبق).
+  const [tokenizerJson, tokenizerConfig] = await Promise.all([
+    loadTokenizerAsset(info.tokenizerUrl, tokenizerAssetId(modelId, "tokenizer.json")),
+    loadTokenizerAsset(info.tokenizerConfigUrl, tokenizerAssetId(modelId, "tokenizer_config.json")),
+  ]);
+
+  const { Tokenizer } = await import("@huggingface/tokenizers");
+  const tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
+
+  return {
+    encode: (text: string, maxLength: number = MAX_TOKEN_LENGTH) => {
+      // الرموز الخاصة تأتي من المُعالج اللاحق المُعرَّف في الملف نفسه، لا من
+      // قائمة مكتوبة هنا: <s></s> لـ XLM-R و[CLS][SEP] لـ BERT.
+      const { ids } = tokenizer.encode(text, { add_special_tokens: true });
+      if (ids.length <= maxLength) return ids;
+      // الاقتطاع يحفظ الطرفين: رمز البداية ورمز النهاية، فالاقتطاع الأعمى كان
+      // يحذف رمز النهاية فينتج تضمين لم يُغلق تسلسله.
+      return [ids[0], ...ids.slice(1, maxLength - 1), ids[ids.length - 1]];
+    },
+  };
+}
+
+/** تنزيل أصل مرة واحدة وتخزينه في كاش النماذج، ثم إعادته ككائن JSON. */
+async function loadTokenizerAsset(url: string, assetId: string): Promise<object> {
+  const cached = await getTokenizerAsset(assetId);
+  const bytes = cached ?? (await downloadAsset(url, assetId));
+  return JSON.parse(new TextDecoder().decode(bytes)) as object;
+}
+
+async function downloadAsset(url: string, assetId: string): Promise<ArrayBuffer> {
+  const response = await getTransportFetch()(url);
+  if (!response.ok) {
+    throw new Error(`Tokenizer download failed: ` + response.status + " " + response.statusText);
+  }
+  const bytes = await response.arrayBuffer();
+  await putTokenizerAsset(assetId, bytes);
+  return bytes;
 }
 
 // كتالوج النماذج انتقل إلى "./modelCatalog" ويُعاد تصديره في أعلى الملف.

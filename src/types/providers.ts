@@ -22,6 +22,11 @@ export interface ProviderConfig {
   modelsSource: "live" | "static";
   liveModelsUrl?: string;
   /**
+   * [T2.8/LV-04] قائمة هذا المزود مرتبطة بالاستحقاق: النداء المجهول يعيد معرّفات لا يملك
+   * المفتاح حقّها، فيجب جلبها بالمفتاح. غيابها يعني أن القائمة عامة وتُجلب بلا مفتاح.
+   */
+  catalogNeedsKey?: boolean;
+  /**
    * A free, non-generating endpoint used to prove a key is accepted.
    * Key validation must never spend generation quota, so this deliberately points at a
    * listing endpoint rather than a completion endpoint.

@@ -4,7 +4,7 @@
  */
 
 import { db } from "../db";
-import { hasCompleteIdentity } from "./identity";
+import { hasCompleteIdentity, isTerminal } from "./identity";
 import { cloneAttempt, cloneTurn } from "./clone";
 import type { ChatMessage, ContextMode, TurnAttempt, TurnRecord, TurnStatus } from "@/types";
 
@@ -161,9 +161,9 @@ export async function updateTurnAttemptStatus(turnId: string, attemptId: string,
     const current = stored.attempts.find((attempt) => attempt.id === attemptId);
     if (!current) return false;
     if (!operationId || current.operationId !== operationId) return false;
-    const terminal = status === "done" || status === "error" || status === "stopped";
+    const terminal = isTerminal(status);
     if (current.superseded && !terminal) return false;
-    if (current.status === "done" || current.status === "error" || current.status === "stopped") {
+    if (isTerminal(current.status)) {
       if (!terminal || current.status !== status) return false;
     }
     const latest = stored.attempts.reduce((a, b) => (b.attempt > a.attempt ? b : a), stored.attempts[0]);

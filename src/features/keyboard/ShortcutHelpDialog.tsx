@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 import { formatShortcut, type Shortcut } from "@/lib/keyboard/shortcuts";
 
 interface ShortcutHelpDialogProps {
@@ -9,12 +9,13 @@ interface ShortcutHelpDialogProps {
 }
 
 export function ShortcutHelpDialog({ open, onOpenChange, shortcuts }: ShortcutHelpDialogProps) {
+  const { t } = useUiText();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" dir="rtl" closeLabel="إغلاق">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{ar.shortcutHelpTitle}</DialogTitle>
-          <DialogDescription className="sr-only">{ar.shortcutHelpDesc}</DialogDescription>
+          <DialogTitle>{t("keyboard.helpTitle")}</DialogTitle>
+          <DialogDescription className="sr-only">{t("keyboard.helpDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-4">
           {shortcuts.map((shortcut, i) => (
@@ -22,7 +23,7 @@ export function ShortcutHelpDialog({ open, onOpenChange, shortcuts }: ShortcutHe
               <span className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">
                 {shortcut.description}
               </span>
-              <kbd className="inline-flex items-center gap-1 rounded-[var(--sura-radius-sm)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-subtle)] px-2 py-1 font-mono text-[var(--sura-text-body-sm)] text-[var(--sura-text-primary)]">
+              <kbd className="inline-flex items-center gap-1 rounded-[var(--sura-radius-sm)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-secondary)] px-2 py-1 font-mono text-[var(--sura-text-body-sm)] text-[var(--sura-text-primary)]">
                 {formatShortcut(shortcut)}
               </kbd>
             </div>

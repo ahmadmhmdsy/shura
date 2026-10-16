@@ -3,10 +3,12 @@
  * repos/reconcile — extracted from the former single-file repos module.
  */
 
+import { uiText } from "@/i18n";
 import { db } from "../db";
 import { liveOperationKey } from "@/lib/operationIdentity";
 import { INTERRUPTED_TURN_ERROR } from "./attempts";
 import { cloneTurn } from "./clone";
+import { isTerminal } from "./identity";
 import type { ChatMessage, TurnAttempt, TurnStatus } from "@/types";
 
 function groupKey(sessionId: string, turnId: string): string {
@@ -52,8 +54,7 @@ export async function reconcileInterruptedTurns(liveOperationIds: ReadonlySet<st
         turnChanged = true;
       }
       let hasLiveMessage = false;
-      const terminalAttemptStatus = (status: TurnStatus): boolean =>
-        status === "done" || status === "error" || status === "stopped";
+      const terminalAttemptStatus = (status: TurnStatus): boolean => isTerminal(status);
       const matchingAttempt = (row: ChatMessage): TurnAttempt | undefined => {
         if (!row.operationId || !row.attemptId || typeof row.attempt !== "number") return undefined;
         return turn.attempts.find((attempt) =>
@@ -77,7 +78,7 @@ export async function reconcileInterruptedTurns(liveOperationIds: ReadonlySet<st
           // Recover a nonterminal primary from the exact terminal attempt when
           // only the final message append failed.
           row.status = attempt.status;
-          if (row.status === "error" && !row.error) row.error = "تعذر حفظ النتيجة الأساسية";
+          if (row.status === "error" && !row.error) row.error = uiText.t("errors.resultSaveFailed");
           if (row.status === "stopped" && !row.error) row.error = INTERRUPTED_TURN_ERROR;
           await db.messages.put(row);
           turnChanged = true;
@@ -109,9 +110,11 @@ export async function reconcileInterruptedTurns(liveOperationIds: ReadonlySet<st
         turn.status = allTerminal
           ? currentAttempts.some((attempt) => attempt.status === "error")
             ? "error"
-            : currentAttempts.every((attempt) => attempt.status === "stopped")
-              ? "stopped"
-              : "done"
+            : currentAttempts.some((attempt) => attempt.status === "truncated")
+              ? "truncated"
+              : currentAttempts.every((attempt) => attempt.status === "stopped")
+                ? "stopped"
+                : "done"
           : "stopped";
         turnChanged = true;
       }

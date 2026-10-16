@@ -6,7 +6,7 @@ vi.mock("mammoth", () => ({
   extractRawText: (...args: unknown[]) => mammoth.extractRawText(...args),
 }));
 
-import { extractDocxText, isDocxSupported } from "./docxExtractor";
+import { extractDocxText } from "./docxExtractor";
 
 beforeEach(() => {
   mammoth.extractRawText.mockReset();
@@ -44,11 +44,5 @@ describe("extractDocxText", () => {
     const result = await extractDocxText(new Blob(["docx"]));
 
     expect(result.text).toBe("blob");
-  });
-});
-
-describe("isDocxSupported", () => {
-  it("يعيد true دائمًا", () => {
-    expect(isDocxSupported()).toBe(true);
   });
 });

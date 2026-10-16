@@ -6,6 +6,8 @@ import { redactExternalError } from "@/lib/security/redact";
 import { LIMITS, clampTimeoutMs } from "@/lib/limits";
 import { listProviderIds } from "@/lib/providers/registry";
 import { logger } from "@/lib/logging";
+import { DEFAULT_LOCALE, uiText, type Locale } from "@/i18n";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 /** The persisted record never contains a credential: keys live in the credential store. */
 export interface PersistedSettings {
@@ -14,6 +16,14 @@ export interface PersistedSettings {
   timeoutMs: number;
   rag: RagSettings;
   simpleMode: boolean;
+  /**
+   * When on, a send also empties the per-target custom prompts. Defaults to off so an
+   * existing install keeps its drafts until the user opts in - the behaviour that
+   * shipped before this setting existed.
+   */
+  clearCustomsOnSend: boolean;
+  /** UI language; also drives the document direction on boot. */
+  language: Locale;
 }
 
 /** Shape written by older builds, read once so plaintext keys can be migrated out. */
@@ -35,10 +45,12 @@ interface SettingsState extends PersistedSettings {
   setTimeoutMs(ms: number): Promise<void>;
   setRagSettings(patch: Partial<RagSettings>): Promise<void>;
   setSimpleMode(enabled: boolean): Promise<void>;
+  setClearCustomsOnSend(enabled: boolean): Promise<void>;
+  setLanguage(locale: Locale): Promise<void>;
 }
 
 const KEY = "settings.main";
-const defaults: PersistedSettings = { primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000, rag: DEFAULT_RAG_SETTINGS, simpleMode: false };
+const defaults: PersistedSettings = { primaryTarget: null, sessionRootDir: null, timeoutMs: 120_000, rag: DEFAULT_RAG_SETTINGS, simpleMode: false, clearCustomsOnSend: false, language: DEFAULT_LOCALE };
 
 /** Pinned to these values while simple mode hides the RAG sections. */
 const SIMPLE_MODE_RAG_DEFAULTS: Partial<RagSettings> = {
@@ -102,15 +114,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         providerKeys: keys,
         ragSettings: saved.rag ?? DEFAULT_RAG_SETTINGS,
         loaded: true,
-        error: failures.length ? "تعذّر نقل بعض مفاتيح المزودين — أعد إدخالها: " + failures[0] : null,
+        error: failures.length ? uiText.t("errors.providerKeysMigration", { detail: failures[0] }) : null,
       });
       if (hasLegacy) await enqueue(() => persist(get));
     },
 
     async setProviderKey(id, key) {
-      if (!isProviderId(id)) throw new Error("مزود غير معروف");
+      if (!isProviderId(id)) throw new KeyedError("errors.unknownProvider");
       const trimmed = key.trim();
-      if (trimmed.length > LIMITS.apiKeyMax) throw new Error("مفتاح المزود يتجاوز الحد المسموح");
+      if (trimmed.length > LIMITS.apiKeyMax) throw new KeyedError("errors.apiKeyTooLong");
       const before = get().providerKeys[id];
       set({ saving: true, error: null });
       try {
@@ -149,6 +161,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         : { simpleMode: false };
       await applyChange(set, get, enqueue, patch);
     },
+    async setClearCustomsOnSend(enabled: boolean) { await applyChange(set, get, enqueue, { clearCustomsOnSend: enabled }); },
+    async setLanguage(locale) { await applyChange(set, get, enqueue, { language: locale }); },
   };
 });
 
@@ -171,6 +185,8 @@ async function applyChange(set: SetState, get: GetState, enqueue: Enqueue, patch
       timeoutMs: before.timeoutMs,
       ragSettings: ragBefore,
       simpleMode: before.simpleMode,
+      clearCustomsOnSend: before.clearCustomsOnSend,
+      language: before.language,
       error: message,
     });
     throw new Error(message, { cause: error });
@@ -187,6 +203,8 @@ async function persist(get: GetState): Promise<void> {
     timeoutMs: state.timeoutMs,
     rag: state.ragSettings,
     simpleMode: state.simpleMode,
+    clearCustomsOnSend: state.clearCustomsOnSend,
+    language: state.language,
   };
   await setSetting(KEY, snapshot);
 }

@@ -116,4 +116,86 @@ describe('testProviderKey does not consume generation quota', () => {
     const r = await testProviderKey('minimax', 'k', 'MiniMax-M2');
     expect(r.detail).toMatch(/حد|معدل/);
   });
+
+  // [T2.6/NL-03] العلة الحقيقية: كتلة catch تحيط بنداء القائمة **وبنداء التوليد الاحتياطي معًا**، فأي
+  // خطأ غير شبكي - ومنه 401 حتمي من نداء التوليد نفسه - يعود إلى نداء توليد ثانٍ يكرّر الفشل ويستهلك
+  // الحصة. الفشل الحتمي لا يُعاد إثباته.
+  it('a deterministic 401 from the generation fallback is not re-proven by a second call', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      if (request.url.includes('/models')) return new Response('not found', { status: 404 });
+      return new Response(JSON.stringify({ error: { message: 'Unauthorized' } }), { status: 401 });
+    });
+
+    const r = await testProviderKey('opencodego', 'bad', 'glm-5.3');
+
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/مفتاح/);
+    // نداء قائمة واحد + نداء توليد واحد = اثنان؛ ثلاثة تعني إعادة إثبات الفشل نفسه.
+    expect(urls).toHaveLength(2);
+  });
+
+  it('a deterministic 429 from the generation fallback is not re-proven either', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      if (request.url.includes('/models')) return new Response('not found', { status: 404 });
+      return new Response('{}', { status: 429 });
+    });
+
+    const r = await testProviderKey('opencodego', 'k', 'glm-5.3');
+
+    expect(r.detail).toMatch(/حد|معدل/);
+    expect(urls).toHaveLength(2);
+  });
+
+  // صياغة الخطوة 1 حرفيًا: فشل القائمة المعلن (401) لا يستدعي توليدًا إطلاقًا.
+  it('a 401 body on the listing endpoint makes no generation call at all', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      return new Response(JSON.stringify({ error: {} }), { status: 401 });
+    });
+
+    const r = await testProviderKey('minimax', 'bad', 'MiniMax-M2');
+
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/مفتاح/);
+    expect(urls.filter((u) => u.includes('chat/completions'))).toHaveLength(0);
+  });
+
+  it('a transport failure on the listing call makes no generation call', async () => {
+    const urls: string[] = [];
+    setTransportFetch(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      urls.push(request.url);
+      throw new TypeError('Failed to fetch');
+    });
+
+    const r = await testProviderKey('minimax', 'k', 'MiniMax-M2');
+
+    expect(r.detail).toMatch(/سطح المكتب|CORS/);
+    expect(urls).toHaveLength(1);
+  });
+});
+// [T7.3] الحذف القياسي وحده: جسم غير مصنّف يحمل مفتاحًا بصيغة AWS كان يصل إلى التفصيل حرفيًا.
+describe("mapProviderError fallback redaction (T7.3)", () => {
+  it("لا يوصل مفتاح AWS بطول 20 محرفًا ظهر في جسم غير مصنّف", async () => {
+    const aws = "AKIAIOSFODNN7EXAMPLE";
+    setTransportFetch(async () => new Response("odd failure " + aws, { status: 418 }));
+    const r = await testProviderKey("minimax", "sk-test", "MiniMax-M2");
+    expect(r.ok).toBe(false);
+    expect(r.detail).not.toContain(aws);
+  });
+
+  it("يحذف المفتاح المُختبَر نفسه ولو لم تطابق صيغته أي نمط معروف", async () => {
+    const unknown = "0123456789abcdef0123456789abcdef";
+    setTransportFetch(async () => new Response("odd failure " + unknown, { status: 418 }));
+    const r = await testProviderKey("minimax", unknown, "MiniMax-M2");
+    expect(r.detail).not.toContain(unknown);
+  });
 });

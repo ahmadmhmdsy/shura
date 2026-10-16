@@ -1,0 +1,54 @@
+/**
+ * Shura Design Tokens — Dimensions
+ *
+ * Sizes that are not spacing: icon boxes, control heights, layout widths.
+ * Every value below is one the components already render; the token is the
+ * contract that replaces the equivalent Tailwind literal (`size-4`, `h-9`,
+ * `max-w-md`, ...) when a component is migrated.
+ *
+ * Breakpoints are deliberately NOT tokenised: the responsive prefixes in use
+ * (`sm:`, `md:`) are Tailwind's own scale, which is already the single owner
+ * of those numbers.
+ *
+ * Usage:
+ *   width: var(--sura-icon-md);
+ *   height: var(--sura-control-md);
+ */
+
+:root {
+  /* === Icon Sizes (square boxes) === */
+  --sura-icon-xs: 0.75rem;   /* 12px — size-3 */
+  --sura-icon-sm: 0.875rem;  /* 14px — size-3.5 */
+  --sura-icon-md: 1rem;      /* 16px — size-4 */
+  --sura-icon-lg: 1.5rem;    /* 24px — size-6 */
+  --sura-icon-xl: 2rem;      /* 32px — size-8 */
+
+  /* === Avatar Sizes === */
+  --sura-avatar-sm: 1.5rem;  /* 24px — size-6 */
+  --sura-avatar-md: 2rem;    /* 32px — size-8 */
+  --sura-avatar-lg: 4rem;    /* 64px — size-16 */
+
+  /* === Control Heights (the button size variants) === */
+  --sura-control-xs: 1.5rem;   /* 24px — h-6 */
+  --sura-control-sm: 2rem;     /* 32px — h-8 */
+  --sura-control-md: 2.25rem;  /* 36px — h-9 */
+  --sura-control-lg: 2.5rem;   /* 40px — h-10 */
+  --sura-control-icon: 2.25rem; /* 36px — size-9 */
+
+  /* === Layout Widths === */
+  --sura-sidebar-width: 16rem;           /* 256px */
+  --sura-sidebar-width-collapsed: 4rem;  /* 64px */
+  --sura-header-height: 3.5rem;          /* 56px */
+  --sura-composer-min-height: 5rem;     /* 80px */
+  --sura-composer-max-height: 12rem;    /* 192px */
+
+  /* === Dialog Widths === */
+  --sura-dialog-width-sm: 24rem;  /* 384px — max-w-sm */
+  --sura-dialog-width-md: 28rem;  /* 448px — max-w-md */
+  --sura-dialog-width-lg: 32rem;  /* 512px — max-w-lg */
+  --sura-dialog-width-xl: 42rem;  /* 672px — max-w-2xl */
+
+  /* === Minimum Widths === */
+  --sura-sidebar-item-min-width: 8rem;   /* 128px — min-w-[8rem] */
+  --sura-summary-card-min-width: 20rem; /* 320px — min-w-80 */
+}

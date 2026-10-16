@@ -41,6 +41,28 @@
   --color-sidebar-accent-foreground: var(--sura-text-primary);
   --color-sidebar-border: var(--sura-sidebar-border);
   --color-sidebar-ring: var(--sura-accent-primary);
+
+  /* Legacy `sura-*` utility names (audit §9).
+     Tailwind only emits a colour utility from a `--color-*` theme entry, so the bare
+     `sura-*` classes used across the app compiled to nothing. Each alias below points
+     at the token matching the role the class is actually used in, so the utilities
+     become live without introducing contrast regressions:
+       bg-sura-bg        surface of a form control or an inset card
+       bg-sura-panel     raised panel / notice background
+       border-sura-border  hairline dividers and progress tracks
+       text-sura-foreground  strong text (hover states)
+       text-sura-muted   secondary text
+       text-/bg-/border-sura-accent  the accent used as text, fill or rule
+       text-/border-sura-warn  warning text and chip border
+       text-/bg-/border-sura-danger  danger text, its 10% panel tint and 40% border */
+  --color-sura-bg: var(--sura-surface-primary);
+  --color-sura-panel: var(--sura-surface-elevated);
+  --color-sura-border: var(--sura-border-primary);
+  --color-sura-foreground: var(--sura-text-primary);
+  --color-sura-muted: var(--sura-text-secondary);
+  --color-sura-accent: var(--sura-accent-primary);
+  --color-sura-warn: var(--sura-warning);
+  --color-sura-danger: var(--sura-error-text);
 }
 
 @theme {
@@ -105,7 +127,7 @@ body {
 
 /* Focus visible styles */
 :focus-visible {
-  outline: var(--sura-border-width-focus) solid var(--sura-accent-primary);
+  outline: var(--sura-border-width-emphasis) solid var(--sura-accent-primary);
   outline-offset: 2px;
 }
 

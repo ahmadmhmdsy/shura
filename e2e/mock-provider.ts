@@ -21,6 +21,17 @@ export interface MockPlan {
   chunks: MockChunk[];
   /** Keep the response open after the last chunk instead of closing it. */
   hang: boolean;
+  /**
+   * Answer with this HTTP status and a JSON error body instead of a stream, so the error
+   * card can be driven without a network failure. Omitted for the normal 200 stream.
+   * The /models catalogue branch runs first, so a status plan never breaks the model list.
+   */
+  status?: number;
+  /**
+   * Close the stream after the chunks without the terminal finish chunk. A body that ends
+   * with no finish reason is what the app classifies as truncated (measured in T2.2).
+   */
+  truncate?: boolean;
 }
 
 export interface MockRequestRecord {
@@ -103,6 +114,7 @@ function installMockClient(config: MockConfig): void {
             if (signal?.aborted) { controller.error(abortError()); return; }
             write(isGoogle ? googleChunk(model, chunk.text, false) : openAiChunk(model, chunk.text, false));
           }
+          if (state.plan.truncate) { controller.close(); return; }
           if (state.plan.hang) {
             signal?.addEventListener("abort", () => {
               try { controller.error(abortError()); } catch { /* already closed */ }
@@ -136,6 +148,13 @@ function installMockClient(config: MockConfig): void {
 
     if (/\/models(\?|$)/.test(url)) {
       return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+
+    if (typeof state.plan.status === "number") {
+      return new Response(JSON.stringify({ error: { message: "mock provider failure", type: "mock_error" } }), {
+        status: state.plan.status,
+        headers: { "content-type": "application/json" },
+      });
     }
 
     const model = String((body as { model?: unknown } | null)?.model ?? "mock-model");

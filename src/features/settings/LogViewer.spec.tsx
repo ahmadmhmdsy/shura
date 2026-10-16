@@ -33,10 +33,10 @@ describe("LogViewer", () => {
   it("يعرض مقاييس الجولة ومدة التشغيل", () => {
     render(<LogViewer read={source([])} />);
 
-    expect(screen.getByText(ar.devLogSessions).nextElementSibling).toHaveTextContent("3");
-    expect(screen.getByText(ar.devLogMessages).nextElementSibling).toHaveTextContent("7");
-    expect(screen.getByText(ar.devLogErrors).nextElementSibling).toHaveTextContent("1");
-    expect(screen.getByText(ar.devLogUptime).nextElementSibling).toHaveTextContent("1د 5ث");
+    expect(screen.getByText(ar.dev.sessions).nextElementSibling).toHaveTextContent("3");
+    expect(screen.getByText(ar.dev.messages).nextElementSibling).toHaveTextContent("7");
+    expect(screen.getByText(ar.dev.errors).nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByText(ar.dev.uptime).nextElementSibling).toHaveTextContent("1د 5ث");
   });
 
   it("يعرض الرسائل من الأحدث إلى الأقدم مع المستوى والسياق والخطأ", () => {
@@ -90,14 +90,14 @@ describe("LogViewer", () => {
 
   it("سجل فارغ: رسالة صريحة بدل قائمة فارغة", () => {
     render(<LogViewer read={source([])} />);
-    expect(screen.getByText(ar.devLogEmpty)).toBeInTheDocument();
+    expect(screen.getByText(ar.dev.empty)).toBeInTheDocument();
     expect(screen.queryByTestId("log-entries")).not.toBeInTheDocument();
   });
 
   it("فلترة بمستوى لا يطابق شيئًا تعرض الحالة الفارغة أيضًا", () => {
     render(<LogViewer read={source([entry({ level: "info", message: "معلومة-1" })])} />);
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "error" } });
-    expect(screen.getByText(ar.devLogEmpty)).toBeInTheDocument();
+    expect(screen.getByText(ar.dev.empty)).toBeInTheDocument();
     expect(screen.getByText("0 / 1")).toBeInTheDocument();
   });
 
@@ -108,7 +108,7 @@ describe("LogViewer", () => {
     render(<LogViewer read={read} />);
     expect(screen.getByText("أول")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: ar.devLogRefresh }));
+    fireEvent.click(screen.getByRole("button", { name: ar.dev.refresh }));
 
     expect(screen.getByText("ثانٍ")).toBeInTheDocument();
     expect(screen.queryByText("أول")).not.toBeInTheDocument();

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { uiText } from "@/i18n";
+import { en } from "@/i18n/en";
 import { sendTurn, type SendArgs, type SendCallbacks } from "./chatController";
 import type { DispatchOutcome, DispatchArgs } from "./dispatch";
 import { getFileSink, isFilePersistActive, memoryFileSink, setFileSink, type FileSink } from "@/lib/markdown/sink";
@@ -437,6 +439,24 @@ describe("sendTurn", () => {
     expect(c.warnings.some((warning) => warning.includes("تعذر تثبيت"))).toBe(true);
   });
 
+  // [T3.2a] النص المخزَّن يُكتب بلغة الواجهة النشطة وقت الفشل.
+  it("يُخزَّن نص فشل النتيجة بلغة الواجهة النشطة", async () => {
+    appendHook.failFinalCount = 2;
+    attemptHook.failCount = 1;
+    usageHook.failUsage = true;
+    const s = await mkSession("localized-final-gate");
+    const { cb } = makeCb();
+    uiText.setLocale("en");
+    try {
+      await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    } finally {
+      uiText.setLocale("ar");
+    }
+
+    const row = (await getMessages(s.id)).find((message) => message.role === "assistant");
+    expect(row?.error).toBe(en.errors.resultSaveFailed);
+  });
+
   it("لا يبدأ sidecars عند فشل النتيجة الأساسية ويبلغ عن حالة طرفية صريحة", async () => {
     appendHook.failFinal = true;
     usageHook.failUsage = true;
@@ -490,6 +510,10 @@ describe("sendTurn", () => {
       expect(rows.every((row) => row.status === "error")).toBe(true);
       expect(usageHook.calls).toBe(0);
       expect(c.warnings.some((warning) => warning.includes("تعذر"))).toBe(true);
+      // [T3.2c] نصّ عقد النتائج نصّ مترجَم حاضر في الصف المخزَّن وفي البثّ، ولا مفتاح مورد.
+      expect(c.warnings).toContain(uiText.t("chat.outcomeContractFailed"));
+      expect(rows.every((row) => row.error === uiText.t("chat.outcomeContractFailed"))).toBe(true);
+      expect(c.warnings.every((warning) => !warning.includes("errors."))).toBe(true);
     }
   });
 
@@ -516,6 +540,27 @@ describe("sendTurn", () => {
     expect(persistedTurn?.attempts).toHaveLength(1);
     expect(c.attemptIds.every((attemptId) => attemptId === persistedTurn?.attempts[0]?.id)).toBe(true);
     expect(c.statuses.every((status) => status.attemptId === persistedTurn?.attempts[0]?.id)).toBe(true);
+  });
+
+  // [T2.4/NL-01] حدث الاستهلاك كان يُبنى بلا cacheWriteInputTokens فيسقط العدد المكتوب من السجل
+  // مهما قرأه التحويل. القياس هنا طرفي: ناتج إرسال بعدد كتابة غير صفري يصل إلى صف قاعدة البيانات.
+  it("حدث الاستهلاك يحمل cacheWriteInputTokens من ناتج الإرسال", async () => {
+    const s = await mkSession("cache-write");
+    dispatchHook.overrideOutcomes = true;
+    dispatchHook.outcomes = [
+      {
+        targetId: "t1", operationId: "op1", status: "done", text: "أهلاً", ms: 1,
+        usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 10, cacheWriteInputTokens: 40, costUSD: 0.0005 },
+      },
+      {
+        targetId: "t2", operationId: "op1", status: "done", text: "أهلاً", ms: 1,
+        usage: { inputTokens: 7, outputTokens: 3, cachedInputTokens: 0, cacheWriteInputTokens: 0, costUSD: null },
+      },
+    ];
+    await sendTurn(baseArgs(s, { targets }), makeCb().cb);
+    const usage = await getUsageEvents({ sessionId: s.id });
+    expect(usage.find((u) => u.modelId === "openai/gpt-4o")?.cacheWriteInputTokens).toBe(40);
+    expect(usage.find((u) => u.modelId === "MiniMax-M2")?.cacheWriteInputTokens).toBe(0);
   });
 
   it("السؤال المخصص يُحفظ رسالة مستخدم promptKind=custom مرتبطة بالهدف", async () => {
@@ -663,12 +708,16 @@ describe("sendTurn", () => {
     appendHook.failPromptCount = 1;
     setTransportFetch((() => sseResponse(["لا"])) as unknown as typeof fetch);
     const s = await mkSession("custom-fail");
-    const { cb } = makeCb();
+    const { c, cb } = makeCb();
     await sendTurn(baseArgs(s, {
       targets: [targets[0]],
       syncMode: false,
       turn: { id: "turn-" + s.id, sharedPrompt: "سؤال مشترك؟", customs: { t1: "سؤال مخصص" } },
     }), cb).catch(() => undefined);
+    // [T3.2c] فشل الإعداد يُبتلع ويُثبَّت طرفيًا، ولا يتسرّب منه مفتاح مورد إلى سطح يقرؤه المستخدم.
+    expect(c.warnings.every((warning) => !warning.includes("errors."))).toBe(true);
+    expect(c.statuses.every((status) => !status.error?.includes("errors."))).toBe(true);
+    expect((await getMessages(s.id)).every((message) => !message.error?.includes("errors."))).toBe(true);
     const turn = await getTurn("turn-" + s.id);
     expect(turn?.attempts[0]?.status).toBe("error");
     expect((await getMessages(s.id)).some((m) => m.status === "streaming")).toBe(false);
@@ -678,8 +727,10 @@ describe("sendTurn", () => {
     appendHook.failPlaceholderCount = 1;
     setTransportFetch((() => sseResponse(["لا"])) as unknown as typeof fetch);
     const s = await mkSession("placeholder-fail");
-    const { cb } = makeCb();
+    const { c, cb } = makeCb();
     await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb).catch(() => undefined);
+    expect(c.warnings.every((warning) => !warning.includes("errors."))).toBe(true);
+    expect(c.statuses.every((status) => !status.error?.includes("errors."))).toBe(true);
     const turn = await getTurn("turn-" + s.id);
     expect(turn?.attempts[0]?.status, "a placeholder failure must not strand a streaming attempt").toBe("error");
     expect((await getMessages(s.id)).some((m) => m.status === "streaming")).toBe(false);
@@ -715,6 +766,22 @@ describe("sendTurn", () => {
     // still streaming, and the warning is the only bounded signal of that inconsistency.
     const turn = await getTurn("turn-" + s.id);
     expect(turn?.attempts.some((a) => a.status === "streaming")).toBe(true);
+  });
+
+  it("بث ينتهي بلا سبب نهاية: الصف والمحاولة بحالة truncated لا done (NM-02)", async () => {
+    const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "بداية" } }] }) + "\n\n";
+    const f = (async () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(line)); c.close(); } }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch;
+    setTransportFetch(f);
+    const s = await mkSession("truncated");
+    const { cb } = makeCb();
+    await sendTurn(baseArgs(s, { targets: [targets[0]] }), cb);
+    const t1 = (await getMessages(s.id)).find((m) => m.targetId === "t1" && m.role === "assistant")!;
+    expect(t1.status).toBe("truncated");
+    expect(t1.text).toBe("بداية");
+    expect(t1.error).toBeUndefined();
+    const turn = await getTurn("turn-" + s.id);
+    expect(turn?.status).toBe("truncated");
+    expect(turn?.attempts[0]?.status).toBe("truncated");
   });
 
   it("خطأ منتصف البث: يبث الجزء الواصل ثم يفشل النتيجة (تحصين المهمة 8-أ)", async () => {

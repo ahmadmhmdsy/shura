@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiText } from "@/i18n";
 import { memoryFileSink } from "@/lib/markdown/sink";
 import { appendTurn } from "@/lib/markdown/writer";
 import { recoverSessionsFromDisk, noticeFromRecoveryReport, type ImportPayload, type RecoverSessionsDeps } from "./startupRecovery";
+
+const originalLocale = uiText.getLocale();
+afterEach(() => uiText.setLocale(originalLocale));
 
 const meta = { id: "st-1", title: "جلسة", createdAt: 1, updatedAt: 2, modelIds: ["m"], primaryTarget: null, layoutMode: "vertical" as const, onDisk: true, onDiskDir: "folder-st" };
 
@@ -72,6 +76,17 @@ describe("recoverSessionsFromDisk", () => {
       errors: ["تعذر قراءة المجلد"],
     });
     expect(notice?.details).toHaveLength(3);
+    // [T3.2c] البايتات العربية محفوظة حرفيًا نصًّا مخزَّنًا، والملاحظة تتبع اللغة النشطة.
+    expect(notice?.title).toBe("تقرير استرجاع الأرشيف");
+    expect(notice?.details[0]).toBe("عُزل أرشيف تالف: quarantine/broken-1 (meta.json تالف)");
+    expect(notice?.details[1]).toBe("تم تجاوز جلسة محذوفة: x");
+    uiText.setLocale("en");
+    const english = noticeFromRecoveryReport({
+      imported: [], quarantined: [{ dir: "quarantine/broken-1", reason: "bad meta" }], skippedTombstoned: ["x"], errors: [],
+    });
+    expect(english?.title).toBe("Archive recovery report");
+    expect(english?.details[0]).toBe("Quarantined a corrupt archive: quarantine/broken-1 (bad meta)");
+    expect(english?.details[1]).toBe("Skipped a deleted session: x");
     expect(noticeFromRecoveryReport({ imported: [], quarantined: [], skippedTombstoned: [], errors: [] })).toBeNull();
   });
 
@@ -83,6 +98,7 @@ describe("recoverSessionsFromDisk", () => {
     }));
     expect(report.imported).toHaveLength(0);
     expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain("تعذر استيراد جلسة مستعادة: ");
     expect(noticeFromRecoveryReport(report)).not.toBeNull();
   });
 

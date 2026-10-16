@@ -31,15 +31,4 @@
   --sura-padding-input: var(--sura-space-2) var(--sura-space-3);
   --sura-padding-card: var(--sura-space-4);
   --sura-padding-dialog: var(--sura-space-6);
-  
-  /* === Layout Spacing === */
-  --sura-sidebar-width: 16rem;        /* 256px */
-  --sura-sidebar-width-collapsed: 4rem; /* 64px */
-  --sura-header-height: 3.5rem;       /* 56px */
-  --sura-composer-min-height: 5rem;  /* 80px */
-  --sura-composer-max-height: 12rem; /* 192px */
-  
-  /* === Border Width === */
-  --sura-border-width: 1px;
-  --sura-border-width-focus: 2px;
 }

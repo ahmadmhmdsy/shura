@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/state/settingsStore";
-import { ar } from "@/i18n/ar";
-import { EMBEDDING_MODELS } from "@/lib/rag/embedder";
+import { useUiText } from "@/i18n";
+// الكتالوج بيانات بحتة: استيراده من المحرّك كان يسحب onnxruntime-web إلى الوحدة
+// الأساسية فيُلزم كل إقلاع بتحميلها (LV-09)، مع أن اللائحة لا تحتاج المحرّك أبدًا.
+import { EMBEDDING_MODELS } from "@/lib/rag/modelCatalog";
 import { CHUNKING_PRESETS } from "@/lib/rag/chunker";
 import { downloadModel } from "@/lib/rag/modelDownloader";
 import { downloadRagData } from "@/lib/export/ragExporter";
@@ -13,6 +15,7 @@ import { toast } from "sonner";
 import type { RagSettings as RagSettingsType } from "@/types";
 
 export function RagSettings() {
+  const { t } = useUiText();
   const { ragSettings, setRagSettings } = useSettingsStore();
   const [downloading, setDownloading] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ percent: number; loaded: number; total: number } | null>(null);
@@ -43,27 +46,28 @@ export function RagSettings() {
       const text = await file.text();
       const data = JSON.parse(text);
       if (!validateRagImportData(data)) {
-        toast.error(ar.ragImportError);
+        toast.error(t("rag.importError"));
         return;
       }
       await importRagData(data);
-      toast.success(ar.ragImportSuccess);
+      toast.success(t("rag.importSuccess"));
     } catch (err) {
       console.error("Import failed:", err);
-      toast.error(ar.ragImportError);
+      toast.error(t("rag.importError"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   return (
-    <div className="space-y-4 text-sm" dir="rtl">
+    <div className="space-y-4 text-sm">
       {/* Embedding Model */}
       <section className="space-y-2">
-        <h3 className="text-sm font-medium">{ar.ragEmbeddingModel}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragEmbeddingModelDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.embeddingModel")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.embeddingModelDesc")}</p>
         <select
           className="w-full bg-sura-bg border border-sura-border rounded p-2 text-sm"
+          aria-label={t("rag.embeddingModel")}
           value={ragSettings.embeddingModelId}
           onChange={(e) => update({ embeddingModelId: e.target.value })}
         >
@@ -79,7 +83,7 @@ export function RagSettings() {
           disabled={downloading !== null}
           onClick={() => void handleDownload()}
         >
-          {downloading ? ar.ragDownloading : ar.ragDownloadModel}
+          {downloading ? t("rag.downloading") : t("rag.downloadModel")}
         </Button>
         {progress && (
           <div className="space-y-1">
@@ -98,7 +102,7 @@ export function RagSettings() {
 
       {/* Chunking */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragPreset}</h3>
+        <h3 className="text-sm font-medium">{t("rag.preset")}</h3>
         <div className="flex gap-2">
           {(["balanced", "precise", "contextual"] as const).map((preset) => (
             <Button
@@ -112,16 +116,17 @@ export function RagSettings() {
                 })
               }
             >
-              {preset === "balanced" ? ar.ragPresetBalanced : preset === "precise" ? ar.ragPresetPrecise : ar.ragPresetContextual}
+              {preset === "balanced" ? t("rag.presetBalanced") : preset === "precise" ? t("rag.presetPrecise") : t("rag.presetContextual")}
             </Button>
           ))}
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-sura-muted">
-            {ar.ragChunkSize}: {ragSettings.chunkSize}
+          <label className="text-xs text-sura-muted" htmlFor="rag-chunk-size">
+            {t("rag.chunkSize")}: {ragSettings.chunkSize}
           </label>
           <Input
             type="range"
+            id="rag-chunk-size"
             min={100}
             max={2000}
             step={50}
@@ -129,14 +134,15 @@ export function RagSettings() {
             onChange={(e) => update({ chunkSize: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{ar.ragChunkSizeDesc}</p>
+          <p className="text-[11px] text-sura-muted">{t("rag.chunkSizeDesc")}</p>
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-sura-muted">
-            {ar.ragChunkOverlap}: {ragSettings.chunkOverlap}
+          <label className="text-xs text-sura-muted" htmlFor="rag-chunk-overlap">
+            {t("rag.chunkOverlap")}: {ragSettings.chunkOverlap}
           </label>
           <Input
             type="range"
+            id="rag-chunk-overlap"
             min={0}
             max={300}
             step={25}
@@ -144,80 +150,85 @@ export function RagSettings() {
             onChange={(e) => update({ chunkOverlap: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{ar.ragChunkOverlapDesc}</p>
+          <p className="text-[11px] text-sura-muted">{t("rag.chunkOverlapDesc")}</p>
         </div>
       </section>
 
       {/* File Persistence */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragPersistence}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragPersistenceDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.persistence")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.persistenceDesc")}</p>
         <select
           className="w-full bg-sura-bg border border-sura-border rounded p-2 text-sm"
+          aria-label={t("rag.persistence")}
           value={ragSettings.defaultPersistence}
           onChange={(e) => update({ defaultPersistence: e.target.value as RagSettingsType["defaultPersistence"] })}
         >
-          <option value="persistent">{ar.ragPersistent}</option>
-          <option value="temp">{ar.ragTemp}</option>
-          <option value="ask">{ar.ragAsk}</option>
+          <option value="persistent">{t("rag.persistent")}</option>
+          <option value="temp">{t("rag.temp")}</option>
+          <option value="ask">{t("rag.ask")}</option>
         </select>
       </section>
 
       {/* Temp Cleanup */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragTempCleanup}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragTempCleanupDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.tempCleanup")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.tempCleanupDesc")}</p>
         <select
           className="w-full bg-sura-bg border border-sura-border rounded p-2 text-sm"
+          aria-label={t("rag.tempCleanup")}
           value={ragSettings.tempCleanup}
           onChange={(e) => update({ tempCleanup: e.target.value as RagSettingsType["tempCleanup"] })}
         >
-          <option value="after_turn">{ar.ragAfterTurn}</option>
-          <option value="after_session">{ar.ragAfterSession}</option>
-          <option value="manual">{ar.ragManual}</option>
+          <option value="after_turn">{t("rag.afterTurn")}</option>
+          <option value="after_session">{t("rag.afterSession")}</option>
+          <option value="manual">{t("rag.manual")}</option>
         </select>
       </section>
 
       {/* Search Mode */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragSearchMode}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragSearchModeDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.searchMode")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.searchModeDesc")}</p>
         <select
           className="w-full bg-sura-bg border border-sura-border rounded p-2 text-sm"
+          aria-label={t("rag.searchMode")}
           value={ragSettings.defaultSearchMode}
           onChange={(e) => update({ defaultSearchMode: e.target.value as RagSettingsType["defaultSearchMode"] })}
         >
-          <option value="hybrid">{ar.ragHybrid}</option>
-          <option value="semantic">{ar.ragSemantic}</option>
-          <option value="keyword">{ar.ragKeyword}</option>
+          <option value="hybrid">{t("rag.hybrid")}</option>
+          <option value="semantic">{t("rag.semantic")}</option>
+          <option value="keyword">{t("rag.keyword")}</option>
         </select>
         <div className="space-y-1">
-          <label className="text-xs text-sura-muted">
-            {ar.ragResultsCount}: {ragSettings.searchResultCount}
+          <label className="text-xs text-sura-muted" htmlFor="rag-results-count">
+            {t("rag.resultsCount")}: {ragSettings.searchResultCount}
           </label>
           <Input
             type="range"
+            id="rag-results-count"
             min={1}
             max={20}
             value={ragSettings.searchResultCount}
             onChange={(e) => update({ searchResultCount: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{ar.ragResultsCountDesc}</p>
+          <p className="text-[11px] text-sura-muted">{t("rag.resultsCountDesc")}</p>
         </div>
       </section>
 
       {/* Agent Mode */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragAgentMode}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragAgentModeDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.agentMode")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.agentModeDesc")}</p>
         <select
           className="w-full bg-sura-bg border border-sura-border rounded p-2 text-sm"
+          aria-label={t("rag.agentMode")}
           value={ragSettings.agentMode}
           onChange={(e) => update({ agentMode: e.target.value as RagSettingsType["agentMode"] })}
         >
-          <option value="always">{ar.ragAgentAlways}</option>
-          <option value="toggle">{ar.ragAgentToggle}</option>
+          <option value="always">{t("rag.agentAlways")}</option>
+          <option value="toggle">{t("rag.agentToggle")}</option>
         </select>
       </section>
 
@@ -225,10 +236,11 @@ export function RagSettings() {
       <section className="space-y-2 border-t border-sura-border pt-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-medium">{ar.ragAutoReindex}</h3>
-            <p className="text-xs text-sura-muted">{ar.ragAutoReindexDesc}</p>
+            <h3 className="text-sm font-medium">{t("rag.autoReindex")}</h3>
+            <p className="text-xs text-sura-muted">{t("rag.autoReindexDesc")}</p>
           </div>
           <Switch
+            aria-label={t("rag.autoReindex")}
             checked={ragSettings.autoReindexFolders}
             onCheckedChange={(v) => update({ autoReindexFolders: v })}
           />
@@ -237,17 +249,17 @@ export function RagSettings() {
 
       {/* Export RAG Data */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragExportData}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragExportDataDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.exportData")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.exportDataDesc")}</p>
         <Button size="sm" variant="outline" onClick={() => void downloadRagData()}>
-          {ar.ragExportDataButton}
+          {t("rag.exportDataButton")}
         </Button>
       </section>
 
       {/* Import RAG Data */}
       <section className="space-y-2 border-t border-sura-border pt-3">
-        <h3 className="text-sm font-medium">{ar.ragImportData}</h3>
-        <p className="text-xs text-sura-muted">{ar.ragImportDataDesc}</p>
+        <h3 className="text-sm font-medium">{t("rag.importData")}</h3>
+        <p className="text-xs text-sura-muted">{t("rag.importDataDesc")}</p>
         <input
           ref={fileInputRef}
           type="file"
@@ -256,7 +268,7 @@ export function RagSettings() {
           onChange={(e) => void handleImportFile(e)}
         />
         <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
-          {ar.ragImportDataButton}
+          {t("rag.importDataButton")}
         </Button>
       </section>
     </div>

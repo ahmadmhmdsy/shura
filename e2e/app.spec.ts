@@ -1,83 +1,21 @@
-import { expect, test, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
-import { installMockProvider, mockRequests, setPlan, unexpectedRequests, type MockRequestRecord } from "./mock-provider";
-
-// Not a credential: the mock provider never leaves the page, and the app only needs a
-// non-empty string to build a request.
-const FAKE_KEY = "e2e-fake-key";
-const SHARED_PLACEHOLDER = "اكتب سؤالك الموحد للجميع…";
-const CUSTOM_PLACEHOLDER = "سؤال مخصص لهذا النموذج (فارغ = يرث السؤال الموحد)";
-const REPLY = "رد محلي ثابت";
-const GPT4O = "openai/gpt-4o";
-
-// The live OpenRouter model catalog is a GET; only POSTs are provider calls.
-function posts(records: MockRequestRecord[]): MockRequestRecord[] {
-  return records.filter((record) => record.method === "POST");
-}
-
-// The operation is over only when the composer offers "send" again and the card carries
-// its usage footer: text is painted while a row is still streaming, and a streaming row is
-// deliberately not part of the session history.
-async function awaitTurnComplete(page: Page, expectedCards: number): Promise<void> {
-  await expect(page.getByRole("button", { name: "إرسال" })).toBeVisible();
-  await expect(page.getByText("↓ 12")).toHaveCount(expectedCards);
-}
-
-function texts(record: MockRequestRecord): string[] {
-  const body = record.body as { messages?: { role: string; content: unknown }[] } | null;
-  if (!body || !Array.isArray(body.messages)) return [];
-  return body.messages.map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)));
-}
-
-async function boot(page: Page): Promise<void> {
-  await installMockProvider(page);
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "شورى" })).toBeVisible();
-}
-
-async function saveFakeKey(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "الإعدادات" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  const field = page.locator("#provider-key-openrouter");
-  await field.fill(FAKE_KEY);
-  await field.press("Tab");
-  // The test button enables only from the saved key, not from the unsaved draft.
-  await expect(dialog.getByRole("button", { name: "اختبار" }).first()).toBeEnabled();
-  await dialog.getByRole("button", { name: "تم" }).click();
-  await expect(dialog).toBeHidden();
-}
-
-async function openNewSession(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "جلسة جديدة", exact: true }).first().click();
-  await expect(page.getByPlaceholder(SHARED_PLACEHOLDER)).toBeVisible();
-}
-
-async function addOpenRouterGpt4o(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "إضافة نموذج" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "OpenRouter", exact: true }).click();
-  await dialog.getByRole("button", { name: new RegExp(GPT4O) }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.getByText("OpenRouter · " + GPT4O)).toBeVisible();
-}
-
-async function send(page: Page, prompt: string): Promise<void> {
-  await page.getByPlaceholder(SHARED_PLACEHOLDER).fill(prompt);
-  await page.getByRole("button", { name: "إرسال" }).click();
-}
-
-// A session row is the title button. The rename and delete controls that share the row
-// carry their own aria-labels and must never be mistaken for the opener.
-function sessionRows(page: Page) {
-  return page.getByRole("navigation").locator("button:not([aria-label])");
-}
-
-// The polite live-region announcer is sr-only; a result card body is the visible status
-// region that actually holds the answer text.
-function resultCards(page: Page) {
-  return page.locator('[role="status"]:not(.sr-only)');
-}
+import { expect, test } from "@playwright/test";
+import { mockRequests, setPlan, unexpectedRequests } from "./mock-provider";
+import {
+  addOpenRouterGpt4o,
+  awaitTurnComplete,
+  boot,
+  CUSTOM_PLACEHOLDER,
+  FAKE_KEY,
+  openNewSession,
+  posts,
+  REPLY,
+  resultCards,
+  saveFakeKey,
+  send,
+  sessionRows,
+  SHARED_PLACEHOLDER,
+  texts,
+} from "./app-helpers";
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -121,6 +59,8 @@ test("a retry replays the historical custom prompt, not the current draft", asyn
   // Custom-only turn: the shared switch is off, so the turn carries the custom text.
   await page.getByRole("switch", { name: "سؤال موحد للجميع" }).click();
   await expect(page.getByRole("switch", { name: "سؤال موحد للجميع" })).toHaveAttribute("aria-checked", "false");
+  // The per-target editor lives in the advanced panel, which is collapsed by default.
+  await page.getByRole("button", { name: "خيارات متقدمة" }).click();
   // With the shared switch off the composer offers one focusable row per target; the
   // editor for that target appears once it is focused.
   await page.getByRole("button", { name: /فارغ = يرث الموحد/ }).click();
@@ -204,8 +144,10 @@ test("model output cannot load a remote resource", async ({ page }) => {
 
   const card = resultCards(page).first();
   await expect(card.getByText("بكسل")).toBeVisible();
-  await expect(page.locator("img")).toHaveCount(0);
-  await expect(page.getByRole("link")).toHaveCount(0);
+  // Scoped to the card: the app ships its own skip link, so a page-wide link count is
+  // never zero. What the test is about is that the model output yielded neither.
+  await expect(card.locator("img")).toHaveCount(0);
+  await expect(card.getByRole("link")).toHaveCount(0);
   expect(unexpectedRequests(page)).toEqual([]);
 });
 
@@ -242,21 +184,6 @@ test("the persisted settings record never contains the provider key", async ({ p
     return JSON.stringify(rows);
   });
   expect(stored).not.toContain(FAKE_KEY);
-});
-
-test("the chat screen and the settings dialog have no serious axe violations", async ({ page }) => {
-  const report = async () => {
-    const results = await new AxeBuilder({ page }).analyze();
-    return results.violations
-  };
-
-  const chat = await report();
-  expect(chat.filter((item) => item.impact === "critical" || item.impact === "serious").map((item) => item.id), JSON.stringify(chat.map((item) => item.id))).toEqual([]);
-
-  await page.getByRole("button", { name: "الإعدادات" }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  const settings = await report();
-  expect(settings.filter((item) => item.impact === "critical" || item.impact === "serious").map((item) => item.id)).toEqual([]);
 });
 
 test("no request ever leaves the machine for a provider origin", async ({ page }) => {

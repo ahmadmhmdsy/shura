@@ -30,8 +30,12 @@ export function sameCoordinates(left: ChatMessage, right: ChatMessage): boolean 
   return true;
 }
 
+/**
+ * الحالات النهائية: لا يعود الصف بعدها إلى حالة حيّة. "truncated" نهائية أيضًا — الدور انتهى
+ * (لا يزال في طور التوليد) لكنه لم ينجح؛ ولذلك لا يُوسم done (NM-02).
+ */
 export function isTerminal(status: ChatMessage["status"]): boolean {
-  return status === "done" || status === "error" || status === "stopped";
+  return status === "done" || status === "error" || status === "stopped" || status === "truncated";
 }
 
 

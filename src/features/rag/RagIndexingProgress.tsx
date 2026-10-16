@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useRagStore } from "@/state/ragStore";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 
 export function RagIndexingProgress() {
+  const { t } = useUiText();
   const progress = useRagStore((s) => s.indexingProgress);
   const [expanded, setExpanded] = useState(false);
 
@@ -11,7 +12,7 @@ export function RagIndexingProgress() {
     : 0;
 
   return (
-    <div className="w-56 text-xs" dir="rtl">
+    <div className="w-56 text-xs">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -32,10 +33,10 @@ export function RagIndexingProgress() {
       </button>
       {expanded && (
         <div className="mt-1 px-2 py-1.5 rounded border border-sura-border space-y-1">
-          <p>{ar.ragProgressTotal}: {progress.totalFiles}</p>
-          <p>{ar.ragProgressCompleted}: {progress.completedFiles}</p>
+          <p>{t("rag.progressTotal")}: {progress.totalFiles}</p>
+          <p>{t("rag.progressCompleted")}: {progress.completedFiles}</p>
           {progress.currentFile && (
-            <p className="truncate">{ar.ragProgressCurrent}: {progress.currentFile}</p>
+            <p className="truncate">{t("rag.progressCurrent")}: {progress.currentFile}</p>
           )}
         </div>
       )}

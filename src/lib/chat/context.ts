@@ -1,17 +1,18 @@
 import type { ModelMessage } from "ai";
 import type { ChatMessage, ContextMode } from "@/types";
 import { estimateTokens } from "@/lib/tokens/estimate";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 type TextRow = { text: string };
 
 export function buildContextMessages(
   history: readonly ChatMessage[], currentPrompt: string, mode: ContextMode, contextLength: number,
 ): ModelMessage[] {
-  if (!Number.isFinite(contextLength) || contextLength <= 0) throw new Error("حد السياق غير صالح");
+  if (!Number.isFinite(contextLength) || contextLength <= 0) throw new KeyedError("errors.invalidContextLength");
   const estimate = (rows: readonly TextRow[]): number =>
     Math.ceil(rows.reduce((sum, row) => sum + estimateTokens(row.text), 0));
   const current: ModelMessage = { role: "user", content: currentPrompt };
-  if (estimate([{ text: currentPrompt }]) > contextLength * 0.8) throw new Error(`السؤال الحالي يتجاوز حد السياق الآمن (${contextLength} رمز). استخدم وضع "بلا حالة" أو قلّص السؤال.`);
+  if (estimate([{ text: currentPrompt }]) > contextLength * 0.8) throw new KeyedError("errors.contextOverflow", { max: contextLength });
   if (mode === "stateless") return [current];
 
   const groups = new Map<string, ChatMessage[]>();

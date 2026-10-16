@@ -1,6 +1,8 @@
 // Logging and metrics utility for Shura app
 // Provides structured logging, error tracking, and performance metrics
 
+import { redactExternalError } from "@/lib/security/redact";
+
 export interface LogEntry {
   timestamp: number;
   level: "debug" | "info" | "warn" | "error";
@@ -83,7 +85,7 @@ export function log(level: LogEntry["level"], message: string, context?: Record<
   // Log to console
   const prefix = `[Shura:${level.toUpperCase()}]`;
   const contextStr = context ? ` ${JSON.stringify(context)}` : "";
-  const errorStr = error ? ` ${error.message}` : "";
+  const errorStr = error ? ` ${redactExternalError(error)}` : "";
 
   switch (level) {
     case "debug":
@@ -103,7 +105,7 @@ export function log(level: LogEntry["level"], message: string, context?: Record<
   // Update error count
   if (level === "error") {
     metrics.errorCount++;
-    metrics.lastError = { message, timestamp: Date.now() };
+    metrics.lastError = { message: redactExternalError(message), timestamp: Date.now() };
     saveMetrics();
   }
 }
@@ -208,7 +210,7 @@ export function initAppLogging(): void {
 
   // Log unhandled promise rejections
   window.addEventListener("unhandledrejection", (event) => {
-    logger.error("Unhandled promise rejection", { reason: String(event.reason) });
+    logger.error("Unhandled promise rejection", { reason: redactExternalError(event.reason) });
   });
 
   // Log page visibility changes

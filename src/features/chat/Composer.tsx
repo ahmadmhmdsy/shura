@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type Ref } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Plus, Link2, Send, Square, Sparkles, Paperclip, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import { useComposerStore, EMPTY_COMPOSER_DRAFT } from "@/state/composerStore";
 import { AddModelDialog } from "./AddModelDialog";
 import { ContextMeter } from "./ContextMeter";
@@ -13,7 +13,8 @@ import { PROVIDERS } from "@/lib/providers/registry";
 import { useSettingsStore } from "@/state/settingsStore";
 import { indexDocument } from "@/lib/rag/documentManager";
 import { isSupportedFileType } from "@/lib/rag/fileProcessor";
-import { ar } from "@/i18n/ar";
+import { LIMITS } from "@/lib/limits";
+import { useUiText } from "@/i18n";
 import type { ContextMode, ModelInfo, ProviderId } from "@/types";
 
 export interface ComposerProps {
@@ -21,12 +22,16 @@ export interface ComposerProps {
   sessionId: string;
   onSend(): void; onStop(): void; onExtractSummary(): void;
   sending: boolean; cancellable?: boolean; sessionTokens: number; contextLimit: number | null;
+  /** [T2.5/NL-02] الحد مفترض لا منشور: يمرّ إلى المقياس ليوسم الرقم بدل تقديمه كحقيقة. */
+  contextAssumed?: boolean;
   // [المهمة 4] وضع السياق صريح دائمًا: stateful افتراضي، وstateless لا يكون ضمنيًا أبدًا
   contextMode: ContextMode;
   onContextModeChange(next: ContextMode): void;
+  /** مرجع حقل النص المشترك: يُرجَع التركيز إليه بعد الإرسال لمتابعة الكتابة. */
+  ref?: Ref<HTMLTextAreaElement>;
 }
 
-export function Composer(props: ComposerProps) {
+export function Composer({ ref, ...props }: ComposerProps) {
   const sessionId = props.sessionId;
   const { targets, syncMode, sharedPrompt, customs, focusTargetId, agentMode } = useComposerStore(useShallow((s) => {
     const d = s.drafts[sessionId] ?? EMPTY_COMPOSER_DRAFT;
@@ -44,6 +49,7 @@ export function Composer(props: ComposerProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { ragSettings } = useSettingsStore();
+  const { t, plural, formatNumber } = useUiText();
 
   // Keyboard shortcut: Ctrl+1-9 to focus target
   useEffect(() => {
@@ -65,7 +71,7 @@ export function Composer(props: ComposerProps) {
     const fileArray = Array.from(files);
     const supported = fileArray.filter((f) => isSupportedFileType(f.name));
     if (supported.length === 0) {
-      toast.error("لا توجد ملفات مدعومة. الصيغ المدعومة: PDF, MD, TXT, JSON, CSV, LOG");
+      toast.error(t("rag.unsupportedFiles"));
       return;
     }
     setUploading(true);
@@ -74,52 +80,86 @@ export function Composer(props: ComposerProps) {
         const persistence = ragSettings.defaultPersistence === "ask" ? "persistent" : ragSettings.defaultPersistence;
         await indexDocument(file, { persistence, settings: ragSettings });
       }
-      toast.success(`تم رفع ${supported.length} ملف بنجاح`);
+      toast.success(plural("chat.uploaded", supported.length));
     } catch (error) {
       console.error("Upload failed:", error);
-      toast.error("فشل رفع الملف — حاول مرة أخرى");
+      toast.error(t("chat.uploadFailed"));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
+  // Escape empties the field instead of doing nothing, and offers an undo. It stays inert
+  // while a send is streaming: there Escape is already the stop shortcut (useChatShortcuts),
+  // and wiping the draft at the same moment would be a surprise, not a convenience.
+  const handleSharedKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key !== "Escape" || props.sending || sharedPrompt.length === 0) return;
+    event.preventDefault();
+    const cleared = sharedPrompt;
+    setShared(sessionId, "");
+    toast(t("chat.draftCleared"), {
+      action: { label: t("common.undo"), onClick: () => setShared(sessionId, cleared) },
+    });
+  };
+
   return (
     <div className="border-t border-[var(--sura-border-primary)] bg-[var(--sura-surface-primary)] p-3 space-y-2" data-composer="true">
       {/* Targets row — compact chips */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.targetHint} aria-hidden="true"><Info className="size-3.5" /></span>
-        {targets.map((t) => (
-          <Badge key={t.targetId} variant={focusTargetId === t.targetId ? "default" : "secondary"} className="gap-1 cursor-pointer" onClick={() => setFocus(sessionId, t.targetId)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setFocus(sessionId, t.targetId); } }} aria-label={`${PROVIDERS[t.providerId].label} ${t.modelId}`}>
-            {PROVIDERS[t.providerId].label} · {t.modelId}
-            <button aria-label="إزالة" onClick={(e) => { e.stopPropagation(); removeTarget(sessionId, t.targetId); }}>×</button>
-          </Badge>
+        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.targetHint")} aria-hidden="true"><Info className="size-3.5" /></span>
+        {/* الشريحة زرّان شقيقان داخل إطار واحد: التركيز على النموذج، وإزالته. لا يجوز أن يحوي
+            أحدهما الآخر — فالتداخل يُخفي الإزالة عن قارئ الشاشة ويصادره axe كـ
+            nested-interactive. الإطار نفسه غير تفاعلي. */}
+        {targets.map((target) => (
+          <div
+            key={target.targetId}
+            className={badgeVariants({ variant: focusTargetId === target.targetId ? "default" : "secondary" })}
+          >
+            <button
+              type="button"
+              className="cursor-pointer"
+              onClick={() => setFocus(sessionId, target.targetId)}
+              aria-label={`${PROVIDERS[target.providerId].label} ${target.modelId}`}
+              aria-pressed={focusTargetId === target.targetId}
+            >
+              {PROVIDERS[target.providerId].label} · {target.modelId}
+            </button>
+            <button
+              type="button"
+              className="cursor-pointer"
+              aria-label={t("common.remove")}
+              onClick={() => removeTarget(sessionId, target.targetId)}
+            >
+              ×
+            </button>
+          </div>
         ))}
-        <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}><Plus className="size-4" /> {ar.addModel}</Button>
+        <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}><Plus className="size-4" /> {t("chat.addModel")}</Button>
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.md,.txt,.json,.csv,.log"
+          accept=".pdf,.docx,.md,.txt,.json,.csv,.log"
           className="hidden"
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => void handleFileUpload(e.target.files)}
         />
         <Button size="sm" variant="outline" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-          <Paperclip className="size-4" /> {uploading ? ar.ragUploading : ar.ragUploadFile}
+          <Paperclip className="size-4" /> {uploading ? t("rag.uploading") : t("rag.uploadFile")}
         </Button>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.contextModeHint}>
-            <Switch checked={props.contextMode === "stateless"} onCheckedChange={(v) => props.onContextModeChange(v ? "stateless" : "stateful")} aria-label={ar.contextMode} />
-            {props.contextMode === "stateless" ? ar.contextStateless : ar.contextStateful}
+          <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.contextModeHint")}>
+            <Switch checked={props.contextMode === "stateless"} onCheckedChange={(v) => props.onContextModeChange(v ? "stateless" : "stateful")} aria-label={t("chat.contextMode")} />
+            {props.contextMode === "stateless" ? t("chat.contextStateless") : t("chat.contextStateful")}
           </label>
           {ragSettings.agentMode === "toggle" && (
-            <label className="flex items-center gap-1 text-xs text-sura-muted" title={ar.agentModeHint}>
-              <Switch checked={agentMode} onCheckedChange={(v) => setAgentMode(sessionId, v)} aria-label={ar.agentMode} />
-              {ar.agentMode}
+            <label className="flex items-center gap-1 text-xs text-sura-muted" title={t("chat.agentModeHint")}>
+              <Switch checked={agentMode} onCheckedChange={(v) => setAgentMode(sessionId, v)} aria-label={t("chat.agentMode")} />
+              {t("chat.agentMode")}
             </label>
           )}
-          <ContextMeter used={props.sessionTokens} limit={props.contextLimit} contextMode={props.contextMode} />
+          <ContextMeter used={props.sessionTokens} limit={props.contextLimit} assumed={props.contextAssumed} contextMode={props.contextMode} />
         </div>
       </div>
 
@@ -132,43 +172,54 @@ export function Composer(props: ComposerProps) {
           aria-expanded={advancedOpen}
         >
           {advancedOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-          {ar.advancedOptions}
+          {t("chat.advancedOptions")}
         </button>
-        {targets.length > 1 && (
-          <>
-            <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">·</span>
-            <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={ar.whatIsShuraSyncDesc}><Link2 className="size-3.5" /> {ar.syncMode}
-              <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} aria-label={ar.syncMode} /></label>
-          </>
-        )}
+        {/* يُعرض المفتاح دائمًا. مع هدف واحد كان لا يُرسم إطلاقًا، فكان من المستحيل إيقاف
+            «سؤال موحد للجميع» والوصول إلى حقل السؤال المخصص لهذا النموذج. */}
+        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">·</span>
+        <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("onboarding.syncDesc")}><Link2 className="size-3.5" /> {t("chat.syncMode")}
+          <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} aria-label={t("chat.syncMode")} /></label>
       </div>
 
       {/* Advanced content — only visible when expanded */}
       {advancedOpen && (
         <div className="space-y-2 rounded-[var(--sura-radius-md)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-secondary)] p-2">
           {!syncMode && (focusTargetId
-            ? targets.filter((t) => t.targetId === focusTargetId).map((t) => (
-              <div key={t.targetId} className="space-y-1">
-                <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">{ar.customField} {PROVIDERS[t.providerId].label} · {t.modelId}</span>
-                <Textarea value={customs[t.targetId] ?? ""} onChange={(e) => setCustom(sessionId, t.targetId, e.target.value)} placeholder="سؤال مخصص لهذا النموذج (فارغ = يرث السؤال الموحد)" className="min-h-24" aria-label={ar.customField + " " + PROVIDERS[t.providerId].label + " " + t.modelId} />
+            ? targets.filter((target) => target.targetId === focusTargetId).map((target) => (
+              <div key={target.targetId} className="space-y-1">
+                <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">{t("chat.customField")} {PROVIDERS[target.providerId].label} · {target.modelId}</span>
+                <Textarea value={customs[target.targetId] ?? ""} onChange={(e) => setCustom(sessionId, target.targetId, e.target.value)} placeholder={t("chat.customPlaceholder")} className="min-h-24" aria-label={t("chat.customField") + "" + PROVIDERS[target.providerId].label + "" + target.modelId} />
               </div>
             ))
-            : targets.map((t) => (
-              <button key={t.targetId} className="w-full text-start text-[var(--sura-text-caption)] px-2 py-1 rounded-[var(--sura-radius-sm)] border border-dashed border-[var(--sura-border-primary)] text-[var(--sura-text-tertiary)] hover:bg-[var(--sura-hover)]" onClick={() => setFocus(sessionId, t.targetId)}>
-                {ar.customField} {t.modelId} {(customs[t.targetId] ?? "").length > 0 ? "✓" : "(فارغ = يرث الموحد)"}
+            : targets.map((target) => (
+              <button key={target.targetId} className="w-full text-start text-[var(--sura-text-caption)] px-2 py-1 rounded-[var(--sura-radius-sm)] border border-dashed border-[var(--sura-border-primary)] text-[var(--sura-text-tertiary)] hover:bg-[var(--sura-hover)]" onClick={() => setFocus(sessionId, target.targetId)}>
+                {t("chat.customField")} {target.modelId} {(customs[target.targetId] ?? "").length > 0 ? "✓" : t("chat.customEmptyHint")}
               </button>
             ))
           )}
         </div>
       )}
 
-      <Textarea value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} placeholder={ar.sharedPlaceholder} className="min-h-20" aria-label={ar.sharedPlaceholder} />
+      {/* The base Textarea already sets field-sizing-content, so this grows with the text;
+          the max-height token is what keeps a long question from pushing the send row away. */}
+      <Textarea ref={ref} value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} onKeyDown={handleSharedKeyDown} placeholder={t("chat.sharedPlaceholder")} className="min-h-[var(--sura-composer-min-height)] max-h-[var(--sura-composer-max-height)] overflow-y-auto" aria-label={t("chat.sharedPlaceholder")} />
 
       <div className="flex items-center gap-2 justify-end">
-        <Button size="sm" variant="ghost" disabled={props.sending} onClick={props.onExtractSummary}><Sparkles className="size-4" /> {ar.extractSummary}</Button>
+        <span className="me-auto flex items-center gap-2 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+          <span className="hidden sm:inline">{t("chat.sendHint")}</span>
+          {sharedPrompt.length > 0 && (
+            <span
+              title={t("chat.promptLength")}
+              aria-label={t("chat.promptLengthOf", { count: formatNumber(sharedPrompt.length), max: formatNumber(LIMITS.sharedPromptMax) })}
+            >
+              {formatNumber(sharedPrompt.length)} / {formatNumber(LIMITS.sharedPromptMax)}
+            </span>
+          )}
+        </span>
+        <Button size="sm" variant="ghost" disabled={props.sending} onClick={props.onExtractSummary}><Sparkles className="size-4" /> {t("settings.extractSummary")}</Button>
         {props.sending
-          ? <Button size="sm" variant="destructive" disabled={props.cancellable === false} onClick={props.onStop}><Square className="size-4" /> {ar.stop}</Button>
-          : <Button size="sm" onClick={props.onSend}><Send className="size-4" /> {ar.send}</Button>}
+          ? <Button size="sm" variant="destructive" disabled={props.cancellable === false} onClick={props.onStop}><Square className="size-4" /> {t("chat.stop")}</Button>
+          : <Button size="sm" onClick={props.onSend}><Send className="size-4" /> {t("chat.send")}</Button>}
       </div>
 
       <AddModelDialog open={dialogOpen} onOpenChange={setDialogOpen}

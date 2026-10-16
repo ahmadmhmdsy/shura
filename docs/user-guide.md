@@ -17,13 +17,13 @@ pnpm install
 pnpm dev
 ```
 
-Then open the local URL Vite prints (default http://localhost:5173).
+Then open the local URL Vite prints (default http://127.0.0.1:5174).
 
 **Desktop version (Tauri 2):**
 
 ```bash
 pnpm tauri dev      # dev window
-pnpm tauri build    # production build (NSIS installer on Windows)
+pnpm tauri:build:windows   # NSIS-only production build (`pnpm tauri build` also tries the MSI target, which fails on this machine)
 ```
 
 The desktop shell gives you CORS-free transport and real file writing under `Documents\Shura`. See `README.md` for the full environment notes.
@@ -140,7 +140,7 @@ The **✦ Extract summary** button sends the last turn's results to the session'
 
 ### 3.6 Context meter & tokens
 
-The meter next to the composer shows estimated token usage against the focused model's context limit. The estimate is approximate (chars ÷ 4) — treat it as a guide, not an exact bill.
+The meter next to the composer shows estimated token usage against the focused model's context limit. The estimate is approximate and Arabic-aware (about 2.5 characters per token for Arabic and 4 for Latin, weighted by the mix; src/lib/tokens/estimate.ts) — treat it as a guide, not an exact bill.
 
 ### 3.7 Retry & stop
 

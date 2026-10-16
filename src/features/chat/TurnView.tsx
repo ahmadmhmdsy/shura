@@ -3,7 +3,7 @@ import { AlertCircle, RotateCcw } from "lucide-react";
 import { ResultCards } from "./ResultCards";
 import { SummaryCard } from "./SummaryCard";
 import { Markdown } from "./Markdown";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 import type { ChatMessage } from "@/types";
 
 export function TurnView({ prompts, results, layout, customPrompts, onToggleLayout, onStop, onRetry, disabled = false, stopDisabled = false, toolActivity, toolErrors = {}, onToolError }: {
@@ -16,6 +16,7 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
   toolErrors?: Record<string, { toolName: string; error: string }>;
   onToolError?: (targetId: string, toolName: string, error: string) => void;
 }) {
+  const { t, plural } = useUiText();
   // Superseded rows remain durable for retry identity, but only the current attempt is visible.
   const visiblePrompts = prompts.filter((m) => !m.superseded);
   const visibleResults = results.filter((m) => !m.superseded);
@@ -36,21 +37,21 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
         <div className="flex items-center gap-2 rounded border border-sura-danger/40 bg-sura-danger/10 px-3 py-2" role="alert">
           <AlertCircle className="size-4 text-sura-danger shrink-0" />
           <span className="text-sm text-sura-danger flex-1">
-            {ar.errorSummary}: {errorResults.length} {errorResults.length === 1 ? "نتيجة" : "نتائج"}
+            {t("errors.summary")}: {plural("chat.results", errorResults.length)}
           </span>
           <button
             type="button"
             className="text-xs text-sura-muted hover:text-sura-foreground transition-colors flex items-center gap-1"
             onClick={() => { errorResults.forEach((m) => onRetry(m)); }}
           >
-            <RotateCcw className="size-3" /> {ar.errorRetryAll}
+            <RotateCcw className="size-3" /> {t("errors.retryAll")}
           </button>
           <button
             type="button"
             className="text-xs text-sura-muted hover:text-sura-foreground transition-colors"
             onClick={() => setErrorSummaryDismissed(true)}
           >
-            {ar.errorDismiss}
+            {t("errors.dismiss")}
           </button>
         </div>
       )}
@@ -61,7 +62,7 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
       {Object.keys(toolActivity ?? {}).some((tid) => results.some((r) => r.targetId === tid)) && (
         <div className="flex items-center gap-2 text-xs text-sura-accent" role="status">
           <span className="size-1.5 rounded-full bg-sura-accent animate-pulse" />
-          {ar.ragSearchingDocuments}
+          {t("rag.searchingDocuments")}
         </div>
       )}
       {visibleToolErrors.length > 0 && (
@@ -81,7 +82,7 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
                     if (targetMessage) onRetry(targetMessage);
                   }}
                 >
-                  <RotateCcw className="size-3" /> {ar.errorRetry}
+                  <RotateCcw className="size-3" /> {t("errors.retry")}
                 </button>
                 <button
                   type="button"
@@ -91,7 +92,7 @@ export function TurnView({ prompts, results, layout, customPrompts, onToggleLayo
                     onToolError?.(targetId, error.toolName, error.error);
                   }}
                 >
-                  {ar.errorDismiss}
+                  {t("errors.dismiss")}
                 </button>
               </div>
             );

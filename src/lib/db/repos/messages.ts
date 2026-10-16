@@ -18,9 +18,10 @@ async function operationLeaseAllows(message: ChatMessage): Promise<boolean> {
   const lease = await db.operation_leases.get(message.sessionId);
   if (!lease) return true;
   if (lease.operationId === message.operationId) {
-    // A released lease may still receive explicit error/stopped recovery of its
-    // own canceled operation, but never a late success/streaming write.
-    return lease.status === "active" || message.status === "error" || message.status === "stopped";
+    // A released lease may still receive explicit terminal non-success recovery of its
+    // own canceled operation, but never a late success/streaming write. The predicate
+    // below is the same one the replacement branch uses: error | stopped | truncated.
+    return lease.status === "active" || (isTerminal(message.status) && message.status !== "done");
   }
   // A replacement owns the lease now. The old operation may finalize only an
   // explicit terminal error/stopped row; it cannot create a new live row or done.

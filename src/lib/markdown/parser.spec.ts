@@ -31,6 +31,19 @@ describe("parser: استرجاع الجلسة من القرص", () => {
     expect(restored.usageEvents).toHaveLength(2);
     expect(restored.usageEvents[0].inputTokens).toBe(10);
   });
+  it("تمرّة مقطوعة تُؤرشف وتُستورد بحالة truncated لا done (NM-02)", async () => {
+    const sink = memoryFileSink();
+    const dir = "sessions/trunc";
+    await appendTurn(sink, dir, meta, { ...turnData, status: { t1: "truncated", t2: "done" } });
+    const restored = await importSessionFromDisk(sink, dir);
+    const truncated = restored.messages.find((m) => m.targetId === "t1" && m.role === "assistant");
+    expect(truncated?.status).toBe("truncated");
+    expect(truncated?.text).toBe("جواب 1");
+    expect(restored.messages.find((m) => m.targetId === "t2" && m.role === "assistant")?.status).toBe("done");
+    // الأحداث الاستهلاكية: الرموز قُدّت فعلًا فتبقى ok ولا تُعاقب مرتين
+    expect(restored.usageEvents.find((e) => e.providerId === "openrouter")?.status).toBe("ok");
+  });
+
   it("recoverFromDisk يستورد كل المجلدات ذات meta.json ويتجاهل غيرها", async () => {
     const sink = memoryFileSink();
     await appendTurn(sink, "sessions/one", meta, turnData);

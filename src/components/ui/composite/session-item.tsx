@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 import { MessageSquare, Trash2, Edit3 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { useUiText } from "@/i18n"
 
 export interface SessionItemProps {
   id: string
@@ -28,6 +29,7 @@ function SessionItem({
   onDelete,
   className,
 }: SessionItemProps) {
+  const { t } = useUiText()
   const [editValue, setEditValue] = React.useState(title)
 
   const handleRenameSubmit = () => {
@@ -117,19 +119,19 @@ function SessionItem({
             setEditValue(title)
             onRename?.(title)
           }}
-          aria-label="إعادة تسمية"
+          aria-label={t("common.rename")}
         >
           <Edit3 className="size-3" />
         </Button>
         <Button
           variant="ghost"
           size="icon-xs"
-          className="size-6 text-[var(--sura-error)] hover:text-[var(--sura-error)]"
+          className="size-6 text-[var(--sura-error-text)] hover:text-[var(--sura-error-text)]"
           onClick={(e) => {
             e.stopPropagation()
             onDelete?.()
           }}
-          aria-label="حذف"
+          aria-label={t("common.delete")}
         >
           <Trash2 className="size-3" />
         </Button>

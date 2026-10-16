@@ -12,10 +12,22 @@
 
 import type { RagModel } from "@/types";
 
-/** نموذج تضمين مع رابط تنزيله. */
+/** نموذج تضمين مع روابط أصوله. */
 export interface EmbeddingModelInfo extends RagModel {
   /** رابط تنزيل ONNX (مكمَّم) من HuggingFace. */
   url: string;
+  /** رابط مُرمِّز النموذج: بدونه لا يمكن تحويل النص إلى معرّفات صحيحة. */
+  tokenizerUrl: string;
+  /** رابط إعدادات المُرمِّز، وهي المدخل الثاني لبناء المُرمِّز. */
+  tokenizerConfigUrl: string;
+  /**
+   * نسخة المُرمِّز، وهي جزء من هوية التضمين (D2): تُختم على كل قطعة، فتغيّرها
+   * يُبطل كل المتجهات المخزّنة بدل أن تختلط متجهات من فضاءين.
+   *
+   * القيمة هنا مصدر المُرمِّز المثبَّت (المستودع@المراجعة)، وليست بصمة محتوى:
+   * بصمة الملف المقيسة مثبتة في الاختبار المرجعي (T1.1) وفي ADR 0003.
+   */
+  tokenizerVersion: string;
 }
 
 /** النماذج المتاحة، وهي نفسها المعروضة في إعدادات RAG. */
@@ -28,6 +40,9 @@ export const EMBEDDING_MODELS: EmbeddingModelInfo[] = [
     downloadedAt: 0,
     sizeBytes: 130_000_000,
     url: "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/onnx/model_quantized.onnx",
+    tokenizerUrl: "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer.json",
+    tokenizerConfigUrl: "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer_config.json",
+    tokenizerVersion: "Xenova/multilingual-e5-small@main",
   },
   {
     id: "multilingual-e5-base",
@@ -37,6 +52,9 @@ export const EMBEDDING_MODELS: EmbeddingModelInfo[] = [
     downloadedAt: 0,
     sizeBytes: 480_000_000,
     url: "https://huggingface.co/Xenova/multilingual-e5-base/resolve/main/onnx/model_quantized.onnx",
+    tokenizerUrl: "https://huggingface.co/Xenova/multilingual-e5-base/resolve/main/tokenizer.json",
+    tokenizerConfigUrl: "https://huggingface.co/Xenova/multilingual-e5-base/resolve/main/tokenizer_config.json",
+    tokenizerVersion: "Xenova/multilingual-e5-base@main",
   },
   {
     id: "all-MiniLM-L6-v2",
@@ -46,11 +64,27 @@ export const EMBEDDING_MODELS: EmbeddingModelInfo[] = [
     downloadedAt: 0,
     sizeBytes: 80_000_000,
     url: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
+    tokenizerUrl: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+    tokenizerConfigUrl: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json",
+    tokenizerVersion: "Xenova/all-MiniLM-L6-v2@main",
   },
 ];
 
 /** النموذج الافتراضي حين لا يُحدَّد نموذج. */
 export const DEFAULT_EMBEDDING_MODEL_ID = "multilingual-e5-small";
+
+/**
+ * مفتاح تخزين ملف من ملفَّي المُرمِّز في كاش النماذج (rag_model_blobs).
+ *
+ * المفتاح مشتقّ من معرّف النموذج واسم الملف، ويسكن الجدول نفسه الذي تسكنه بايتات
+ * النموذج، لأن كليهما أصل منزَّل يجب أن يُحذف مع النموذج.
+ */
+export function tokenizerAssetId(
+  modelId: string,
+  fileName: "tokenizer.json" | "tokenizer_config.json",
+): string {
+  return `tokenizer:` + modelId + `:` + fileName;
+}
 
 /** معلومات نموذج بمعرّفه، أو null إن كان المعرّف غير معروف. */
 export function getModelInfo(modelId: string): EmbeddingModelInfo | null {

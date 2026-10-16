@@ -23,7 +23,7 @@ describe("SettingsScreen", () => {
 
   it("تعيين النموذج الأساسي يحدث المخزن ويعرض «الحالي»", async () => {
     render(<SettingsScreen onClose={() => {}} />);
-    const modelSel = screen.getAllByRole("combobox")[1];
+    const modelSel = screen.getByRole("combobox", { name: "نموذج الموديل الأساسي" });
     fireEvent.change(modelSel, { target: { value: "openai/gpt-4o" } });
     const assign = screen.getByRole("button", { name: "تعيين" });
     await waitFor(() => expect(assign).toBeEnabled());
@@ -92,10 +92,10 @@ describe("SettingsScreen", () => {
   });
   it("تغيير المزود يصفّر اختيار النموذج فلا تُحفظ زوجة مزود/موديل غير صالحة", async () => {
     render(<SettingsScreen onClose={() => {}} />);
-    const modelSel = screen.getAllByRole("combobox")[1];
+    const modelSel = screen.getByRole("combobox", { name: "نموذج الموديل الأساسي" });
     fireEvent.change(modelSel, { target: { value: "openai/gpt-4o" } });
 
-    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "google" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "مزود النموذج الأساسي" }), { target: { value: "google" } });
 
     await waitFor(() => expect((modelSel as HTMLSelectElement).value).toBe(""));
     expect(screen.getByRole("button", { name: "تعيين" })).toBeDisabled();

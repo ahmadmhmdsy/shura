@@ -170,7 +170,9 @@ describe("indexDocument", () => {
     });
 
     expect(emb.constructorArgs).toEqual([["multilingual-e5-small", 384]]);
-    expect(vec.modelIds).toEqual(["unknown-model"]);
+    // معرّف غير معروف يرجع إلى النموذج الأول، والفهرس يجب أن يُفتح بمفتاح النموذج
+    // الذي أنتج المتجه فعلًا؛ لو فُتح بالمعرّف المجهول لما وجده البحث لاحقًا.
+    expect(vec.modelIds).toEqual(["multilingual-e5-small"]);
   });
 
   it("يستخدم النموذج المطلوب عندما يكون معروفًا", async () => {
@@ -184,7 +186,7 @@ describe("indexDocument", () => {
 
   it("يسجّل حالة الخطأ ويرمي عندما يكون نوع الملف غير مدعوم", async () => {
     await expect(
-      indexDocument(file("report.docx"), { persistence: "persistent", settings: settings() }),
+      indexDocument(file("report.xyz"), { persistence: "persistent", settings: settings() }),
     ).rejects.toThrow("Unsupported file type: unknown");
 
     const docs = await db.rag_documents.toArray();

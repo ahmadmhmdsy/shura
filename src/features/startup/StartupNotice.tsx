@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useUiText } from "@/i18n";
 import type { StartupNotice } from "@/lib/startupRecovery";
 
 /**
@@ -7,6 +8,7 @@ import type { StartupNotice } from "@/lib/startupRecovery";
  * quarantined folders, skipped deletions, and redacted recovery errors.
  */
 export function StartupNoticeBanner({ notice, onDismiss }: { notice: StartupNotice; onDismiss?: () => void }) {
+  const { t } = useUiText();
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
   return (
@@ -18,7 +20,7 @@ export function StartupNoticeBanner({ notice, onDismiss }: { notice: StartupNoti
             {notice.details.map((detail, index) => <li key={index}>{detail}</li>)}
           </ul>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => { setDismissed(true); onDismiss?.(); }}>إخفاء</Button>
+        <Button variant="ghost" size="sm" onClick={() => { setDismissed(true); onDismiss?.(); }}>{t("common.dismiss")}</Button>
       </div>
     </div>
   );

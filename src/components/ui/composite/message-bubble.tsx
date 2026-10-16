@@ -68,7 +68,7 @@ function MessageBubble({
             : "bg-[var(--sura-chat-assistant-bg)] text-[var(--sura-chat-assistant-text)] rounded-tl-[var(--sura-radius-sm)]"
         )}>
           {error ? (
-            <div className="flex items-center gap-2 text-[var(--sura-error)]">
+            <div className="flex items-center gap-2 text-[var(--sura-error-text)]">
               <AlertCircle className="size-4 shrink-0" />
               <span className="text-[var(--sura-text-body-sm)]">{error}</span>
             </div>

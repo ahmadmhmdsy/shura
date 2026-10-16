@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { uiText } from "@/i18n";
 import { ProviderKeyCard } from "./ProviderKeyCard";
 import { useSettingsStore } from "@/state/settingsStore";
 import { setTransportFetch } from "@/lib/transport/transport";
@@ -23,6 +24,10 @@ function resetStores(): void {
     setProviderKey: realSetProviderKey,
   });
 }
+
+// A locale switch inside one test must never leak into the Arabic assertions of the others.
+const originalLocale = uiText.getLocale();
+afterEach(() => uiText.setLocale(originalLocale));
 
 beforeEach(() => {
   resetStores();
@@ -69,6 +74,17 @@ describe("ProviderKeyCard", () => {
 
     expect(setProviderKey).not.toHaveBeenCalled();
     expect(await screen.findByText(/الحد المسموح/)).toBeInTheDocument();
+  });
+
+  it("يتبع نصّ تجاوز حد المفتاح لغة الواجهة النشطة", async () => {
+    render(<ProviderKeyCard id={id} />);
+    fireEvent.change(screen.getByPlaceholderText("مفتاح API"), { target: { value: "a".repeat(513) } });
+    fireEvent.blur(screen.getByPlaceholderText("مفتاح API"));
+
+    expect(await screen.findByText(/الحد المسموح/)).toBeInTheDocument();
+    act(() => uiText.setLocale("en"));
+    expect(await screen.findByText(/exceeds the allowed length/)).toBeInTheDocument();
+    expect(screen.queryByText(/الحد المسموح/)).not.toBeInTheDocument();
   });
 
   it("يمسح المفتاح المحفوظ", async () => {
@@ -134,5 +150,16 @@ describe("ProviderKeyCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /اختبار/ }));
     const result = await screen.findByText(/مفتاح غير صالح/, {}, { timeout: 3000 });
     expect(result).toHaveClass("text-sura-danger");
+  });
+
+  // [T7.3] حدّ العرض: حتى لو نجا نصّ ما من طبقة المكتبة، لا يجوز أن يظهر المفتاح نفسه.
+  it("حدّ العرض: تفصيل خطأ غير مصنّف لا يعرض المفتاح المحفوظ", async () => {
+    const weird = "zzz-unknown-key-0123456789abcdef";
+    setTransportFetch(async () => new Response("odd failure " + weird, { status: 418 }));
+    useSettingsStore.setState({ providerKeys: { [id]: weird } });
+    render(<ProviderKeyCard id={id} />);
+    fireEvent.click(screen.getByRole("button", { name: /اختبار/ }));
+    const result = await screen.findByText(/odd failure/, {}, { timeout: 3000 });
+    expect(result.textContent ?? "").not.toContain(weird);
   });
 });

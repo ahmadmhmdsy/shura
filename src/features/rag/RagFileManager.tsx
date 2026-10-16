@@ -5,10 +5,11 @@ import { useRagStore } from "@/state/ragStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { indexDocument, deleteDocument, cleanupTempDocuments } from "@/lib/rag/documentManager";
 import { formatFileSize, getFileTypeLabel, isSupportedFileType } from "@/lib/rag/fileProcessor";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 import type { RagDocument } from "@/types";
 
 export function RagFileManager() {
+  const { t, plural } = useUiText();
   const { documents, refreshDocuments } = useRagStore();
   const { ragSettings } = useSettingsStore();
   const [uploading, setUploading] = useState(false);
@@ -20,7 +21,7 @@ export function RagFileManager() {
     const supported = fileArray.filter((f) => isSupportedFileType(f.name));
     
     if (supported.length === 0) {
-      alert("لا توجد ملفات مدعومة. الصيغ المدعومة: PDF, MD, TXT, JSON, CSV, LOG");
+      alert(t("rag.unsupportedFiles"));
       return;
     }
 
@@ -46,28 +47,28 @@ export function RagFileManager() {
   };
 
   const handleDelete = async (doc: RagDocument) => {
-    if (!confirm(`حذف "${doc.fileName}"؟`)) return;
+    if (!confirm(t("rag.confirmDeleteFile", { name: doc.fileName }))) return;
     await deleteDocument(doc.id);
     await refreshDocuments();
   };
 
   const handleClearTemp = async () => {
     const count = await cleanupTempDocuments();
-    alert(`تم حذف ${count} ملف مؤقت`);
+    alert(plural("rag.tempDeleted", count));
     await refreshDocuments();
   };
 
   const statusLabel = (status: RagDocument["status"]) => {
     switch (status) {
-      case "indexed": return "مفهرس";
-      case "indexing": return ar.ragIndexing;
-      case "error": return "خطأ";
-      default: return "قيد الانتظار";
+      case "indexed": return t("rag.statusIndexed");
+      case "indexing": return t("rag.indexing");
+      case "error": return t("rag.statusError");
+      default: return t("rag.statusPending");
     }
   };
 
   return (
-    <div className="space-y-3 text-sm" dir="rtl">
+    <div className="space-y-3 text-sm">
       {/* Upload Area */}
       <div
         className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
@@ -82,13 +83,13 @@ export function RagFileManager() {
         }}
       >
         <p className="text-xs text-sura-muted mb-2">
-          اسحب الملفات هنا أو اختر من جهازك
+          {t("rag.dropHint")}
         </p>
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.md,.txt,.json,.csv,.log"
+          accept=".pdf,.docx,.md,.txt,.json,.csv,.log"
           className="hidden"
           onChange={(e) => e.target.files && void handleFiles(e.target.files)}
         />
@@ -98,13 +99,13 @@ export function RagFileManager() {
           disabled={uploading}
           onClick={() => fileInputRef.current?.click()}
         >
-          {uploading ? ar.ragUploading : ar.ragUploadFile}
+          {uploading ? t("rag.uploading") : t("rag.uploadFile")}
         </Button>
       </div>
 
       {/* File List */}
       {documents.length === 0 ? (
-        <p className="text-xs text-sura-muted text-center py-4">{ar.ragNoFiles}</p>
+        <p className="text-xs text-sura-muted text-center py-4">{t("rag.noFiles")}</p>
       ) : (
         <div className="space-y-1 max-h-60 overflow-y-auto">
           {documents.map((doc) => (
@@ -115,19 +116,19 @@ export function RagFileManager() {
               <div className="flex-1 min-w-0">
                 <p className="truncate font-medium">{doc.fileName}</p>
                 <p className="text-sura-muted">
-                  {getFileTypeLabel(doc.fileType)} · {formatFileSize(doc.fileSize)} · {doc.chunkCount} قطعة
+                  {getFileTypeLabel(doc.fileType)} · {formatFileSize(doc.fileSize)} · {plural("rag.chunkCount", doc.chunkCount)}
                 </p>
               </div>
               <Badge variant={doc.status === "indexed" ? "default" : doc.status === "error" ? "destructive" : "secondary"}>
                 {statusLabel(doc.status)}
               </Badge>
               {doc.persistence === "temp" && (
-                <Badge variant="outline">مؤقت</Badge>
+                <Badge variant="outline">{t("rag.tempBadge")}</Badge>
               )}
               <button
                 className="text-sura-muted hover:text-sura-warn"
                 onClick={() => void handleDelete(doc)}
-                aria-label={ar.ragDeleteFile}
+                aria-label={t("rag.deleteFile")}
               >
                 ×
               </button>
@@ -139,7 +140,7 @@ export function RagFileManager() {
       {/* Clear Temp Button */}
       {documents.some((d) => d.persistence === "temp") && (
         <Button size="sm" variant="ghost" onClick={() => void handleClearTemp()}>
-          {ar.ragClearTemp}
+          {t("rag.clearTemp")}
         </Button>
       )}
     </div>

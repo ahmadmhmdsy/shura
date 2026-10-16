@@ -32,15 +32,32 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck, lint, coverage, build
         run: pnpm check:all
+      # The measured numbers in README.md and docs/environment.md must match the dist/
+      # and coverage/ this job just produced; pnpm docs:numbers rewrites them from those
+      # artifacts, so a non-empty diff means the documents had drifted.
+      - name: Measured documentation is up to date (blocking)
+        run: pnpm docs:numbers && git diff --exit-code -- README.md docs/
       - name: Install Chromium for Playwright
         run: pnpm exec playwright install --with-deps chromium
-      - name: Mocked end-to-end suite
-        run: pnpm test:e2e
-      - name: Report JavaScript dependency audit (non-blocking)
-        continue-on-error: true
-        run: |
-          pnpm audit --json > audit.json || true
-          node -e "const a=require('./audit.json');const v=a.metadata&&a.metadata.vulnerabilities||{};console.log('JS audit advisories:', JSON.stringify(v));if(Object.keys(v).length)process.exitCode=1"
+      # Browser project only. Bare "pnpm test:e2e" also collects the "tauri" project,
+      # which drives a live desktop webview through @srsholmes/tauri-playwright and
+      # cannot run on a headless Linux runner. The desktop project belongs to the
+      # Windows job that builds the app (T6.1), not here.
+      - name: Mocked end-to-end suite (browser project)
+        run: pnpm test:e2e:browser
+      # Blocking gate: every advisory must be registered in
+      # docs/security/dependency-advisories.md with an unexpired re-review date.
+      - name: Dependency audit gate (blocking)
+        run: pnpm audit:check
+      - name: Save the raw audit report
+        if: always()
+        run: pnpm audit --json > audit.json || true
+      - name: Upload the audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: audit.json
 
   rust:
     name: Rust gates (fmt, check, test, audit report)

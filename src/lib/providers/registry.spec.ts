@@ -28,8 +28,18 @@ describe("provider registry", () => {
     expect(p.baseURL).toBe("https://opencode.ai/zen/go/v1");
     expect(p.sessionHeaderName).toBe("x-opencode-session");
   });
+  // [T2.9/LV-03] المزود لا ينشر pricing ولا context_length في /models (المقيس: id/object/created/owned_by
+  // فقط)، فكل رقم مكتوب يدويًا هنا بلا مصدر منشور كان اختراعًا يظهر للمستخدم كـ$. الصدق هو «غير معروف».
+  it("opencodego بلا سعر أو حد سياق منشور: كل الصفوف الثابتة مجهولة لا مُختلقة", () => {
+    const p = getProvider("opencodego");
+    expect(p.staticModels.length).toBeGreaterThan(0);
+    for (const m of p.staticModels) {
+      expect(m.pricing).toBeNull();
+      expect(m.contextLength).toBeUndefined();
+    }
+  });
   it("مزود مجهول يرمي خطأ واضحًا", () => {
-    expect(() => getProvider("nonexistent" as never)).toThrow(/مزود مجهول|مزود غير معروف/);
+    expect(() => getProvider("nonexistent" as never)).toThrow(/errors\.unknownProvider/);
   });
   it("computeCost يحسب من أسعار الموديل", () => {
     expectNear(computeCost({ inputTokens: 1_000_000, outputTokens: 1_000_000 }, { pricing: { inputPerMTok: 1, outputPerMTok: 2 } }), 3);
@@ -42,8 +52,8 @@ describe("provider registry", () => {
     const m2 = buildLanguageModel("google", "KEY", "gemini-2.5-pro", async () => new Response());
     expect(m1 && m2).toBeTruthy();
   });
-  it("buildLanguageModel بلا مفتاح يرمي خطأ عربيًا", () => {
-    expect(() => buildLanguageModel("minimax", "", "MiniMax-M2", async () => new Response())).toThrow(/مفتاح/);
+  it("buildLanguageModel بلا مفتاح يرمي خطأ مُفتَّحًا", () => {
+    expect(() => buildLanguageModel("minimax", "", "MiniMax-M2", async () => new Response())).toThrow(/errors\.apiKeyMissing/);
   });
 
   it("uses cache-read pricing", () => {

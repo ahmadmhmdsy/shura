@@ -32,11 +32,3 @@ export async function extractDocxText(file: File | Blob): Promise<DocxExtraction
     metadata: {},
   };
 }
-
-/**
- * Check if mammoth is available.
- * mammoth is a large library, so we lazy-load it.
- */
-export function isDocxSupported(): boolean {
-  return true;
-}

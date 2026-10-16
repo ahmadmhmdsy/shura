@@ -84,11 +84,11 @@ describe("RagFileManager", () => {
     render(<RagFileManager />);
 
     expect(screen.getByText("تقرير.pdf")).toBeTruthy();
-    expect(screen.getByText("PDF · 2.0 KB · 3 قطعة")).toBeTruthy();
-    expect(screen.getByText("Markdown · 512 B · 1 قطعة")).toBeTruthy();
-    expect(screen.getByText("Text · 100 B · 0 قطعة")).toBeTruthy();
-    expect(screen.getByText("CSV · 1.0 KB · 2 قطعة")).toBeTruthy();
-    expect(screen.getByText("Log · 10 B · 1 قطعة")).toBeTruthy();
+    expect(screen.getByText("PDF · 2.0 KB · 3 قطع")).toBeTruthy();
+    expect(screen.getByText("Markdown · 512 B · قطعة واحدة")).toBeTruthy();
+    expect(screen.getByText("Text · 100 B · لا قطع")).toBeTruthy();
+    expect(screen.getByText("CSV · 1.0 KB · قطعتان")).toBeTruthy();
+    expect(screen.getByText("Log · 10 B · قطعة واحدة")).toBeTruthy();
     expect(screen.getAllByText("مفهرس")).toHaveLength(2);
     expect(screen.getByText("جارٍ الفهرسة…")).toBeTruthy();
     expect(screen.getByText("خطأ")).toBeTruthy();
@@ -236,7 +236,7 @@ describe("RagFileManager", () => {
     fireEvent.click(screen.getByText("حذف الملفات المؤقتة"));
 
     await waitFor(() => expect(cleanupTempDocuments).toHaveBeenCalled());
-    expect(alertMock).toHaveBeenCalledWith("تم حذف 2 ملف مؤقت");
+    expect(alertMock).toHaveBeenCalledWith("حُذف ملفان مؤقتان");
     await waitFor(() =>
       expect(useRagStore.getState().refreshDocuments).toHaveBeenCalled(),
     );

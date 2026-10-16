@@ -1,15 +1,26 @@
-import { streamText, isStepCount } from "ai";
-import type { ModelMessage } from "ai";
+import { streamText, isStepCount, InvalidResponseDataError } from "ai";
+import { uiText } from "@/i18n";
+import type { LanguageModelUsage, ModelMessage } from "ai";
 import { buildLanguageModel, computeCost, getProvider } from "@/lib/providers/registry";
 import { buildContextMessages } from "./context";
+import { resolveContextLimit } from "./contextLimit";
 import { getTransportFetch } from "@/lib/transport/transport";
 import { mapProviderError } from "@/lib/providers/keyTest";
-import { createSearchDocumentsTool } from "@/lib/rag/tool";
+import { KeyedError } from "@/lib/errors/keyedError";
 import { useSettingsStore } from "@/state/settingsStore";
 import type { BuiltPrompt, ContextMode, ChatMessage, ModelInfo, ProviderId, TurnStatus, Usage } from "@/types";
 
+/** أقصى عدد خطوات عند تفعيل الأدوات: نداء الأداة ثم إجابة عليها (وأدوار تصحيح بينهما). */
+const TOOL_STEP_BUDGET = 5;
+
+/** [T2.7/LV-02] نافذة الصمت التي تدخل بعدها البطاقة حالة «يفكّر» حين يبلّغ المزوّد عن رموز تفكير ولا يبثّها. */
+const REASONING_SILENCE_MS = 1500;
+
 /** تصنيف صريح لنتيجة النداء: توقف المستخدم ليس خطأ، والغياب الحميد لfinish يبقى متوافقًا فقط عند نهاية بث سليمة */
-export type DispatchStatus = "done" | "stopped" | "error";
+export type DispatchStatus = "done" | "stopped" | "error" | "truncated";
+
+/** أسباب النهاية التي تعني دورًا مكتملًا. (ai FinishReason = 'stop'|'length'|'tool-calls'|'content-filter'|'error'|'other') */
+const SUCCESS_FINISH_REASONS: readonly string[] = ["stop", "length", "tool-calls"];
 
 export interface DispatchOutcome {
   targetId: string;
@@ -38,11 +49,34 @@ export interface DispatchArgs {
   historyFor(targetId: string): readonly ChatMessage[];
   modelInfoFor(targetId: string): ModelInfo;
   onUpdate?(operationId: string, targetId: string, chunk: string): void;
+  /** [T2.7/LV-02] تفعيل/إلغاء حالة التفكير؛ نصّ التفكير لا يُمرَّر لأنه لا يُلحق بالجواب أبدًا. */
+  onReasoning?(operationId: string, targetId: string, active: boolean): void;
   externalSignalFor?(targetId: string): AbortSignal | undefined;
   onStatus?(operationId: string, targetId: string, status: TurnStatus, error?: string): void;
   onToolExecutionStart?(targetId: string, toolName: string): void;
   onToolExecutionEnd?(targetId: string, toolName: string): void;
   onToolExecutionError?(targetId: string, toolName: string, error: string): void;
+}
+
+/**
+ * [T2.4/NL-01] يحوّل استهلاك SDK إلى عقد الاستهلاك المحلي. `inputTokens` هو إجمالي رموز الدخل
+ * (asLanguageModelUsage يقرأ usage.inputTokens.total)، فيشتق computeCost غير المُخزَّن بالطرح ولا
+ * حاجة لحقل noCacheTokens منفصل. الوحدات الجزئية لا تعيش إلا في inputTokenDetails
+ * (ai@7: LanguageModelUsage لا يملك cachedInputTokens ولا cacheWriteInputTokens).
+ * دالة نقية مقيسة مباشرة لأن كلا المزوّدين يثبّت cacheWrite: void 0 فلا يصل عدد الكتابة عبر المزوّد.
+ */
+export function toUsage(u: LanguageModelUsage, costModel: Pick<ModelInfo, "pricing"> | undefined): Usage {
+  const inputTokens = u.inputTokens ?? 0;
+  const outputTokens = u.outputTokens ?? 0;
+  const cachedInputTokens = u.inputTokenDetails?.cacheReadTokens ?? 0;
+  const cacheWriteInputTokens = u.inputTokenDetails?.cacheWriteTokens ?? 0;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    costUSD: costModel ? computeCost({ inputTokens, outputTokens, cachedInputTokens, cacheWriteInputTokens }, costModel) : null,
+  };
 }
 
 export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[]> {
@@ -62,6 +96,7 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
     // فبقيت مهلة النداء ومستمع إلغاء الإشارة الداخلي والخارجي معلقة — كل مسارات الخروج تمر هنا.
     const cleanup = (): void => {
       clearTimeout(timer);
+      clearTimeout(silenceTimer);
       ac.signal.removeEventListener("abort", onAbort);
       externalSignal?.removeEventListener("abort", externalListener);
     };
@@ -69,11 +104,28 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
     // [L5] Move status?.("streaming") inside the try block so cleanup runs if it throws.
     // status?.("streaming"); // Moved inside try block below.
     // [تصحيح المهمة 5] سبب المهلة كائن ملتقط واحد: التصنيف بمطابقة الهوية (r === timeoutReason) بدل regex الرسالة
-    const timeoutReason = new Error("انتهت مهلة النداء");
+    const timeoutReason = new KeyedError("errors.callTimeout");
     const timer = setTimeout(() => ac.abort(timeoutReason), timeout);
     let rawError: unknown;
     // [المهمة 5] المراكم مشترك وخارج السباق: الإيقاف/المهلة/فشل المزود كلها تحفظ النص الجزئي
     const acc: Accumulator = { text: "" };
+    // [T7.4] آخر استهلاك أبلغ عنه المزود في جزء finish-step، ونموذج تسعيره. يُستردان في مساري
+    // التوقف والخطأ: إلغاء أثناء خطوة لا يُنتج جزءًا جديدًا (قياس ai@7.0.92)، لكن خطوة اكتملت
+    // قبل الإلغاء تبلّغ باستهلاكها، فحفظها أصدق من تسجيل صفر.
+    let lastUsage: LanguageModelUsage | undefined;
+    let costModelForUsage: Pick<ModelInfo, "pricing"> | undefined;
+    const salvageUsage = (): { usage?: Usage } =>
+      lastUsage === undefined ? {} : { usage: toUsage(lastUsage, costModelForUsage) };
+    // [T2.7/LV-02] حالة «يفكّر» لكل هدف، بانتقالات حدّية فقط: تُضبط من دلتات التفكير،
+    // أو من صمتٍ يتجاوز النافذة (مزوّد يبلّغ عن رموز تفكير ولا يبثّها — step-5).
+    // نصّ التفكير لا يدخل acc.text ولا onUpdate: الحالة وحدها تُنشر.
+    let reasoningActive = false;
+    let silenceTimer: ReturnType<typeof setTimeout> | undefined;
+    const setReasoning = (active: boolean): void => {
+      if (reasoningActive === active) return;
+      reasoningActive = active;
+      args.onReasoning?.(args.operationId, p.targetId, active);
+    };
     // [تصحيح المهمة 5] بوابة الحسم: يجبود توقف تراكم النص وonUpdate بعد إغلاق السباق
     let terminal = false;
     let onAbort: () => void = () => {};
@@ -87,15 +139,15 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
         // — وكلاهما يُثري النتيجة بالنص المتراكم خارج السباق ويجود البوابة قبل الوصول إلى resolve
         const isTimeout = r === timeoutReason;
         terminal = true;
-        const reason = r instanceof Error ? r : new Error(typeof r === "string" && r ? r : "ألغي النداء");
-        // Note: usage is not available when the stream is aborted (user stop/timeout).
-        // The AI SDK only exposes result.usage after normal stream completion.
-        // This is a known limitation — stopped/error outcomes record 0 tokens.
+        const reason = r instanceof Error ? r : new Error(typeof r === "string" && r ? r : uiText.t("errors.callCancelled"));
+        // [T7.4] قياس مباشر على ai@7.0.92: عند الإلغاء لا يصل أي جزء finish-step إضافي ووعده
+        // result.usage يبقى معلّقًا (PENDING) فلا يجوز انتظاره. ما وصل قبل الإلغاء يُسترد هنا.
         resolve({
           targetId: p.targetId, operationId: args.operationId,
           status: isTimeout ? "error" : "stopped",
           text: acc.text,
           ...(isTimeout ? { error: mapProviderError(reason) } : {}),
+          ...salvageUsage(),
           ms: Date.now() - t0,
         });
       };
@@ -110,7 +162,8 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       // — إخلاء سبيلها هنا يعيد فشل DispatchOutcome عاديًا من كتلة catch دون أي نداء شبكة.
       const modelMessages: ModelMessage[] = buildContextMessages(
         history, p.text, args.contextMode,
-        modelInfo.contextLength ?? 128000,
+        // [T2.5/NL-02] الحد من مصدره الواحد: المقياس يقرأ الرقم نفسه فلا يقع رفض بلا حركة مقياس.
+        resolveContextLimit(modelInfo).limit,
       );
       const flow = (async (): Promise<DispatchOutcome> => {
         try {
@@ -120,13 +173,26 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
           // بـ NoOutputGeneratedError رسالته "No output generated..." تحوي "generated" فتطابق /rate/ خاطئًا
           // في mapProviderError — الخطأ الخام (APICallError بـ statusCode) هو مصدر الترجمة الصحيحة.
           const ragSettings = useSettingsStore.getState().ragSettings;
-          const searchTool = createSearchDocumentsTool({ settings: ragSettings });
-          // [المهمة 4] حلقة الأدوات: stopWhen هو سبب علة «دعني أبحث» — ai@7 يفترض isStepCount(1)
-          // فلا تصل نتائج الأداة للنموذج أبدًا؛ multiStepTools يفتح حتى 5 خطوات (بحث + إجابة).
+          // [المهمة 4 + NM-01] قرار واحد لا قراران: الأداة تُعرض إن — وفقط إن — كان في
+          // الميزانية خطوة تستهلك نتيجتها. كان التسجيل دائمًا وstopWhen منفصلًا عنه، فيُعرض
+          // search_documents مع isStepCount(1): يستدعيه النموذج، تُنفَّذ الأداة، ثم تتوقف
+          // الحلقة قبل إعادة نتيجتها، فيُوسم الدور done بنص تمهيدي فقط.
+          const stepBudget = args.multiStepTools ? TOOL_STEP_BUDGET : 1;
+          // الاستيراد الديناميكي (LV-09) لا يقع إلا عند الحاجة: مع خطوة واحدة لا تُبنى الأداة
+          // ولا تُحمَّل وحدة RAG أصلًا.
+          const tools = stepBudget > 1
+            ? { search_documents: (await import("@/lib/rag/tool")).createSearchDocumentsTool({ settings: ragSettings }) }
+            : undefined;
+          // [T2.3/NM-03] الكلفة من النموذج المحلول لا من السجل الثابت وحده: النموذج المضاف من
+          // كتالوج المزود المباشر يحمل سعره المنشور في modelInfo، وstaticModels لا تعرفه فيبقى
+          // costUSD null رغم توفّر السعر. السجل الثابت احتياطي حين يخلو الوصف المحلول من سعر.
+          // [T7.4] ويُحسب قبل البث ليخدم استرداد استهلاك خطوة اكتملت بعد إلغاء الدور أيضًا.
+          const staticInfo = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
+          costModelForUsage = modelInfo.pricing ? modelInfo : staticInfo;
           const result = streamText({
             model, messages: modelMessages, abortSignal: ac.signal, maxRetries: 0,
-            tools: { search_documents: searchTool },
-            stopWhen: args.multiStepTools ? isStepCount(5) : isStepCount(1),
+            ...(tools ? { tools } : {}),
+            stopWhen: isStepCount(stepBudget),
             onToolExecutionStart: ({ toolCall }) => { args.onToolExecutionStart?.(p.targetId, toolCall.toolName); },
             onToolExecutionEnd: ({ toolCall, toolOutput }) => {
               // يغلف AI SDK خطأ الأداة المرمي كـ { type: "tool-error", error } — نرصد خاصية error
@@ -138,44 +204,60 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
             },
             onError: ({ error }) => { if (rawError === undefined) rawError = error; },
           });
-          for await (const chunk of result.textStream) {
+          // [T2.7/LV-02] fullStream بدل textStream: textStream يرشّح text-delta فقط فيُسقط التفكير كليًا.
+          // قياس مباشر على المزوّد + ai@7.0.92: دلتات reasoning_content/reasoning تصل
+          // reasoning-start/reasoning-delta/reasoning-end في fullStream، وأول دلتا نص تُطلق reasoning-end.
+          silenceTimer = setTimeout(() => setReasoning(true), REASONING_SILENCE_MS);
+          for await (const part of result.fullStream) {
             // [تصحيح المهمة 5] ما بعد السباق: نقل يتجاهل abort لا يجبود المراكم ولا النداءات
             if (terminal) break;
-            acc.text += chunk;
-            args.onUpdate?.(args.operationId, p.targetId, chunk);
+            if (part.type === "text-delta") {
+              clearTimeout(silenceTimer);
+              silenceTimer = undefined;
+              setReasoning(false);
+              acc.text += part.text;
+              args.onUpdate?.(args.operationId, p.targetId, part.text);
+            } else if (part.type === "reasoning-start" || part.type === "reasoning-delta") {
+              clearTimeout(silenceTimer);
+              silenceTimer = undefined;
+              setReasoning(true);
+            } else if (part.type === "reasoning-end") {
+              setReasoning(false);
+            } else if (part.type === "finish-step") {
+              // [T7.4] استهلاك خطوة اكتملت: يصل قبل نهاية الدورة فيبقى قابلًا للاسترداد لو
+              // أُلغيت الخطوة التالية (تدفق أدوات متعدد الخطوات).
+              lastUsage = part.usage;
+            } else if (part.type === "error" && rawError === undefined) {
+              // fullStream لا يرمي أخطاء منتصف البث: يسلّمها كجزء error ثم يواصل إلى finish.
+              // إهمالها كان سيوسم انقطاعًا مزودًا بـ done (نكوص NM-02)؛ الحسم يبقى في فحص rawError أدناه.
+              rawError = part.error;
+            }
           }
-          // [تحصين مأذون به — تحفظ (أ) من المهمة 8 المنفذ بأمر منسق المهمة 11] مع عدل موثق إجباري:
-          // الصيغة الحرفية «if (rawError !== undefined) throw rawError» بعد حلقة الدلتا تكسر 3 اختبارات
-          // معتمدة في dispatch.spec — ai@7 يطلق onError بخطأ حميد "Response stream ended without a
-          // finish reason" مع نهاية بث سليمة وusage صحيح (الاختبارات هي المواصفة، درس 6/7/9/10).
-          // نرفع الخطأ الخام فور الحلقة لإغلاق نافذة ابتلاع أخطاء منتصف البث، باستثناء ذلك البنين.
-          const benignEnd = rawError instanceof Error && /ended without a finish reason/.test(rawError.message);
-          if (rawError !== undefined && !benignEnd) throw rawError;
-          // [المهمة 5/تصحيح] تصنيف النهاية صريحًا. دليل الكود: ai FinishReason = 'stop'|'length'|
-          // 'content-filter'|'tool-calls'|'error'|'other' — لا وجود لـ'unknown' كسبب صالح، والسبب
-          // غير الصالح من المزود يُعمم إليه (raw إضافي) فلا نقبل إلا أسباب النجاح والباقي خطأ.
+          // [T2.2/NM-02] تصنيف النهاية من حالة البث لا من نص رسالة SDK. قياس مباشر على ai@7.0.92
+          // (مُهيّئان متطابقان إلا في سبب النهاية): البث السليم يُحلّ إلى finishReason 'stop'/'length'/
+          // 'tool-calls' مع usage صحيح، والبث الذي ينتهي جسمه بلا سبب نهاية يُحلّ إلى
+          // finishReason === "error" مع InvalidResponseDataError — والاثنان لا يفترقان في نصّ الرسالة.
+          // كان الفحص القديم يستثني تلك الرسالة بنمط نصي، فيمرّ الانقطاع موسومًا done بنص تمهيدي.
           const fr = (await result.finishReason) as unknown;
           const finishReason: string | undefined = typeof fr === "string" ? fr : undefined;
-          if (rawError === undefined && !benignEnd && (finishReason === undefined || !["stop", "length", "tool-calls"].includes(finishReason))) {
-            throw new Error("نهاية غير معروفة: " + String(finishReason ?? ""));
-          }
+          const cleanEnd = finishReason !== undefined && SUCCESS_FINISH_REASONS.includes(finishReason);
+          // "error" هنا ليس خطأ مزود: هو تصنيف SDK لانتهاء جسم الاستجابة بلا سبب نهاية (انقطاع نقل).
+          const truncatedEnd = finishReason === "error";
+          // خطأ خام حقيقي يُرفع فورًا قبل أي await آخر (نافذة ابتلاع أخطاء منتصف البث تبقى مغلقة).
+          // يُستثنى فقط الخطأ المطابق لحالة الانقطاع نفسها: لا نبتلع خطأ نقل حقيقيًا أبدًا.
+          if (rawError !== undefined && !(truncatedEnd && rawError instanceof InvalidResponseDataError)) throw rawError;
+          if (!cleanEnd && !truncatedEnd) throw new KeyedError("errors.unknownFinishReason", { reason: String(finishReason ?? "") });
           const u = await result.usage;
-          const info = getProvider(p.providerId as ProviderId).staticModels.find((m) => m.id === p.modelId);
-          const usage: Usage = {
-            inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0,
-            // [إصلاح موثق على كود الخطة — 3/3] ai@7: LanguageModelUsage لا يملك cachedInputTokens؛
-            // المكسورة في inputTokenDetails.cacheReadTokens — u.cachedInputTokens خطأ نوعي وقيمته undefined دائمًا.
-            cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
-            // computeCost يقتصر على Pick<Usage,"inputTokens"|"outputTokens">؛ تمرير cachedInputTokens
-            // كائن حرفي بخاصية زائدة (TS2353) — حرفية الخطة المُزامَنة (296fbb5) بلا cachedInputTokens.
-            costUSD: info ? computeCost({ inputTokens: u.inputTokens ?? 0, outputTokens: u.outputTokens ?? 0, cachedInputTokens: u.inputTokenDetails?.cacheReadTokens ?? 0 }, info) : null,
-          };
-          // النافذة الحميدة: إغلاق بلا سبب نهاية لكن بUsage سليم — تعامل معروف في dispatch.spec؛
-          // finishReason يتم آمطه تمامًا (لا "error" ولا String(undefined))
-          return { targetId: p.targetId, operationId: args.operationId, status: "done" as const, text: acc.text, usage, ms: Date.now() - t0, ...(!benignEnd && finishReason !== undefined ? { finishReason } : {}) };
+          const usage = toUsage(u, costModelForUsage);
+          // النص الجزئي محفوظ في الحالتين؛ الفارق أن الانقطاع لا يُوسم done.
+          // finishReason لا يحمل قيمة "error" (تصنيف SDK لا سبب مزود) فلا يُنشر في النتيجة.
+          if (truncatedEnd) {
+            return { targetId: p.targetId, operationId: args.operationId, status: "truncated" as const, text: acc.text, usage, ms: Date.now() - t0 };
+          }
+          return { targetId: p.targetId, operationId: args.operationId, status: "done" as const, text: acc.text, usage, ms: Date.now() - t0, ...(finishReason !== undefined ? { finishReason } : {}) };
         } catch (e) {
           const source = rawError !== undefined ? rawError : e;
-          return { targetId: p.targetId, operationId: args.operationId, status: "error" as const, text: acc.text, error: ac.signal.aborted && !ac.signal.reason ? "أُلغي النداء" : mapProviderError(source), ms: Date.now() - t0 };
+          return { targetId: p.targetId, operationId: args.operationId, status: "error" as const, text: acc.text, error: ac.signal.aborted && !ac.signal.reason ? uiText.t("errors.callCancelled") : mapProviderError(source), ...salvageUsage(), ms: Date.now() - t0 };
         } finally {
           cleanup();
         }

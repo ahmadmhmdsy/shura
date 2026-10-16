@@ -6,7 +6,7 @@
 
 import type { ModelInfo, ProviderId } from "./providers";
 
-export type MessageStatus = "pending" | "streaming" | "done" | "error" | "stopped";
+export type MessageStatus = "pending" | "streaming" | "done" | "error" | "stopped" | "truncated";
 export type PromptKind = "shared" | "custom";
 
 export interface Usage {
@@ -35,6 +35,8 @@ export interface ChatMessage {
   providerId?: ProviderId; modelId?: string; targetId?: string; modelInfo?: ModelInfo;
   promptKind?: PromptKind;
   status: MessageStatus; error?: string; usage?: Usage;
+  /** [T2.7/LV-02] حالة عرض حيّة فقط: المزوّد يبثّ تفكيره ولم يبدأ نص الجواب بعد. لا تُحفظ في الصف الدائم. */
+  reasoning?: boolean;
   /** [المهمة 5] تحذير ثراث جانبي غير نهائي: فشل الاستهلاك/الأرشفة لا يمس النص ولا الحالة */
   sidecarWarning?: string;
   /** حقول المخطط v2: اختيارية للصفوف القديمة فقط؛ كل سجل جديد يملؤها */
@@ -59,7 +61,7 @@ export interface Turn { id: string; sharedPrompt: string | null; customs: Record
 
 /** عقود نطاق دائمة تُستخدم في كل مهام التعزيز اللاحقة */
 export type ContextMode = "stateful" | "stateless";
-export type TurnStatus = "pending" | "streaming" | "done" | "stopped" | "error";
+export type TurnStatus = "pending" | "streaming" | "done" | "stopped" | "error" | "truncated";
 
 export interface TargetConfig {
   targetId: string;

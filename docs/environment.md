@@ -72,8 +72,9 @@
 ## 7. الحالات غير المتحققة على هذا الجهاز (صادقة)
 
 - `pnpm tauri dev` داخل **نافذة حية**، اختبار **مفتاح مزود حقيقي**، و**كتابة فعلية** تحت `Documents\Shura\sessions`: **SKIPPED — متطلب بشري (بيئة بلا GUI تفاعلي)** في المهمتين 14 و15. الوصلات (plugin-http، الحوض المتجذر، النطاق `$DOCUMENTS/Shura/**`) تحققت من مصادر المكونات ومن `cargo check`، لكن لا دليل تشغيلي حي.
+- **المنصّات المدعومة (T6.4 Step 2):** المشحون لهذا الإصدار هو **Windows 10/11 x64** (مثبّت NSIS) فقط. **Linux** يبقى فحص ترجمة في CI (`cargo fmt/check/test` على `ubuntu-latest` مع حزم WebKitGTK) بلا حزمة وبلا دعم، و**macOS** لم يُبنَ أصلًا. التفصيل والأدلة في `docs/release-checklist.md` القسم 2.
 
-## 8. السلسلة الرباعية النهائية (المهمة 15)
+## 8.1. السلسلة الرباعية النهائية (المهمة 15)
 
 `pnpm typecheck && pnpm lint && pnpm test && pnpm build` → **CHAIN_ALL_PASS (exit 0)**
 
@@ -81,24 +82,28 @@
 |---|---|
 | `pnpm typecheck` (tsc --noEmit) | PASS |
 | `pnpm lint` (eslint .) | PASS |
-| `pnpm test` (vitest run) | **PASS — 87/87 اختبارًا (18 ملفًا)، Duration ~10.1s** (سجل المهمة 15؛ السلسلة الأخيرة قبل الدمج: 92/92 عبر 18 ملفًا — انظر سجل ما بعد المراجعة الشاملة) |
+| `pnpm test` (vitest run) | **PASS** — الأعداد المقيسة حاليًا في `8.2 أدناه؛ هذا صف تاريخي من المهمة 15 كان يسجّل 87/87 اختبارًا عبر 18 ملفًا |
 | `pnpm build` (tsc --noEmit && vite build) | PASS — vite 8.2.2، `dist` مُنتج |
 
 - التحذيرات القديمة المعلومة بلا مساس صحيح: `act(...)` في `ChatScreen.spec.tsx` (موثقة منذ المهمة 13)، وتحذيرا Vite (`configLoader: 'native'`/`__dirname`، وحجم chunk أكبر من 500kB) — لم يزد شيء.
 - بلا شبكة في الاختبارات؛ `git status` نظيف قبل كتابة وثائق هذه المهمة.
 
-## 8. بوابة الإصدار (المهمة 11) — ما هي وما نتيجتها
+## 8.2. بوابة الإصدار (المهمة 11) — ما هي وما نتيجتها
 
 أوامر البوابة المضافة في `package.json`:
 
 | الأمر | ما يفعله |
 |---|---|
-| `pnpm typecheck` | `tsc --noEmit` ثم `tsc --noEmit -p tsconfig.node.json` (المشروع الثاني يشمل `vite.config.ts` و`playwright.config.ts` و`e2e/**`) |
-| `pnpm lint` | `eslint .` على الشيفرة فقط (dist و coverage و test-results مستثناة) |
+| `pnpm typecheck` | `tsc --noEmit` ثم `tsc --noEmit -p tsconfig.node.json` (المشروع الثاني يشمل `vite.config.ts` و`playwright.config.ts` و`eslint.config.js` و`e2e/**`) |
+| `pnpm lint` | `eslint .` على الشيفرة فقط (dist و coverage و test-results و playwright-report و src-tauri/target و .superpowers مستثناة) |
 | `pnpm test:coverage` | Vitest + تغطية v8 بعتبة 80/75/80/80 |
 | `pnpm build` | فحص الأنواع ثم `vite build` |
-| `pnpm check:all` | typecheck + lint + coverage + build |
+| `pnpm check:all` | typecheck + lint + coverage + build + check:bundle + audit:check |
 | `pnpm test:e2e` | Playwright (Chromium) على بناء الإنتاج عبر منفذ preview ثابت 4317 |
+| `pnpm test:e2e:desktop` | سطح المكتب: يشغّل التطبيق الحقيقي بمنفذ CDP ثم `playwright test --project=tauri` (6 اختبارات) |
+| `pnpm test:e2e:live` | التحقق الحي مع مزوّد حقيقي (اختياري وخارج CI): يفعّل `SHURA_LIVE_E2E=1` ويحمّل `.env` ثم يشغّل مشروع `live` على `http://tauri.localhost/`. بلا مفتاح يُتخطّى الاختبار (SKIPPED) ولا يفشل. |
+| `pnpm check:live-secrets` | يفحص `test-results/` و`playwright-report/` بحثًا عن أي قيمة سرّية من البيئة، وينشر أسماء الملفات فقط لا القيم. |
+| `pnpm test:e2e:tauri` | مشروع سطح المكتب وحده؛ يحتاج تطبيقًا قيد التشغيل بمنفذ CDP مفتوحًا (السكربت أعلاه يتولّاه) |
 | `pnpm tauri:build:windows` | `pnpm tauri build --bundles nsis` |
 
 **أدوات البوابة المثبتة:** `@playwright/test` 1.63.0، `@axe-core/playwright` 4.13.0،
@@ -111,10 +116,11 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 |---|---|---|
 | تثبيت بقفل مجمّد | `pnpm install --frozen-lockfile` | PASS (exit 0) |
 | البوابة الكاملة | `pnpm check:all` | PASS (exit 0) |
-| تغطية | ضمن `check:all` | 94 ملفًا / 957 اختبارًا — 88.32% statements، 81.74% branches، 86.26% functions، 92.49% lines (العتبة 80/75/80/80 لم تُخفَّض) |
-| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية 1,071.15 kB (gzip 306.08 kB) |
-| متصفح | `pnpm test:e2e` | PASS — 12/12 خلال 25.0s، بمزوّد وهمي داخل الصفحة |
-| تدقيق JS | `pnpm audit --json` | PASS — صفر ثغرة (0 info/low/moderate/high/critical)، exit 0 |
+| تغطية | ضمن `check:all` | <!--G:counts.files-->108<!--/G--> ملفًا / <!--G:counts.tests-->1164<!--/G--> اختبارًا — <!--G:cov.statements-->88.84<!--/G-->% statements، <!--G:cov.branches-->82.48<!--/G-->% branches، <!--G:cov.functions-->86.46<!--/G-->% functions، <!--G:cov.lines-->92.72<!--/G-->% lines (العتبة 80/75/80/80 لم تُخفَّض) |
+| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية <!--G:bundle.entry.kb-->1,109.55<!--/G--> kB (gzip <!--G:bundle.entry.gzip-->312.92<!--/G--> kB)، تحت سقف 1,200,000 بايت؛ البوابة `scripts/check-bundle.mjs` |
+| متصفح | `pnpm build && pnpm test:e2e:browser` | PASS — 24 ناجح / 0 فاشل (ومشروع tauri يضيف 6 اختبارات ويحتاج نافذة سطح مكتب حيّة) (القسم 12 يوثّق ما أُصلح) |
+| تدقيق JS (خام) | `pnpm audit --json` | FAIL (exit 1) — 11 تنبيهًا: 1 critical، 5 high، 5 moderate؛ ثلاثة منها بلا إصلاح منشور. الادعاء السابق «صفر ثغرة» كان قديمًا وغير صحيح. |
+| بوابة التدقيق | `pnpm audit:check` | PASS — كل تنبيه مسجَّل في `docs/security/dependency-advisories.md` مع مبرر وتاريخ إعادة مراجعة، ولا يوجد تنبيه غير مسجَّل أو منتهي المراجعة. |
 | تنسيق Rust | `cargo fmt --check --manifest-path src-tauri/Cargo.toml` | PASS (exit 0) |
 | فحص Rust | `cargo check --locked --manifest-path src-tauri/Cargo.toml` | PASS (exit 0) |
 | اختبارات Rust | `cargo test --locked --manifest-path src-tauri/Cargo.toml` | PASS — 11 اختبارًا (path_policy + credentials)، صفر فاشل |
@@ -123,21 +129,44 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 
 | الملف | الحجم | gzip |
 |---|---|---|
-| `dist/assets/index-*.js` (الحزمة الأساسية) | **1,071.15 kB** | 306.08 kB |
-| `dist/assets/pdf-*.js` (عند الطلب) | 430.93 kB | 129.04 kB |
-| `dist/assets/ort.bundle.min-*.js` (عند الطلب) | 403.16 kB | 109.06 kB |
-| `dist/assets/rag-tool-*.js` (عند الطلب) | 105.45 kB | 30.58 kB |
-| `dist/assets/rag-embedder-*.js` (عند الطلب) | 101.93 kB | 33.80 kB |
-| `dist/assets/index-*.css` | 65.30 kB | 11.40 kB |
-| `dist/assets/credentialStore-*.js` | 2.07 kB | 0.98 kB |
-| `dist/assets/dist-js-*.js` | 1.87 kB | 0.85 kB |
-| `dist/index.html` | 0.73 kB | 0.37 kB |
+| `dist/assets/index-*.js` (الحزمة الأساسية) | **<!--G:bundle.entry.kb-->1,109.55<!--/G--> kB** | <!--G:bundle.entry.gzip-->312.92<!--/G--> kB |
+| `dist/assets/pdf-*.js` (عند الطلب) | <!--G:bundle.pdf.kb-->430.94<!--/G--> kB | <!--G:bundle.pdf.gzip-->127.46<!--/G--> kB |
+| `dist/assets/ort.wasm.bundle.min-*.js` (عند الطلب) | <!--G:bundle.ort.kb-->70.78<!--/G--> kB | <!--G:bundle.ort.gzip-->23.29<!--/G--> kB |
+| `dist/assets/rag-tool-*.js` (عند الطلب) | <!--G:bundle.ragTool.kb-->107.41<!--/G--> kB | <!--G:bundle.ragTool.gzip-->30.98<!--/G--> kB |
+| `dist/assets/rag-vector-index-*.js` (مُحمَّل مسبقًا) | <!--G:bundle.ragVectorIndex.kb-->1.93<!--/G--> kB | <!--G:bundle.ragVectorIndex.gzip-->0.77<!--/G--> kB |
+| `dist/assets/hnswlib-wasm-*.js` (مُحمَّل مسبقًا) | <!--G:bundle.hnswlib.kb-->0.14<!--/G--> kB | <!--G:bundle.hnswlib.gzip-->0.14<!--/G--> kB |
+| `dist/assets/rag-embedder-*.js` (عند الطلب) | <!--G:bundle.ragEmbedder.kb-->105.23<!--/G--> kB | <!--G:bundle.ragEmbedder.gzip-->34.04<!--/G--> kB |
+| `dist/assets/tokenizers-*.js` (عند الطلب) | <!--G:bundle.tokenizers.kb-->34.62<!--/G--> kB | <!--G:bundle.tokenizers.gzip-->10.60<!--/G--> kB |
+| `dist/assets/ort-wasm-simd-threaded-*.wasm` (عند الطلب) | <!--G:bundle.ortWasm.kb-->14,239.90<!--/G--> kB | <!--G:bundle.ortWasm.gzip-->3,687.16<!--/G--> kB |
+| `dist/assets/ort-wasm-simd-threaded-*.mjs` (عند الطلب) | <!--G:bundle.ortGlue.kb-->24.38<!--/G--> kB | <!--G:bundle.ortGlue.gzip-->9.12<!--/G--> kB |
+| `dist/assets/pdf.worker.min-*.mjs` (عند الطلب) | <!--G:bundle.pdfWorker.kb-->1,265.41<!--/G--> kB | <!--G:bundle.pdfWorker.gzip-->375.25<!--/G--> kB |
+| `dist/assets/index-*.css` | <!--G:bundle.css.kb-->93.55<!--/G--> kB | <!--G:bundle.css.gzip-->23.02<!--/G--> kB |
+| `dist/assets/credentialStore-*.js` | <!--G:bundle.credentialStore.kb-->2.08<!--/G--> kB | <!--G:bundle.credentialStore.gzip-->0.98<!--/G--> kB |
+| `dist/assets/dist-js-*.js` | <!--G:bundle.distJs.kb-->1.87<!--/G--> kB | <!--G:bundle.distJs.gzip-->0.85<!--/G--> kB |
+| `dist/index.html` | <!--G:bundle.html.kb-->0.92<!--/G--> kB | <!--G:bundle.html.gzip-->0.49<!--/G--> kB |
 
-**ملاحظة صادقة:** الهامش بين الحزمة الأساسية والحدّ 1,200 kB هو الآن **نحو 128.65 kB** (10.7%)
-بعد فصل شيفرة RAG (`rag-embedder` و`rag-tool` و`ort.bundle.min` و`pdf`) إلى حزم تُحمَّل عند الطلب.
-قبل الفصل كان الهامش ≈ 4.8 kB فقط (0.4%) وكانت أي إضافة صغيرة تكسر الحدّ. الحدّ نفسه **لم يُخفَّض
-ولم يُرفع** — التحسّن جاء من تقسيم الشيفرة لا من إضعاف العتبة. لم يُقسَّم بعد ما تبقّى في الحزمة
-الأساسية، فأي توسّع جديد ينبغي أن يُقيَّم مقابل الهامش الحالي.
+الأصول الثلاثة الأخيرة (wasm المحرّك ولاصقه وعامل pdf.js) **تُشحن داخل المثبّت** وتُقرأ من القرص
+عند أول استخدام لـRAG؛ لا تُنزَّل من شبكة، وعمود gzip مذكور للمقارنة مع النسخ المضغوطة لا للنقل.
+
+**ملاحظة صادقة:** الهامش بين الحزمة الأساسية والحدّ 1,200,000 بايت هو **نحو <!--G:bundle.headroom.kb-->90.45<!--/G--> kB (<!--G:bundle.headroom.percent-->7.5<!--/G-->%)**.
+قبل فصل شيفرة RAG كان ≈ 4.8 kB فقط (0.4%) وكانت أي إضافة صغيرة تكسر الحدّ. الحدّ نفسه **لم يُخفَّض
+ولم يُرفع** — التحسّن جاء من تقسيم الشيفرة لا من إضعاف العتبة. لكن `modulepreload` في `dist/index.html`
+يجعل الحمولة الفعلية عند الإقلاع **<!--G:bundle.eager.kb-->1,325.42<!--/G--> kB** لأن قطع RAG تُحمَّل مسبقًا.
+نُفِّذ T1.3 Step 9 (استيرادات ديناميكية في `dispatch.ts` و`RagSettings.tsx` و`documentManager.ts`) **ولم
+تنقص** الحمولة الفعلية: قائمة `modulepreload` تُشتق من استيرادات المدخل الساكنة، وRolldown يُصدر قطع
+`codeSplitting.groups` كاستيرادات ساكنة للمدخل. إزالة التجميع تُلغي التحميل المسبق لكنها تنقل شيفرة RAG
+إلى الحزمة الأساسية فتصبح 1,304,578 بايت، أي فوق الحدّ. لذلك بقي الحدّ على الحزمة الأساسية (D7/Q7) وبقيت
+الحمولة الفعلية معلومةً لا بوابة؛ التفاصيل والقياسات في `docs/adr/0004-desktop-asset-and-csp-policy.md`.
+فأي توسّع جديد ينبغي أن يُقيَّم مقابل الهامش الأساسي **ومقابل هذه الفجوة**.
+
+**اصطلاح gzip:** الأرقام هنا مقيسة بـ`node zlib` المستوى 9 داخل `scripts/render-env-tables.mjs`.
+قد يختلف رقم gzip الذي يطبعه `vite build` بنحو 1% لأنه يأتي من الحزّام نفسه؛ عمود البايت الخام
+متطابق في الحالتين، وهو ما تقيسه البوابة.
+
+**أثر طبقة التوطين على الميزانية:** كبرت الحزمة الأساسية من 1,071.15 kB إلى **1,095.92 kB** (عند قياس طبقة التوطين وقتها؛ والرقم الحالي 1,108.37 kB كما في القسم 8.2 وREADME)
+(+24.77 kB)، لأن كتالوجَي اللغة (`src/i18n/en.ts` و`ar.ts`) مستوردان ساكنًا
+في الحزمة الأساسية. الهامش لا يزال كافيًا، لكن أي لغة ثالثة ستضيف كلفة مماثلة إلى الحزمة الأساسية
+ما لم تُحمَّل الكتالوجات عند الطلب لاحقًا. هذا قيد مسجّل لا عيب مُصلَح.
 
 تحذيرات Vite المعروفة بلا أثر: `INEFFECTIVE_DYNAMIC_IMPORT` (استيراد ديناميكي لا ينقل وحدة
 لأنها مستوردة ساكنًا في مكان آخر) — تظهر لكل من `src/lib/db/db.ts` و`@tauri-apps/api/core.js`.
@@ -146,6 +175,10 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 
 - `playwright.config.ts` يشغّل **بناء الإنتاج** (`vite preview` على `127.0.0.1:4317` بمنفذ
   ثابت `--strictPort`) لا خادم التطوير، ويرفض التشغيل إن لم يكن `dist/index.html` موجودًا.
+- **`pnpm test:e2e:browser` لا يبني شيئًا.** يشغّل `playwright test --project=browser` فقط،
+  فيختبر ما في `dist/` كما هو. ملف قديم ⇒ نتائج كاذبة (نجاحًا كانت أو فشلًا) بلا أي إشارة.
+  الأمر الآمن دائمًا: `pnpm build && pnpm test:e2e:browser`. الحماية القائمة تكتفي بوجود
+  `dist/index.html` ولا تكشف قِدَمه.
 - `e2e/mock-provider.ts` يثبّت قبل تنفيذ أي كود للتطبيق دالة تعترض `window.fetch` لأصول المزودين
   الأربعة (OpenRouter، Gemini، MiniMax، OpenCode Go) وتعيد بثّ SSE ثابتًا، وتسجّل جسم كل طلب.
   لا مفتاح حقيقي ولا حساب ولا إنفاق: ما في الاختبار سلسلة وهمية قصيرة.
@@ -156,6 +189,34 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
   (Escape واستعادة التركيز)، تنقّل بلوحة المفاتيح، 390px بلا تمرير أفقي، حجب موارد Markdown
   البعيدة، عدم عودة جلسة محذوفة، غياب المفتاح من سجل الإعدادات المحفوظ، تدقيق axe، وغياب أي
   طلب خارجي.
+
+### 9.1 اختبار سطح المكتب (WebView2) — 2026-10-12
+
+- **الوضع الوحيد الممكن على Windows في `@srsholmes/tauri-playwright@0.4.1` هو `cdp`:** الوضع
+  `tauri` ينتظر ملف مقبس يونكس (`/tmp/tauri-playwright.sock`) لا ينشئه ملحق Windows، وفرع
+  `tauriCommand` يقرأ منفذ TCP من مخرجات التطبيق ثم **يتجاهله** ويبني `PluginClient(socketPath)`
+  دائمًا (dist/index.js:1703-1708).
+- الأمر: `pnpm test:e2e:desktop` (السكربت `scripts/e2e-desktop.mjs`) — يحدّد `app.exe`
+  الأحدث بناءً (`TAURI_E2E_APP` يتجاوزه)، لأن اختبارات CSP تقرأ أسماء الأصول المُجزّأة من
+  `dist/assets` وتطلبها من التطبيق، فبناء قديم يعطي 404. يشغّله بـ `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
+  `--remote-debugging-port=9222`، ينتظر `GET /json/version`، ينفّذ `playwright test --project=tauri`
+  ثم يوقف التطبيق الذي شغّله. متغيّرات التجاوز: `TAURI_E2E_APP` و`TAURI_E2E_CDP`.
+- **التحقق الحي (T6.7):** `scripts/e2e-live.mjs` يمرّر `TAURI_E2E_PROJECT=live` إلى `scripts/e2e-desktop.mjs` (الافتراضي `tauri`) ويفعّل `SHURA_LIVE_E2E`، فلا يُجمع مشروع `live` إطلاقًا في تشغيل عادي أو في CI. مفتاح OpenCode Go يُقرأ من `OPENCODE_API_KEY` في `.env` (غير متتبّع، ولا يُطبع أو يُسجَّل) أو من `SHURA_LIVE_OPENCODE_KEY`، وبقية المزوّدين من `SHURA_LIVE_<PROVIDER>_KEY`. `SHURA_LIVE_NO_DOTENV=1` يثبت البوابة بلا مفتاح.
+- `e2e/tauri-app.spec.ts` ينقل نافذة التطبيق بنفسه إلى أصل المعاينة (`devUrl` مُهمَل في `cdp`)،
+  وهذا يعزل كتاباته عن ملف التطبيق الشخصي، وينتظر `main` لا `window.__PW_ACTIVE__` (الذي لا
+  يعرّفه إلا وضع المقبس). **حدود مقيسة:** لا تُركَّب اعتراضات IPC في `cdp`، فتصل الاختبارات إلى
+  مخزن المفاتيح الحقيقي **قراءةً فقط**، وملف WebView2 يبقى دائمًا على جهاز المطوّر (CI يبدأ فارغًا).
+- نتيجة T6.1 في 2026-10-12 (قبل إضافة اختبار T6.2 أدناه): **4 ناجح / 0 فاشل (13.8 ث)** بلا عملية تطبيق متبقّية.
+- أُضيف 2026-10-12 (T6.2) `e2e/tauri-csp.spec.ts` على **أصل التطبيق نفسه** (`http://tauri.localhost`)،
+  حيث يُفرض CSP الإنتاج فعلًا: `WebAssembly` يشغّل وحدة صغيرة، وwasm محرّك ORT المحزوم (13.58 م.ب) يُصرَّف
+  ويُخدَم 200 من أصل التطبيق بصفر حدث `securitypolicyviolation`، وقطعة ORT المحزومة تُهيَّأ
+  (`InferenceSession`/`env`) وتصل إلى إنشاء جلسة ثم ترفض بايتات غير صحيحة **بعد** تحميل wasm الخاص بها.
+- **إثبات الأسنان في الاتجاهين:** إرجاع `script-src` إلى قيمة ما قبل T1.3 (`'self'` وحدها) وإعادة البناء
+  أعطى **2 فاشل / 4 ناجح (exit 1)** بنصّ العَرَض الإنتاجي نفسه (`no available backend found ... Content
+  Security Policy ... 'unsafe-eval' is not an allowed source`)، ثم إعادة `'wasm-unsafe-eval'` وإعادة
+  البناء أعطت **6 ناجح / 0 فاشل (18.7 ث)**.
+- **حدّ مقيس:** لا ينزّل الاختبار نموذج التضمين (130 م.ب لـ`multilingual-e5-small`) ولا ينفّذ استدلالًا؛
+  ذلك يحتاج الشبكة و`plugin-http`، فمكانه اختبار حيّ اختياري — قرار للمستخدم.
 
 ## 10. عيوب حقيقية كشفتها بوابة الإصدار (وأُصلحت)
 
@@ -178,3 +239,30 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 نتيجة تنفيذ `pnpm tauri:build:windows` موثّقة في
 `.superpowers/sdd/hardening-task-11-report.md` (المهمة 11) و
 `.superpowers/sdd/hardening-task-12-report.md` (المهمة 12).
+
+### 11.1 قرار الحزمة المشحونة: NSIS وحده (T6.3 — 2026-10-12)
+
+- **القرار:** الحزمة المشحونة الوحيدة لهذا الإصدار هي **NSIS**:
+  `src-tauri/target/release/bundle/nsis/shura_0.1.0_x64-setup.exe` (4,095,495 بايت، **غير موقّعة** بحسب Q4)،
+  ويُنتجها `pnpm tauri:build:windows` (= `pnpm tauri build --bundles nsis`). **لا يُشحن `.msi` في هذا الإصدار.**
+- **السبب وقائع لا تفضيل:** هدف WiX 3 يحتاج `light.exe`، وهو يتطلب **.NET Framework 3.5** غير المثبّت على هذا
+  الجهاز؛ تشغيل الهدف الافتراضي `all` يفشل عند MSI فيبقى `bundle/msi` فارغًا (مقيس: 0 ملفًا). والقيمة المعتادة
+  لـ`.msi` (نشر مؤسسي عبر Group Policy) غير قائمة أصلًا ما دام المثبّت غير موقّع (Q4).
+- **إن أراد المشرف لاحقًا إضافة `.msi`:** ثبّت .NET Framework 3.5 (أو WiX 4 الذي لا يحتاجه) ثم شغّل
+  `pnpm tauri build --bundles nsis,msi`؛ لا تغيير في شيفرة التطبيق مطلوب لأن اختيار الهدف من سطر الأوامر.
+  ويُضاف الصف في `docs/release-checklist.md` عند نجاحه.
+- **حدّ صادق:** لم يُثبَّت المثبّت ولم يُشغَّل على جهاز مستخدم في هذه المرحلة (بوابتان بشريتان: T5.3 Step 2 وT6.5 Step 3).
+
+- **حالة التوقيع (T6.5 Step 3):** ملف المثبّت **غير موقّع** — `Get-AuthenticodeSignature` يعيد `Status: NotSigned`، ولا يوجد أي إعداد توقيع في `tauri.conf.json` ولا سرّ توقيع في CI. ما يراه المستخدم عبر SmartScreen والعواقب المقبولة ومسار التوقيع لاحقًا موثّقة في `docs/release-checklist.md` القسم 3.
+
+## 12. بوابة التوطين والرموز التصميمية (2026-10-05)
+
+أُضيفت طبقة توطين موحّدة (`src/i18n/`) ومساعد نص `UiText`، وحُوّلت نصوص الواجهة إليها،
+وأصبحت اللغة والاتجاه يُضبطان على `<html>` قبل أول رسم. القياس الفعلي بعد التحويل:
+
+| الفحص | الأمر | النتيجة |
+|---|---|---|
+| فحص الأنواع | `pnpm typecheck` | PASS (exit 0) |
+| التدقيق | `pnpm lint` | PASS — صفر خطأ وصفر تحذير |
+| الاختبارات والتغطية | `pnpm test:coverage` | PASS — 97 ملفًا / 1005 اختبارًا (قياس 2026-10-05؛ الحالة الحالية في القسم 8.2: 109 ملفًا / 1162 اختبارًا) |
+| البناء | `pnpm build` | PASS |

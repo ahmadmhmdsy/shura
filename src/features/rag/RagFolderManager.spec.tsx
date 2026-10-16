@@ -48,7 +48,7 @@ describe("RagFolderManager", () => {
     render(<RagFolderManager />);
     expect(screen.getByText("مستندات")).toBeTruthy();
     expect(screen.getByText("نشط")).toBeTruthy();
-    expect(screen.getByText(/1 ملف/)).toBeTruthy();
+    expect(screen.getByText("ملف واحد")).toBeTruthy();
   });
 
   it("زر الإضافة يستدعي addFolder بالمسار", async () => {

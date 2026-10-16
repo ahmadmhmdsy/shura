@@ -20,6 +20,20 @@ describe("summarizeRagStatus", () => {
   it("عدد الملفات المفهرسة عند عدم وجود نشاط", () => {
     const s = summarizeRagStatus([doc({ status: "indexed" }), doc({ status: "indexed" })], []);
     expect(s.tone).toBe("ok");
-    expect(s.label).toContain("2");
+    expect(s.label).toBe("ملفان مفهران");
+  });
+  it("يحذّر من القطع القديمة حتى لو بدت الملفات مفهرسة", () => {
+    const s = summarizeRagStatus(
+      [doc({ status: "indexed" }), doc({ status: "indexed" })],
+      [],
+      {},
+      3,
+    );
+    expect(s.tone).toBe("warn");
+    expect(s.label).toBe("3 ملفات تحتاج إعادة فهرسة");
+  });
+  it("الفهرسة الجارية والخطأ يسبقان التحذير من القطع القديمة", () => {
+    expect(summarizeRagStatus([doc({ status: "indexing" })], [], {}, 3).tone).toBe("active");
+    expect(summarizeRagStatus([doc({ status: "error" })], [], {}, 3).label).not.toContain("إعادة");
   });
 });

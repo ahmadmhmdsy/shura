@@ -75,6 +75,6 @@ describe("SearchResultIndicator", () => {
   it("يعرض عدد النتائج", () => {
     render(<SearchResultIndicator count={3} />);
 
-    expect(screen.getByText("3 نتيجة بحث")).toBeTruthy();
+    expect(screen.getByText("3 نتائج بحث")).toBeTruthy();
   });
 });

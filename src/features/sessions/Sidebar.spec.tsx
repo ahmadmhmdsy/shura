@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Sidebar } from "./Sidebar";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useComposerStore } from "@/state/composerStore";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 const session = {
   id: "side-1", title: "جلسة جانبية", createdAt: 1, updatedAt: 1, modelIds: [],
@@ -53,5 +54,21 @@ describe("Sidebar durable deletion", () => {
     render(<Sidebar onOpenSettings={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: /حذف/ }));
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("Sidebar keyed deletion failure (T3.2c)", () => {
+  it("يترجم الخطأ المُفتَّح بلغة الواجهة ولا يعرض مفتاح المورد", async () => {
+    useSessionsStore.setState({ sessions: [session], currentId: null, messages: [] });
+    useComposerStore.setState({ drafts: {} });
+    window.confirm = vi.fn(() => true);
+    const remove = vi.fn().mockRejectedValue(new KeyedError("errors.sessionNotFound"));
+    useSessionsStore.setState({ remove } as never);
+    render(<Sidebar onOpenSettings={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /حذف/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("لا توجد جلسة بهذا المعرّف للحذف");
+    expect(alert).not.toHaveTextContent("errors.sessionNotFound");
+    expect(alert).toHaveTextContent("إعادة المحاولة");
   });
 });

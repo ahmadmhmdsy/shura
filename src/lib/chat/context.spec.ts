@@ -24,14 +24,14 @@ describe("buildContextMessages", () => {
 
   it("سياق غير صالح (صفر/سالب/غير رقم) يرمي خطأ عربيًا", () => {
     for (const bad of [0, -5, Number.NaN, Infinity]) {
-      expect(() => buildContextMessages([], "س", "stateful", bad)).toThrow(/حد السياق غير صالح/);
+      expect(() => buildContextMessages([], "س", "stateful", bad)).toThrow(/errors\.invalidContextLength/);
     }
   });
 
   it("سؤال المستخدم الحالي وحده يتجاوز 80% من الحد يرمي خطأ عربيًا", () => {
     // 400 حرف ÷ 4 = 100 تقديرًا > 1000 × 0.8 = 800؟ لا: 100 < 800 — نستخدم حدًا صغيرًا
-    expect(() => buildContextMessages([], currentOf(400), "stateful", 100)).toThrow(/السؤال الحالي يتجاوز حد السياق الآمن/);
-    expect(() => buildContextMessages([], currentOf(3600), "stateless", 1000)).toThrow(/السؤال الحالي يتجاوز حد السياق الآمن/);
+    expect(() => buildContextMessages([], currentOf(400), "stateful", 100)).toThrow(/errors\.contextOverflow/);
+    expect(() => buildContextMessages([], currentOf(3600), "stateless", 1000)).toThrow(/errors\.contextOverflow/);
   });
 
   it("حالة بالسجل: يحافظ على الأدوار المكتملة غير المستبدلة غير الفارغة بالترتيب الزمني ثم السؤال الحالي", () => {
@@ -51,7 +51,7 @@ describe("buildContextMessages", () => {
     ]);
   });
 
-  it("يستبعد صفوف البث والخطأ والتوقف والفارغة والمستبدلة", () => {
+  it("يستبعد صفوف البث والخطأ والتوقف والانقطاع والفارغة والمستبدلة", () => {
     const history = [
       msg({ id: "m1", turnId: "t1", role: "user", text: "س1", createdAt: 10 }),
       msg({ id: "m2", turnId: "t1", role: "assistant", text: "ج1", createdAt: 20 }),
@@ -62,6 +62,9 @@ describe("buildContextMessages", () => {
       msg({ id: "m7", turnId: "t3", role: "assistant", text: "رد مستبدل", createdAt: 70, superseded: true }),
       msg({ id: "m8", turnId: "t4", role: "user", text: "   ", createdAt: 80 }),
       msg({ id: "m9", turnId: "t4", role: "assistant", text: "بلا سؤال فعلي", createdAt: 90 }),
+      // [NM-02] رد مقطوع: نصه جزئي غير موثوق، فلا يدخل سياق الأدوار اللاحقة
+      msg({ id: "m10", turnId: "t5", role: "user", text: "سؤال انقطع رده", createdAt: 100 }),
+      msg({ id: "m11", turnId: "t5", role: "assistant", text: "نص مقطوع", createdAt: 110, status: "truncated" }),
     ];
     const out = buildContextMessages(history, "الآن", "stateful", 10_000);
     expect(out).toEqual([
@@ -154,7 +157,7 @@ describe("buildContextMessages", () => {
   it("تقدير النص العربي الطويل يتجاوز 80% من الحد في سياق صغير", () => {
     // 400 Arabic chars: estimate = ceil(400 / 2.5) = 160 > 100 * 0.8 = 80
     const arabic = "ا".repeat(400);
-    expect(() => buildContextMessages([], arabic, "stateful", 100)).toThrow(/السؤال الحالي يتجاوز حد السياق الآمن/);
+    expect(() => buildContextMessages([], arabic, "stateful", 100)).toThrow(/errors\.contextOverflow/);
   });
 
   it("تقدير estimateTokens لدورة عربية كاملة أعلى من اللاتينية", () => {

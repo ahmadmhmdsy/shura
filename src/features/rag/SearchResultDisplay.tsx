@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useUiText } from "@/i18n";
 
 export interface SearchResult {
   chunkId: string;
@@ -18,11 +19,12 @@ interface SearchResultDisplayProps {
  * Shows the source file and relevance score for each result.
  */
 export function SearchResultDisplay({ results, onViewSource }: SearchResultDisplayProps) {
+  const { t } = useUiText();
   if (results.length === 0) return null;
 
   return (
-    <div className="space-y-2 p-2 bg-sura-panel rounded border border-sura-border text-xs" dir="rtl">
-      <p className="text-sura-muted font-medium">نتائج البحث في المستندات:</p>
+    <div className="space-y-2 p-2 bg-sura-panel rounded border border-sura-border text-xs">
+      <p className="text-sura-muted font-medium">{t("rag.resultsTitle")}</p>
       <div className="space-y-1">
         {results.map((result) => (
           <div
@@ -45,7 +47,7 @@ export function SearchResultDisplay({ results, onViewSource }: SearchResultDispl
                 className="text-sura-muted hover:text-sura-accent shrink-0"
                 onClick={() => onViewSource(result.documentId)}
               >
-                عرض
+                {t("rag.show")}
               </button>
             )}
           </div>
@@ -59,11 +61,12 @@ export function SearchResultDisplay({ results, onViewSource }: SearchResultDispl
  * Compact search result indicator for inline display.
  */
 export function SearchResultIndicator({ count }: { count: number }) {
+  const { plural } = useUiText();
   if (count === 0) return null;
   
   return (
     <Badge variant="outline" className="text-[10px]">
-      {count} نتيجة بحث
+      {plural("rag.resultCount", count)}
     </Badge>
   );
 }

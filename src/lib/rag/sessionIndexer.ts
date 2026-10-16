@@ -7,10 +7,12 @@
  * - Chunks are embedded and stored like any other document
  */
 
+import { uiText } from "@/i18n";
 import { db } from "@/lib/db/db";
 import { newId } from "@/lib/id";
 import { OnnxEmbedder, EMBEDDING_MODELS } from "./embedder";
 import { getVectorIndex } from "./vectorIndex";
+import { currentEmbeddingVersion } from "./embeddingVersion";
 import type { ChatMessage, RagDocument, RagChunk, RagSettings, SessionMeta } from "@/types";
 
 /**
@@ -33,7 +35,7 @@ export async function indexSession(
     id: documentId,
     source: "session",
     persistence: "persistent",
-    fileName: session.title || "جلسة",
+    fileName: session.title || uiText.t("sessions.untitled"),
     fileType: "session",
     fileSize: 0,
     status: "indexing",
@@ -59,15 +61,17 @@ export async function indexSession(
     const chunkTexts = chunks.map((c) => c.text);
     const embeddings = await embedder.embedBatch(chunkTexts);
 
-    // 4. Store chunks in Dexie
+    // 4. Store chunks in Dexie، مخسومةً بهوية النموذج الذي أنتج المتجه فعليًا.
+    const embeddingVersion = currentEmbeddingVersion(model.id) ?? undefined;
     const ragChunks: RagChunk[] = chunks.map((chunk, i) => ({
       id: newId("chunk"),
       documentId,
       chunkIndex: i,
       text: chunk.text,
       embedding: embeddings[i],
+      embeddingVersion,
       metadata: {
-        source: session.title || "جلسة",
+        source: session.title || uiText.t("sessions.untitled"),
         timestamp: chunk.timestamp,
       },
     }));
@@ -75,7 +79,7 @@ export async function indexSession(
     await db.rag_chunks.bulkPut(ragChunks);
 
     // 5. Add to HNSW index
-    const index = getVectorIndex(settings.embeddingModelId, model.dimensions);
+    const index = getVectorIndex(model.id, model.dimensions, embeddingVersion ?? null);
     await index.addVectors(
       ragChunks.map((c) => ({ chunkId: c.id, vector: c.embedding })),
     );

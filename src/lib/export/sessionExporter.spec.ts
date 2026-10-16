@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, SessionMeta } from "@/types";
 import { downloadFile, exportSessionAsJSON, exportSessionAsMarkdown } from "./sessionExporter";
+import { UNKNOWN_COST, formatCost } from "@/lib/usage/cost";
 
 const session: SessionMeta = {
   id: "ab12cd34",
@@ -137,5 +138,20 @@ describe("downloadFile", () => {
     expect(anchors[0].getAttribute("href")).toBe("blob:mock-url");
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+  });
+});
+
+// [T3.4/LV-07] التصدير يبني سلسلة التكلفة من المساعد نفسه الذي تستعمله الواجهة، وبنفس العلامة:
+describe("session export cost (T3.4/LV-07)", () => {
+  it("السعر المجهول يُكتب بالعلامة المشتركة نفسها", () => {
+    const md = exportSessionAsMarkdown(session, [
+      { ...messages[1], usage: { inputTokens: 1, outputTokens: 2, cachedInputTokens: 0, costUSD: null } },
+    ]);
+    expect(md).toContain("تكلفة " + UNKNOWN_COST);
+  });
+
+  it("والسعر المعروف يخرج من المساعد نفسه", () => {
+    const md = exportSessionAsMarkdown(session, [messages[1]]);
+    expect(md).toContain(formatCost(0.0003, UNKNOWN_COST));
   });
 });

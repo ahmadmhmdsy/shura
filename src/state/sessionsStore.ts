@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { uiText } from "@/i18n";
 import type { ChatMessage, SessionMeta, TargetConfig } from "@/types";
 import { appendMessage, createSession, getMessages, getSession, listSessions, updateSession } from "@/lib/db/repos";
 import { deleteSessionDurably, type DeleteSessionResult } from "@/lib/sessionDeletion";
@@ -9,6 +10,9 @@ import { newId } from "@/lib/id";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
 import { useComposerStore } from "./composerStore";
 import { logger } from "@/lib/logging";
+import { cleanupTempFiles } from "@/lib/rag/tempCleanup";
+import { isTerminal } from "@/lib/db/repos/identity";
+import { KeyedError } from "@/lib/errors/keyedError";
 
 // المرجع: .superpowers/sdd/hardening-task-3-brief.md الخطوة 4 — حجب الحمولة القديمة حسب الجيل.
 // كل عملية تفتح/تسمّي/تحذف جلسة تُزايد الجيل تزامنيًا عند بدئها، وأي التزام متأخر
@@ -36,6 +40,20 @@ interface SessionsState {
   clearCurrent(): void;
 }
 
+/**
+ * [T8.1] تنظيف الملفات المؤقتة عند مغادرة جلسة، وفق الإعداد "after_session" فقط.
+ * أفضل جهد: فشل التنظيف لا يمنع فتح أو حذف جلسة.
+ */
+async function cleanupAfterLeaving(previousId: string | null): Promise<void> {
+  if (!previousId) return;
+  if (useSettingsStore.getState().ragSettings.tempCleanup !== "after_session") return;
+  try {
+    await cleanupTempFiles("after_session");
+  } catch {
+    // تجاهُل مقصود.
+  }
+}
+
 export const useSessionsStore = create<SessionsState>((set, get) => ({
   sessions: [], currentId: null, messages: [], loading: false, loadGeneration: 0, openGeneration: 0,
   async load() {
@@ -52,8 +70,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   },
   async newSession() {
     const gen = get().openGeneration + 1;
+    const previous = get().currentId;
     set({ openGeneration: gen });
-    const meta: SessionMeta = { id: newId("s"), title: "جلسة جديدة", createdAt: Date.now(), updatedAt: Date.now(), modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false };
+    const meta: SessionMeta = { id: newId("s"), title: uiText.t("app.newSession"), createdAt: Date.now(), updatedAt: Date.now(), modelIds: [], primaryTarget: null, layoutMode: "vertical", onDisk: false };
     try {
       await createSession(meta);
       logger.info("Session created", { sessionId: meta.id });
@@ -64,11 +83,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     // الجلسة أُنشئت في Dexie مطلقًا (لا للتراجع)؛ لكن التبديل إليها يلتفت للجيل فقط
     if (get().openGeneration !== gen) return meta;
     set((s) => ({ sessions: [meta, ...s.sessions], currentId: meta.id, messages: [] }));
+    if (previous && previous !== meta.id) await cleanupAfterLeaving(previous);
     return meta;
   },
   async open(id) {
     const gen = get().openGeneration + 1;
+    const previous = get().currentId;
     set({ openGeneration: gen, currentId: id, messages: [], loading: true });
+    if (previous && previous !== id) await cleanupAfterLeaving(previous);
     // تلقيم أهداف الجلسة المحفوظة في مسودتها عند أول فتح: إن كتب المستخدم مسودة قبل هذا التسلسل
     // (مسودة قائمة فعلًا) فهي أحدث قيمة ولا تُستبدل بالبذرة.
     const meta = get().sessions.find((x) => (x.id === id));
@@ -98,6 +120,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   },
   async remove(id) {
     const gen = get().openGeneration + 1;
+    const previous = get().currentId;
     set({ openGeneration: gen });
     // A live operation must stop and drain before deletion. Its durable finalizers
     // write messages/usage/turns, so deleting first would let a late write recreate
@@ -108,7 +131,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
     // The live row is the deletion payload: its onDiskDir is the only safe archive path.
     const target = get().sessions.find((session) => session.id === id) ?? await getSession(id);
-    if (!target) throw new Error("لا توجد جلسة بهذا المعرّف للحذف");
+    if (!target) throw new KeyedError("errors.sessionNotFound");
     // Durable deletion: the disk witness, then the database transaction, then the
     // archive bytes. A rejection leaves the session, its draft, and its archive intact.
     const result = await deleteSessionDurably(
@@ -121,6 +144,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     useComposerStore.getState().clearSession(id);
     if (get().openGeneration !== gen) return result;
     set((s) => ({ sessions: s.sessions.filter((x) => (x.id !== id)), currentId: s.currentId === id ? null : s.currentId, messages: s.currentId === id ? [] : s.messages }));
+    if (previous === id) await cleanupAfterLeaving(id);
     return result;
   },
   // المرجع: .superpowers/sdd/hardening-task-3-target-fix.md — عقد async قابل للرصد:
@@ -197,7 +221,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           continue;
         }
         if (existingIdentity && !incomingIdentity) continue;
-        const existingTerminal = existing.status === "done" || existing.status === "error" || existing.status === "stopped";
+        const existingTerminal = isTerminal(existing.status);
         if (existingTerminal && existing.status !== m.status && !newerAttempt) continue;
         const current = byId.get(m.id);
         const sameStoredIdentity = current?.operationId === m.operationId && current?.attemptId === m.attemptId && current?.attempt === m.attempt;
@@ -215,7 +239,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set((s) => ({
       messages: s.messages.map((m) => {
         if (m.id !== id || m.sessionId !== s.currentId) return m;
-        const terminal = m.status === "done" || m.status === "error" || m.status === "stopped";
+        const terminal = isTerminal(m.status);
         if (terminal && patch.status !== undefined && patch.status !== m.status) return m;
         const immutableKeys = ["id", "sessionId", "turnId", "createdAt", "role", "kind", "promptKind", "targetId", "providerId", "modelId", "operationId", "attemptId", "attempt"] as const;
         for (const key of immutableKeys) {

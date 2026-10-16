@@ -33,7 +33,7 @@ export interface OperationProgress {
   messageId: string;
   targetId: string;
   text: string;
-  status: "pending" | "streaming" | "done" | "error" | "stopped";
+  status: ChatMessage["status"];
   error?: string;
   message: ChatMessage;
 }

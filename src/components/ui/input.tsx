@@ -11,9 +11,9 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         "selection:bg-[var(--sura-accent-primary)] selection:text-[var(--sura-accent-foreground)]",
         "placeholder:text-[var(--sura-input-placeholder)]",
         "hover:border-[var(--sura-border-secondary)]",
-        "focus-visible:border-[var(--sura-input-border-focus)] focus-visible:ring-[var(--sura-border-width-focus)] focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-surface-primary)]",
+        "focus-visible:border-[var(--sura-input-border-focus)]",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        "aria-invalid:border-[var(--sura-error)] aria-invalid:ring-[var(--sura-error)]/20",
+        "aria-invalid:border-[var(--sura-error)]",
         className
       )}
       {...props}

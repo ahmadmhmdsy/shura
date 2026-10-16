@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { sessionOperationCoordinator, type OperationProgress } from "@/lib/chat/operationCoordinator";
 import type { ChatMessage } from "@/types";
+import { isTerminal } from "@/lib/db/repos/identity";
 
 /**
  * Hydrates the live message list from the operation coordinator's buffered
@@ -45,13 +46,13 @@ export function useOperationProgressSync(
         current.role !== message.role ||
         current.kind !== message.kind
       )) continue;
-      const currentTerminal = current && (current.status === "done" || current.status === "error" || current.status === "stopped");
+      const currentTerminal = current && isTerminal(current.status);
       if (currentTerminal && (progress.status === "pending" || progress.status === "streaming")) continue;
       // While the operation is open, a progress row may be the first row visible
       // after a remount. After close, only a terminal snapshot is safe to hydrate.
       if (!current) {
         const open = sessionOperationCoordinator.isOperationOpen(progress.operationId, sessionId);
-        const terminal = progress.status === "done" || progress.status === "error" || progress.status === "stopped";
+        const terminal = isTerminal(progress.status);
         if (!open && !terminal) continue;
       }
       const next = { ...message, text: progress.text, status: progress.status, error: progress.error };

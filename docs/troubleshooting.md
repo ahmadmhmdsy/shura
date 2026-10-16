@@ -54,7 +54,7 @@ Sessions are stored in IndexedDB (browser) or recovered from on-disk folders (de
 
 ### Context meter shows "?" or wrong percentage
 
-The estimate is approximate (chars ÷ 4). If the model's context length is unknown, the meter shows "?". This is expected, not a bug.
+The estimate is approximate and Arabic-aware (about 2.5 characters per token for Arabic and 4 for Latin, weighted by the mix; src/lib/tokens/estimate.ts). If the model's context length is unknown, the meter shows "?". This is expected, not a bug.
 
 ### App is slow with many documents
 
@@ -70,7 +70,7 @@ On desktop, keys are stored in the OS keychain. On web, they are in IndexedDB. I
 
 When filing a bug report, include:
 
-1. **App version** — see `package.json` or the about dialog.
+1. **App version** — see `package.json`, `src-tauri/tauri.conf.json`, or the installer file name.
 2. **Environment** — web (browser + version) or desktop (OS + version).
 3. **Steps to reproduce** — what you did, what you expected, what happened.
 4. **Provider and model** — which provider/model was involved.

@@ -7,6 +7,7 @@ import {
   getModelDownloadStatus,
   isModelDownloaded,
 } from "./modelDownloader";
+import { putModel } from "./modelCache";
 
 const mockFetch = vi.fn();
 
@@ -113,12 +114,47 @@ describe("downloadModel", () => {
     await expect(downloadModel("multilingual-e5-small")).rejects.toThrow("No response body");
   });
 
+  it("يقرأ جسمًا كاملًا بلا بثّ (مسار plugin-http على سطح المكتب)", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: (name: string) => (name.toLowerCase() === "content-length" ? "5" : null) },
+      body: null,
+      arrayBuffer: async () => new Uint8Array([4, 5, 6, 7, 8]).buffer,
+    });
+    const onProgress = vi.fn();
+
+    await downloadModel("multilingual-e5-small", onProgress);
+
+    expect((await db.rag_models.get("multilingual-e5-small"))?.sizeBytes).toBe(5);
+    expect(new Uint8Array((await db.rag_model_blobs.get("multilingual-e5-small"))!.bytes)).toEqual(
+      new Uint8Array([4, 5, 6, 7, 8]),
+    );
+    expect(onProgress).toHaveBeenCalledWith({ loaded: 5, total: 5, percent: 100 });
+  });
+
   it("ينزّل نموذجًا بلا أي قطعة بيانات", async () => {
     mockFetch.mockResolvedValue(streamResponse([], 0));
 
     await downloadModel("multilingual-e5-small");
 
     expect((await db.rag_models.get("multilingual-e5-small"))?.sizeBytes).toBe(0);
+  });
+
+  it("صفّه مطابق تمامًا لما يكتبه الكاتب المشترك لنفس البايتات (T1.6، NL-05)", async () => {
+    mockFetch.mockResolvedValue(streamResponse([[1, 2, 3], [4, 5]], 5));
+    await downloadModel("multilingual-e5-small");
+    const fromDownloader = await db.rag_models.get("multilingual-e5-small");
+
+    // نفس البايتات عبر الكاتب المشترك، بعد إفراغ الجدول: الفرق الوحيد المسموح
+    // هو طابع الوقت، فلو تباعد الوصفان عاد هذا الفحص أحمر.
+    await db.rag_models.clear();
+    await db.rag_model_blobs.clear();
+    await putModel("multilingual-e5-small", new Uint8Array([1, 2, 3, 4, 5]).buffer);
+    const fromWriter = await db.rag_models.get("multilingual-e5-small");
+
+    expect(fromDownloader).toEqual({ ...fromWriter, downloadedAt: expect.any(Number) });
   });
 });
 

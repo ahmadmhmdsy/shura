@@ -9,6 +9,7 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://openrouter.ai/*" },
+        { "url": "https://huggingface.co/*" },
         { "url": "https://generativelanguage.googleapis.com/*" },
         { "url": "https://api.minimax.io/*" },
         { "url": "https://opencode.ai/*" }

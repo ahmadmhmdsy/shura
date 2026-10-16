@@ -52,6 +52,12 @@ describe("StatusAnnouncer", () => {
     expect(screen.getByRole("status").textContent).toBe("انتهى الرد");
   });
 
+  it("announces a truncated stream distinctly from completion", () => {
+    useSessionsStore.setState({ messages: [message("truncated")] as never } as never);
+    render(<StatusAnnouncer />);
+    expect(screen.getByRole("status").textContent).toBe("انتهى التوليد مبكرًا: الرد غير مكتمل");
+  });
+
   it("never reads the model output aloud", () => {
     useSessionsStore.setState({ messages: [{ ...message("done"), text: "محتوى سرّي" }] as never } as never);
     render(<StatusAnnouncer />);

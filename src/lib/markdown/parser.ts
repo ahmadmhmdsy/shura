@@ -30,10 +30,11 @@ export interface RecoveryOptions {
 
 const RECOVERY_ERROR_MAX_CHARS = 240;
 
-/** Same aggregation rule as the controller: any error wins, all-stopped is stopped. */
+/** Same aggregation rule as the controller: error wins, then truncated, then all-stopped. */
 function aggregateStatus(statuses: TurnStatus[]): TurnStatus {
   if (!statuses.length) return "error";
   if (statuses.includes("error")) return "error";
+  if (statuses.includes("truncated")) return "truncated";
   if (statuses.every((status) => status === "stopped")) return "stopped";
   return "done";
 }

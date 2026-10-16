@@ -219,6 +219,48 @@ describe("ChatScreen — التوصيل الحي", () => {
     expect(screen.getAllByText("س1").length).toBeGreaterThan(0);
   });
 
+  it("إعداد «امسح الأسئلة المخصصة بعد الإرسال» يفرّغها مع السؤال الموحد", async () => {
+    const s = await mkSession();
+    seed(s);
+    useComposerStore.getState().setCustom(s.id, "t1_" + s.id, "مخصصة");
+    useSettingsStore.setState({ clearCustomsOnSend: true });
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
+      await sessionOperationCoordinator.waitForIdle();
+    });
+    const draft = useComposerStore.getState().drafts[s.id];
+    expect(draft.sharedPrompt).toBe("");
+    expect(draft.customs).toEqual({});
+  });
+
+  it("بدون ذلك الإعداد تبقى الأسئلة المخصصة كما هي بعد الإرسال", async () => {
+    const s = await mkSession();
+    seed(s);
+    useComposerStore.getState().setCustom(s.id, "t1_" + s.id, "مخصصة");
+    useSettingsStore.setState({ clearCustomsOnSend: false });
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
+      await sessionOperationCoordinator.waitForIdle();
+    });
+    expect(useComposerStore.getState().drafts[s.id].customs).toEqual({ ["t1_" + s.id]: "مخصصة" });
+  });
+
+  it("مع إيقاف الربط يكفي سؤال مخصص — لا يُحجب الإرسال بغياب السؤال الموحد", async () => {
+    const s = await mkSession();
+    seed(s, { prompt: "" });
+    useComposerStore.getState().setSyncMode(s.id, false);
+    useComposerStore.getState().setCustom(s.id, "t1_" + s.id, "سؤال مخصص وحيد");
+    render(<ChatScreen session={s} onOpenSettings={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /إرسال/ }));
+      await sessionOperationCoordinator.waitForIdle();
+    });
+    // الهدف المخصص وحده أُرسل؛ الهدف الثاني بلا سؤال موحد ولا مخصص فأسقطه المُنشئ.
+    expect(await screen.findAllByText("أهلاً", {}, { timeout: 3000 })).toHaveLength(1);
+  });
+
   it("التبديل عمودي/أفقي يُحفظ في Dexie ومخزن الجلسات", async () => {
     const s = await mkSession();
     seed(s);
@@ -890,11 +932,13 @@ describe("المهمة 4 — المقياس الحقيقي، ووضع السيا
     const t2 = { targetId: "t2_" + s.id, providerId: "minimax" as const, modelId: "MiniMax-M2", modelInfo: { id: "MiniMax-M2", label: "MiniMax M2", contextLength: 2000 } };
     useComposerStore.setState({ drafts: { [s.id]: { targets: [t1, t2], syncMode: true, sharedPrompt: "س1", customs: {}, focusTargetId: null, agentMode: false } } });
     render(<ChatScreen session={s} onOpenSettings={() => {}} />);
-    // بلا تركيز: الاحتياط هو الهدف الأول (بلا contextLength) → علامة الجهل «؟» لا 128000 المولّدة (0%/1%)
-    expect(screen.getByText("؟")).toBeInTheDocument();
-    expect(screen.queryByText("1%")).toBeNull();
-    expect(screen.queryByText("0%")).toBeNull();
-    // تركيز الهدف الثاني: 1000 رمز تقديرية من 2000 → 50%
+    // [T2.5/NL-02] بلا تركيز: الاحتياط هو الهدف الأول (بلا contextLength) → المقياس يعرض النسبة
+    // مقابل الحد المفترض نفسه الذي تفرضه البوابة (1000 ÷ 128000 ≈ 1%)، مع علامة «~» حتى لا يُقرأ
+    // الرقم كحد منشور. قبل الإصلاح كان العرض «؟» بلا حركة مقياس تشرح رفض البوابة.
+    expect(screen.getByText("~1%")).toBeInTheDocument();
+    expect(screen.getByTitle("الكونتيكست (حد مفترض)")).toBeInTheDocument();
+    expect(screen.queryByText("؟")).toBeNull();
+    // تركيز الهدف الثاني: 1000 رمز تقديرية من 2000 → 50% (حد منشور: بلا علامة افتراض)
     fireEvent.click(screen.getAllByText(/MiniMax-M2/)[0]);
     expect(await screen.findByText("50%")).toBeInTheDocument();
     expect(screen.queryByText("؟")).toBeNull();
@@ -988,7 +1032,12 @@ describe("المهمة 5 — الخلاصة بالحالة الصريحة وال
       start(controller) {
         controller.enqueue(chunk("قبل"));
         entered();
-        void gate.then(() => { controller.enqueue(chunk("بعد")); controller.close(); });
+        void gate.then(() => {
+          controller.enqueue(chunk("بعد"));
+          // [T2.2] نهاية سليمة صريحة: بلا سبب نهاية يُصنَّف البث مقطوعًا (truncated).
+          controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] }) + "\n\n"));
+          controller.close();
+        });
       },
     }), { status: 200, headers: { "content-type": "text/event-stream" } })) as unknown as typeof fetch);
     const s = await mkSession({ title: "reopen-a" });

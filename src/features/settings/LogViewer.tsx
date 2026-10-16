@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getLogBuffer, getMetrics, type LogEntry, type RunMetrics } from "@/lib/logging";
-import { ar } from "@/i18n/ar";
+import { uiText, useUiText } from "@/i18n";
 
 type LevelFilter = LogEntry["level"] | "all";
 
 const LEVELS: LevelFilter[] = ["all", "debug", "info", "warn", "error"];
-
-const LEVEL_LABEL: Record<LogEntry["level"], string> = {
-  debug: "تتبّع",
-  info: "معلومة",
-  warn: "تحذير",
-  error: "خطأ",
-};
 
 // ألوان من لوحة Tailwind الافتراضية: رموز sura-* في هذا المشروع غير معلنة في
 // @theme فهي لا تولّد أي CSS (انظر تقرير المراجعة §9).
@@ -33,14 +26,16 @@ function defaultRead(): LogSnapshot {
 }
 
 function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString("ar-EG", { hour12: false });
+  return uiText.formatDate(timestamp, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
 function formatUptime(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
-  return minutes > 0 ? `${minutes}د ${seconds}ث` : `${seconds}ث`;
+  return minutes > 0
+    ? uiText.t("dev.uptimeMinutes", { minutes, seconds })
+    : uiText.t("dev.uptimeSeconds", { seconds });
 }
 
 /**
@@ -52,6 +47,13 @@ function formatUptime(ms: number): string {
  * المصدر قابل للحقن ليُختبر العرض دون لمس الحالة العامة للوحدة.
  */
 export function LogViewer({ read = defaultRead }: { read?: () => LogSnapshot } = {}) {
+  const { t } = useUiText();
+  const levelLabel: Record<LogEntry["level"], string> = {
+    debug: t("dev.levelDebug"),
+    info: t("dev.levelInfo"),
+    warn: t("dev.levelWarn"),
+    error: t("dev.levelError"),
+  };
   const [snapshot, setSnapshot] = useState(() => ({ ...read(), now: Date.now() }));
   const [level, setLevel] = useState<LevelFilter>("all");
 
@@ -67,17 +69,17 @@ export function LogViewer({ read = defaultRead }: { read?: () => LogSnapshot } =
 
   return (
     <div className="space-y-3 text-xs">
-      <p className="text-muted-foreground">{ar.devLogDesc}</p>
+      <p className="text-muted-foreground">{t("dev.logDesc")}</p>
 
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Metric label={ar.devLogSessions} value={snapshot.metrics.sessionCount} />
-        <Metric label={ar.devLogMessages} value={snapshot.metrics.messageCount} />
-        <Metric label={ar.devLogErrors} value={snapshot.metrics.errorCount} />
-        <Metric label={ar.devLogUptime} value={formatUptime(snapshot.now - snapshot.metrics.appStartTime)} />
+        <Metric label={t("dev.sessions")} value={snapshot.metrics.sessionCount} />
+        <Metric label={t("dev.messages")} value={snapshot.metrics.messageCount} />
+        <Metric label={t("dev.errors")} value={snapshot.metrics.errorCount} />
+        <Metric label={t("dev.uptime")} value={formatUptime(snapshot.now - snapshot.metrics.appStartTime)} />
       </dl>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-muted-foreground" htmlFor="log-level-filter">{ar.devLogLevel}</label>
+        <label className="text-muted-foreground" htmlFor="log-level-filter">{t("dev.level")}</label>
         <select
           id="log-level-filter"
           className="bg-background border border-border rounded p-1"
@@ -85,15 +87,15 @@ export function LogViewer({ read = defaultRead }: { read?: () => LogSnapshot } =
           onChange={(e) => setLevel(e.target.value as LevelFilter)}
         >
           {LEVELS.map((l) => (
-            <option key={l} value={l}>{l === "all" ? ar.devLogAll : LEVEL_LABEL[l]}</option>
+            <option key={l} value={l}>{l === "all" ? t("dev.all") : levelLabel[l]}</option>
           ))}
         </select>
-        <Button size="sm" variant="outline" onClick={refresh}>{ar.devLogRefresh}</Button>
+        <Button size="sm" variant="outline" onClick={refresh}>{t("dev.refresh")}</Button>
         <span className="text-muted-foreground">{shown.length} / {snapshot.entries.length}</span>
       </div>
 
       {newestFirst.length === 0 ? (
-        <p className="text-muted-foreground">{ar.devLogEmpty}</p>
+        <p className="text-muted-foreground">{t("dev.empty")}</p>
       ) : (
         <ol
           className="max-h-64 divide-y divide-border overflow-y-auto rounded border border-border"
@@ -102,7 +104,7 @@ export function LogViewer({ read = defaultRead }: { read?: () => LogSnapshot } =
           {newestFirst.map((entry, i) => (
             <li key={`${entry.timestamp}-${i}`} className="p-2 font-mono text-[11px] leading-relaxed">
               <span className="text-muted-foreground">{formatTime(entry.timestamp)}</span>{" "}
-              <span className={LEVEL_CLASS[entry.level]}>[{LEVEL_LABEL[entry.level]}]</span>{" "}
+              <span className={LEVEL_CLASS[entry.level]}>[{levelLabel[entry.level]}]</span>{" "}
               <span className="text-foreground">{entry.message}</span>
               {entry.error ? <span className="text-destructive"> — {entry.error.message}</span> : null}
               {entry.context ? (

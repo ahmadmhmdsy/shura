@@ -7,10 +7,16 @@
 import { db } from "@/lib/db/db";
 import { newId } from "@/lib/id";
 import { chunkText } from "./chunker";
-import { OnnxEmbedder, EMBEDDING_MODELS } from "./embedder";
+import { EMBEDDING_MODELS } from "./modelCatalog";
 import { extractText, detectFileType } from "./fileProcessor";
-import { getVectorIndex, clearAllIndexes } from "./vectorIndex";
+import { currentEmbeddingVersion } from "./embeddingVersion";
 import type { RagDocument, RagChunk, RagPersistence, RagSettings } from "@/types";
+
+// محرّك ORT وفهرس HNSW يُحمَّلان عند الحاجة فقط (LV-09): من يستورد هذا الملف من
+// الواجهة (ragStore وComposer وRagFileManager) يريده لعمليات بيانات بحتة، وكان
+// الاستيراد الساكن يُدرج wasm في الوحدة الأساسية فيُحمَّل في كل إقلاع.
+const loadEmbedder = () => import("./embedder");
+const loadVectorIndex = () => import("./vectorIndex");
 
 export interface IndexDocumentOptions {
   persistence: RagPersistence;
@@ -59,6 +65,7 @@ export async function indexDocument(
     });
 
     // 3. Get embedder
+    const { OnnxEmbedder } = await loadEmbedder();
     const model = EMBEDDING_MODELS.find((m) => m.id === settings.embeddingModelId)
       ?? EMBEDDING_MODELS[0];
     const embedder = new OnnxEmbedder(model.id, model.dimensions);
@@ -68,13 +75,16 @@ export async function indexDocument(
     const chunkTexts = chunks.map((c) => c.text);
     const embeddings = await embedder.embedBatch(chunkTexts);
 
-    // 5. Store chunks in Dexie
+    // 5. Store chunks in Dexie، مخسومةً بهوية النموذج الذي أنتج المتجه فعليًا
+    // (model لا settings: هو ما استُخدم في embedBatch أعلاه).
+    const embeddingVersion = currentEmbeddingVersion(model.id) ?? undefined;
     const ragChunks: RagChunk[] = chunks.map((chunk, i) => ({
       id: newId("chunk"),
       documentId,
       chunkIndex: i,
       text: chunk.text,
       embedding: embeddings[i],
+      embeddingVersion,
       metadata: {
         source: file.name,
         timestamp: Date.now(),
@@ -84,7 +94,8 @@ export async function indexDocument(
     await db.rag_chunks.bulkPut(ragChunks);
 
     // 6. Add to HNSW index
-    const index = getVectorIndex(settings.embeddingModelId, model.dimensions);
+    const { getVectorIndex } = await loadVectorIndex();
+    const index = getVectorIndex(model.id, model.dimensions, embeddingVersion ?? null);
     await index.addVectors(
       ragChunks.map((c) => ({ chunkId: c.id, vector: c.embedding })),
     );
@@ -120,10 +131,11 @@ export async function getDocuments(filter?: {
   source?: RagDocument["source"];
   persistence?: RagPersistence;
 }): Promise<RagDocument[]> {
-  let docs = await db.rag_documents.toArray();
-  if (filter?.source) {
-    docs = docs.filter((d) => d.source === filter.source);
-  }
+  // فهرس `source` قائم منذ المخطط v4؛ استعلامه يفهرس بدل مسح الجدول كله،
+  // وهو المفتاح الذي يُرشَّح عليه النطاق في البحث (NM-05).
+  let docs = filter?.source
+    ? await db.rag_documents.where("source").equals(filter.source).toArray()
+    : await db.rag_documents.toArray();
   if (filter?.persistence) {
     docs = docs.filter((d) => d.persistence === filter.persistence);
   }
@@ -187,6 +199,7 @@ export async function reindexAllDocuments(
   await db.rag_chunks.clear();
   
   // Clear vector index
+  const { clearAllIndexes } = await loadVectorIndex();
   clearAllIndexes();
   
   // Re-index each document

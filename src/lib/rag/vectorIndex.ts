@@ -30,9 +30,30 @@ export class VectorIndex {
   private dimensions: number;
   private initialized = false;
   private chunkIds: string[] = [];  // maps index label → chunkId
+  /** هوية فضاء المتجهات التي بُني منها الفهرس الحالي، أو null إن لم تُثبَّت. */
+  private embeddingVersion: string | null = null;
 
-  constructor(dimensions: number) {
+  constructor(dimensions: number, embeddingVersion: string | null = null) {
     this.dimensions = dimensions;
+    this.embeddingVersion = embeddingVersion;
+  }
+
+  /** هوية الفضاء الحالية. */
+  get version(): string | null {
+    return this.embeddingVersion;
+  }
+
+  /**
+   * يثبّت هوية الفضاء، ويعيد true إذا تغيّرت.
+   *
+   * تغيّر الهوية يعني أن كل ما في الفهرس من فضاء آخر، فيُفرَّغ كاملًا بدل أن
+   * يُبحَث فيه؛ وإعادة البناء مسؤولية المستدعي (من القطع الحديثة).
+   */
+  useEmbeddingVersion(embeddingVersion: string | null): boolean {
+    if (this.embeddingVersion === embeddingVersion) return false;
+    this.clear();
+    this.embeddingVersion = embeddingVersion;
+    return true;
   }
 
   /**
@@ -91,8 +112,12 @@ export class VectorIndex {
    * Build the index from all stored chunks.
    * Called on app startup.
    */
-  async buildFromChunks(chunks: RagChunk[]): Promise<void> {
+  async buildFromChunks(
+    chunks: RagChunk[],
+    embeddingVersion: string | null = null,
+  ): Promise<void> {
     if (!this.initialized) await this.initialize();
+    this.embeddingVersion = embeddingVersion;
     
     // Reset and rebuild
     this.index = new this.hnswlib!.HierarchicalNSW("cosine", this.dimensions, "");
@@ -120,6 +145,7 @@ export class VectorIndex {
     this.index = null;
     this.chunkIds = [];
     this.initialized = false;
+    this.embeddingVersion = null;
   }
 }
 
@@ -129,11 +155,17 @@ const indexes = new Map<string, VectorIndex>();
 /**
  * Get or create a vector index for a given embedding model.
  */
-export function getVectorIndex(modelId: string, dimensions: number): VectorIndex {
+export function getVectorIndex(
+  modelId: string,
+  dimensions: number,
+  embeddingVersion: string | null = null,
+): VectorIndex {
   let index = indexes.get(modelId);
   if (!index) {
-    index = new VectorIndex(dimensions);
+    index = new VectorIndex(dimensions, embeddingVersion);
     indexes.set(modelId, index);
+  } else {
+    index.useEmbeddingVersion(embeddingVersion);
   }
   return index;
 }

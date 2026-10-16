@@ -3,14 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { Slot } from "radix-ui"
 
+// [Q9] حلقة التركيز الميتة (ring/ring-offset مع var() غير مصنّف) حُذفت هنا وفي badge/input/textarea/switch/Composer:
+// Tailwind يفسّر var() غير المصنّف لونًا لا عرضًا فلا تُرسم أبدًا، ومؤشر التركيز الوحيد هو outline العام في globals.css.
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--sura-radius-button)] text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] whitespace-nowrap transition-[var(--sura-transition-all)] outline-none focus-visible:ring-[var(--sura-border-width-focus)] focus-visible:ring-[var(--sura-accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--sura-surface-primary)] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-[var(--sura-error)] aria-invalid:ring-[var(--sura-error)]/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--sura-radius-button)] text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] whitespace-nowrap transition-[var(--sura-transition-all)] outline-none disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-[var(--sura-error)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: "bg-[var(--sura-accent-primary)] text-[var(--sura-accent-foreground)] shadow-[var(--sura-shadow-button)] hover:bg-[var(--sura-accent-secondary)] hover:shadow-[var(--sura-shadow-button-hover)] active:scale-[0.98]",
         destructive:
-          "bg-[var(--sura-error)] text-white shadow-[var(--sura-shadow-button)] hover:bg-[var(--sura-error)]/90 hover:shadow-[var(--sura-shadow-button-hover)] active:scale-[0.98]",
+          "bg-[var(--sura-error)] text-[var(--sura-error-foreground)] shadow-[var(--sura-shadow-button)] hover:bg-[var(--sura-error-secondary)] hover:shadow-[var(--sura-shadow-button-hover)] active:scale-[0.98]",
         outline:
           "border border-[var(--sura-border-primary)] bg-[var(--sura-surface-primary)] shadow-[var(--sura-shadow-button)] hover:bg-[var(--sura-hover)] hover:border-[var(--sura-border-secondary)] hover:shadow-[var(--sura-shadow-button-hover)] active:scale-[0.98]",
         "outline-accent":

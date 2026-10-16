@@ -96,6 +96,25 @@ export class ShuraDB extends Dexie {
       rag_models: "id, modelId",
       rag_model_blobs: "id",
     });
+    // [RAG] المخطط v6: هوية التضمين (D2 - ADR 0003). الفهرس إضافي بحت: Dexie
+    // يبنيه من الصفوف القائمة ولا يحذف صفًا. والقطع القديمة تبقى بلا ختم فتُعدّ
+    // قديمة عند البحث، وهذا هو المقصود: متجهاتها أنتجها المُرمِّز البديل القديم
+    // ولا يصحّ أن تختلط بمتجهات النموذج الحقيقي.
+    this.version(6).stores({
+      sessions: "id, updatedAt",
+      messages: "id, sessionId, [sessionId+turnId], createdAt",
+      usage_events: "id, sessionId, ts, providerId",
+      settings: "key",
+      turns: "id, sessionId, createdAt, status",
+      tombstones: "id, deletedAt",
+      operation_leases: "sessionId, operationId, status, updatedAt",
+      credentials: "providerId",
+      rag_documents: "id, source, status, uploadedAt, sessionId, folderId, persistence",
+      rag_chunks: "id, documentId, chunkIndex, [documentId+chunkIndex], embeddingVersion",
+      rag_folders: "id, path, status",
+      rag_models: "id, modelId",
+      rag_model_blobs: "id",
+    });
   }
 }
 

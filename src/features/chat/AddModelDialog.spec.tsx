@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AddModelDialog } from "./AddModelDialog";
 import { setTransportFetch } from "@/lib/transport/transport";
+import { useSettingsStore } from "@/state/settingsStore";
 
 const catalog = (id: string) => new Response(JSON.stringify({ data: [{ id, name: `Live ${id}`, pricing: { prompt: "0.000001", completion: "0.000002" } }] }), { status: 200, headers: { "content-type": "application/json" } });
 
@@ -80,5 +81,34 @@ describe("AddModelDialog model discovery", () => {
       id: "vendor/full",
       pricing: expect.objectContaining({ inputPerMTok: 1, outputPerMTok: 2 }),
     }));
+  });
+});
+
+describe("AddModelDialog entitlement-aware catalog (T2.8/LV-04)", () => {
+  beforeEach(() => { useSettingsStore.setState({ providerKeys: {} }); });
+
+  it("does not request the anonymous catalog when the provider catalog needs a key", async () => {
+    const seen: RequestInit[] = [];
+    setTransportFetch(async (_input, init) => { seen.push(init ?? {}); return catalog("mimo-v2-pro"); });
+    render(<AddModelDialog open onOpenChange={() => undefined} onPick={() => undefined} />);
+
+    fireEvent.click(screen.getByText("OpenCode Go"));
+
+    expect(screen.getByText("glm-5.3")).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(seen).toHaveLength(0);
+    expect(screen.queryByText("Live mimo-v2-pro")).toBeNull();
+  });
+
+  it("requests the entitlement-aware catalog with the saved key", async () => {
+    useSettingsStore.setState({ providerKeys: { opencodego: "sk-test" } });
+    let seen: Headers | undefined;
+    setTransportFetch(async (_input, init) => { seen = new Headers(init?.headers); return catalog("glm-5.3"); });
+    render(<AddModelDialog open onOpenChange={() => undefined} onPick={() => undefined} />);
+
+    fireEvent.click(screen.getByText("OpenCode Go"));
+
+    expect(await screen.findByText("Live glm-5.3")).toBeTruthy();
+    expect(seen?.get("Authorization")).toBe("Bearer sk-test");
   });
 });

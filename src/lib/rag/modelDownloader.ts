@@ -5,8 +5,9 @@
  * and caching them in IndexedDB for offline use.
  */
 
-import { db } from "@/lib/db/db";
+import { getTransportFetch } from "@/lib/transport/transport";
 import { getModelInfo } from "./modelCatalog";
+import { deleteModel as deleteCachedModel, getModel, listModels, putModel } from "./modelCache";
 import type { RagModel } from "@/types";
 
 export interface DownloadProgress {
@@ -21,6 +22,21 @@ export interface DownloadProgress {
  * @param modelId The model ID (e.g., "multilingual-e5-small")
  * @param onProgress Optional progress callback
  */
+/**
+ * قارئ موحّد للاستجابة: الويب يبثّ الجسم (body) فيرى المستخدم النسبة تتقدّم،
+ * أما plugin-http في Tauri فيسلّم البايتات كاملة بلا ReadableStream، فنغلّفها
+ * هنا في قطعة واحدة بدل الفشل بـ«No response body» على سطح المكتب.
+ */
+async function toReader(response: Response): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+  if (typeof response.arrayBuffer !== "function") throw new Error("No response body");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let served = false;
+  return {
+    read: async () =>
+      served ? { done: true, value: undefined } : ((served = true), { done: false, value: bytes }),
+  } as ReadableStreamDefaultReader<Uint8Array>;
+}
+
 export async function downloadModel(
   modelId: string,
   onProgress?: (progress: DownloadProgress) => void,
@@ -28,14 +44,13 @@ export async function downloadModel(
   const model = getModelInfo(modelId);
   if (!model) throw new Error(`Unknown model: ${modelId}`);
 
-  const response = await fetch(model.url);
+  const response = await getTransportFetch()(model.url);
   if (!response.ok) {
     throw new Error(`Download failed: ${response.status} ${response.statusText}`);
   }
 
   const contentLength = Number(response.headers.get("content-length") ?? 0);
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response body");
+  const reader = response.body?.getReader() ?? (await toReader(response));
 
   const chunks: Uint8Array[] = [];
   let loaded = 0;
@@ -65,28 +80,17 @@ export async function downloadModel(
     offset += chunk.length;
   }
 
-  // Cache in IndexedDB: صف وصفي خفيف + البايتات في جدول منفصل، وإلا صار كل
-  // استعلام «هل النموذج منزَّل؟» يسحب مئات الميغابايتات.
-  await db.transaction("rw", [db.rag_models, db.rag_model_blobs], async () => {
-    await db.rag_models.put({
-      id: modelId,
-      modelId,
-      label: model.label,
-      dimensions: model.dimensions,
-      downloadedAt: Date.now(),
-      sizeBytes: totalLength,
-    });
-    // modelBytes أُسند إليه صفًا بصف أعلاه، فمخزنه الخلفي بطول النموذج بالضبط.
-    await db.rag_model_blobs.put({ id: modelId, bytes: modelBytes.buffer as ArrayBuffer });
-  });
+  // الكتابة عبر كاتب الكاش الوحيد (T1.6): صف وصفي خفيف وبايتات في جدول منفصل،
+  // وإلا صار كل استعلام «هل النموذج منزَّل؟» يسحب مئات الميغابايتات.
+  // modelBytes أُسند إليه صفًا بصف أعلاه، فمخزنه الخلفي بطول النموذج بالضبط.
+  await putModel(modelId, modelBytes.buffer as ArrayBuffer);
 }
 
 /**
  * Check if a model is already downloaded.
  */
 export async function isModelDownloaded(modelId: string): Promise<boolean> {
-  const model = await db.rag_models.get(modelId);
-  return model !== undefined;
+  return (await getModel(modelId)) !== undefined;
 }
 
 /**
@@ -97,7 +101,7 @@ export async function getModelDownloadStatus(modelId: string): Promise<{
   sizeBytes: number;
   downloadedAt: number | null;
 }> {
-  const model = await db.rag_models.get(modelId);
+  const model = await getModel(modelId);
   return {
     downloaded: model !== undefined,
     sizeBytes: model?.sizeBytes ?? 0,
@@ -109,17 +113,14 @@ export async function getModelDownloadStatus(modelId: string): Promise<{
  * Delete a downloaded model.
  */
 export async function deleteModel(modelId: string): Promise<void> {
-  await db.transaction("rw", [db.rag_models, db.rag_model_blobs], async () => {
-    await db.rag_models.delete(modelId);
-    await db.rag_model_blobs.delete(modelId);
-  });
+  await deleteCachedModel(modelId);
 }
 
 /**
  * Get all downloaded models.
  */
 export async function getDownloadedModels(): Promise<RagModel[]> {
-  return db.rag_models.toArray();
+  return listModels();
 }
 
 // getModelInfo وgetModelUrl انتقلا إلى "./modelCatalog": كان الكتالوج هنا نسخة

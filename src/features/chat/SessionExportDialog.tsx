@@ -3,22 +3,14 @@ import { Download } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { exportSessionAsJSON, exportSessionAsMarkdown, downloadFile } from "@/lib/export/sessionExporter";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 import type { ChatMessage, SessionMeta } from "@/types";
 
 type ExportFormat = "markdown" | "json";
 type MessageRange = "all" | "prompts" | "results";
 
-const FORMAT_OPTIONS: { value: ExportFormat; label: string }[] = [
-  { value: "markdown", label: ar.exportFormatMarkdown },
-  { value: "json", label: ar.exportFormatJSON },
-];
-
-const RANGE_OPTIONS: { value: MessageRange; label: string }[] = [
-  { value: "all", label: ar.exportRangeAll },
-  { value: "prompts", label: ar.exportRangePrompts },
-  { value: "results", label: ar.exportRangeResults },
-];
+const FORMAT_VALUES: ExportFormat[] = ["markdown", "json"];
+const RANGE_VALUES: MessageRange[] = ["all", "prompts", "results"];
 
 /** Strip characters that are invalid in file names on Windows/macOS/Linux. */
 function safeFilename(title: string): string {
@@ -32,6 +24,16 @@ export function SessionExportDialog({ open, onOpenChange, session, messages }: {
   session: SessionMeta;
   messages: ChatMessage[];
 }) {
+  const { t, plural } = useUiText();
+  const formatLabel: Record<ExportFormat, string> = {
+    markdown: t("exportDialog.formatMarkdown"),
+    json: t("exportDialog.formatJSON"),
+  };
+  const rangeLabel: Record<MessageRange, string> = {
+    all: t("exportDialog.rangeAll"),
+    prompts: t("exportDialog.rangePrompts"),
+    results: t("exportDialog.rangeResults"),
+  };
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [range, setRange] = useState<MessageRange>("all");
 
@@ -64,55 +66,55 @@ export function SessionExportDialog({ open, onOpenChange, session, messages }: {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{ar.exportDialogTitle}</DialogTitle>
-          <DialogDescription>{ar.exportDialogDesc}</DialogDescription>
+          <DialogTitle>{t("exportDialog.title")}</DialogTitle>
+          <DialogDescription>{t("exportDialog.description")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <fieldset>
-            <legend className="text-sm font-medium mb-2">{ar.exportFormat}</legend>
+            <legend className="text-sm font-medium mb-2">{t("exportDialog.format")}</legend>
             <div className="flex flex-wrap gap-4">
-              {FORMAT_OPTIONS.map((option) => (
-                <label key={option.value} className="flex items-center gap-2 text-sm cursor-pointer">
+              {FORMAT_VALUES.map((value) => (
+                <label key={value} className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
                     type="radio"
                     name="export-format"
-                    value={option.value}
-                    checked={format === option.value}
-                    onChange={() => setFormat(option.value)}
+                    value={value}
+                    checked={format === value}
+                    onChange={() => setFormat(value)}
                     className="size-4 accent-[var(--sura-accent-primary)]"
                   />
-                  {option.label}
+                  {formatLabel[value]}
                 </label>
               ))}
             </div>
           </fieldset>
           <fieldset>
-            <legend className="text-sm font-medium mb-2">{ar.exportRange}</legend>
+            <legend className="text-sm font-medium mb-2">{t("exportDialog.range")}</legend>
             <div className="flex flex-wrap gap-4">
-              {RANGE_OPTIONS.map((option) => (
-                <label key={option.value} className="flex items-center gap-2 text-sm cursor-pointer">
+              {RANGE_VALUES.map((value) => (
+                <label key={value} className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
                     type="radio"
                     name="export-range"
-                    value={option.value}
-                    checked={range === option.value}
-                    onChange={() => setRange(option.value)}
+                    value={value}
+                    checked={range === value}
+                    onChange={() => setRange(value)}
                     className="size-4 accent-[var(--sura-accent-primary)]"
                   />
-                  {option.label}
+                  {rangeLabel[value]}
                 </label>
               ))}
             </div>
           </fieldset>
           <p className="text-xs text-sura-muted" role="status">
-            {ar.exportCount.replace("{n}", String(rangeMessages.length))}
+            {plural("exportDialog.count", rangeMessages.length)}
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{ar.cancel}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button onClick={handleExport} disabled={rangeMessages.length === 0}>
             <Download className="size-4" />
-            {ar.exportButton}
+            {t("exportDialog.button")}
           </Button>
         </DialogFooter>
       </DialogContent>

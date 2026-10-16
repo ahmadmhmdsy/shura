@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { uiText } from "@/i18n";
 import { memoryFileSink } from "./sink";
-import { appendTurn, sessionFolderName, writeSessionMeta } from "./writer";
+import { appendTurn, sessionFolderName, usageRow, writeSessionMeta } from "./writer";
+import { UNKNOWN_COST, formatCost } from "@/lib/usage/cost";
 
 const meta = { id: "ab12cd34", title: "سؤال عن المنتج X", createdAt: Date.parse("2026-09-05T10:00:00Z"), updatedAt: Date.parse("2026-09-05T10:00:00Z"), modelIds: ["openai/gpt-4o", "gemini-2.5-pro"], primaryTarget: null, layoutMode: "vertical" as const, onDisk: false };
 
@@ -233,6 +235,34 @@ describe("manifest v2", () => {
   });
 });
 
+
+// [T3.3/D3] طابع الوقت في session.md يأتي من مُنسِّق التطبيق (uiText.formatDate) فيتبع اللغة
+// النشطة، بدل `toLocaleString("ar")` الثابتة التي كانت تكتب العربية حتى لمن اختار الإنجليزية.
+describe("archive timestamp follows the active locale (T3.3)", () => {
+  const ts = Date.parse("2026-09-05T10:01:00Z");
+  const fmt: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "medium" };
+  const write = async (dir: string) => {
+    const sink = memoryFileSink();
+    await appendTurn(sink, dir, meta, { ...turnData, createdAt: ts, attemptId: "at-locale" });
+    return sink.readFile(dir + "/session.md");
+  };
+  afterEach(() => uiText.setLocale("ar"));
+
+  it("بالإنجليزية يظهر الطابع الإنجليزي لا العربي", async () => {
+    uiText.setLocale("en");
+    const md = await write("sessions/t33-en_ab12cd34");
+    expect(md).toContain(uiText.formatDate(ts, fmt));
+    uiText.setLocale("ar");
+    expect(md).not.toContain(uiText.formatDate(ts, fmt));
+  });
+
+  it("وبالعربية يظهر الطابع العربي بلا تغيير مرئي", async () => {
+    uiText.setLocale("ar");
+    const md = await write("sessions/t33-ar_ab12cd34");
+    expect(md).toContain(uiText.formatDate(ts, fmt));
+  });
+});
+
 describe("atomic publication", () => {
   it("لا ينشر التمريرة عند فشل ملف نتيجة ويحفظ المخطط السابق", async () => {
     const base = memoryFileSink();
@@ -319,5 +349,16 @@ describe("serialization and idempotency", () => {
     await sink.writeFile("sessions/tombstones/ab12cd34.json", JSON.stringify({ id: "ab12cd34", deletedAt: 1 }));
     await expect(appendTurn(sink, dir, meta, { ...turnData, attemptId: "at-1" })).rejects.toThrow();
     expect(await sink.exists(dir + "/meta.json")).toBe(false);
+  });
+});
+
+// [T3.4/LV-07] صفّ الاستهلاك في الأرشيف يستعمل المساعد نفسه وعلامة المجهول نفسها:
+describe("usageRow cost (T3.4/LV-07)", () => {
+  const usage = { inputTokens: 1, outputTokens: 2, cachedInputTokens: 0, costUSD: null };
+  it("السعر المجهول يُكتب بالعلامة المشتركة", () => {
+    expect(usageRow(usage)).toContain("| التكلفة | " + UNKNOWN_COST + " |");
+  });
+  it("والسعر المعروف يخرج من المساعد نفسه", () => {
+    expect(usageRow({ ...usage, costUSD: 0.0003 })).toContain(formatCost(0.0003, UNKNOWN_COST));
   });
 });

@@ -11,14 +11,17 @@ import { RagSettings } from "@/features/rag/RagSettings";
 import { RagFileManager } from "@/features/rag/RagFileManager";
 import { RagFolderManager } from "@/features/rag/RagFolderManager";
 import { SimpleModeToggle } from "./SimpleModeToggle";
+import { ClearCustomsToggle } from "./ClearCustomsToggle";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { LogViewer } from "./LogViewer";
-import { ar } from "@/i18n/ar";
+import { useUiText } from "@/i18n";
 import type { ProviderId } from "@/types";
 
-function CollapsibleSection({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function CollapsibleSection({ id, title, children, defaultOpen = false }: { id: string; title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="border-t border-sura-border pt-3" id={"section-" + title.replace(/s+/g, "-")}>
+    // المرساة من المعرف الثابت لا من العنوان: العنوان يتغير مع اللغة فتنكسر المرساة عند التبديل.
+    <section className="border-t border-sura-border pt-3" id={"section-" + id}>
       <button
         type="button"
         className="flex items-center justify-between w-full text-sm font-medium text-sura-foreground mb-2 hover:text-sura-accent transition-colors"
@@ -34,6 +37,7 @@ function CollapsibleSection({ title, children, defaultOpen = false }: { title: s
 }
 
 export function SettingsScreen({ onClose }: { onClose(): void }) {
+  const { t } = useUiText();
   const { primaryTarget, setPrimaryTarget, sessionRootDir, timeoutMs, setTimeoutMs, load, simpleMode } = useSettingsStore();
   const hasAnyTargets = useComposerStore((s) => Object.values(s.drafts).some((d) => d.targets.length > 0));
   const [pSel, setPSel] = useState<ProviderId>("openrouter");
@@ -48,22 +52,23 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
   const selectProvider = (next: ProviderId) => { setPSel(next); setMSel(""); };
 
   const sections = useMemo(() => {
-    // النوع صريح لأن الاستدلال يثبّت العنوان على اتحاد القيم الحرفية، فيرفض إضافة «ar.devLog».
+    // النوع صريح لأن الاستدلال يثبّت العنوان على اتحاد القيم الحرفية، فيرفض إضافة عنوان جديد.
     const all: { id: string; title: string }[] = [
-      { id: "providers", title: ar.provider },
-      { id: "primary-model", title: ar.primaryModel },
-      { id: "session-dir", title: ar.sessionDir },
-      { id: "rag-settings", title: ar.ragSettings },
-      { id: "rag-files", title: ar.ragFiles },
-      { id: "rag-external", title: ar.ragExternalFolders },
-      { id: "timeout", title: ar.timeout },
+      { id: "providers", title: t("settings.providers") },
+      { id: "primary-model", title: t("settings.primaryModel") },
+      { id: "session-dir", title: t("settings.sessionDir") },
+      { id: "rag-settings", title: t("rag.settings") },
+      { id: "rag-files", title: t("rag.files") },
+      { id: "rag-external", title: t("rag.externalFolders") },
+      { id: "timeout", title: t("settings.timeout") },
+      { id: "language", title: t("language.label") },
     ];
     // عارض السجل أداة تطوير: لا يُدرج في فهرس الإنتاج أصلًا.
-    if (import.meta.env.DEV) all.push({ id: "dev-log", title: ar.devLog });
+    if (import.meta.env.DEV) all.push({ id: "dev-log", title: t("dev.log") });
     // Simple mode keeps only the essential sections in the table of contents.
-    if (simpleMode) return all.filter((s) => s.id === "primary-model" || s.id === "session-dir");
+    if (simpleMode) return all.filter((s) => s.id === "primary-model" || s.id === "session-dir" || s.id === "language");
     return all;
-  }, [simpleMode]);
+  }, [simpleMode, t]);
 
   const filteredSections = useMemo(() => {
     if (!searchQuery.trim()) return sections;
@@ -73,15 +78,20 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" dir="rtl" closeLabel="إغلاق">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" closeLabel={t("common.close")}>
         <DialogHeader>
-          <DialogTitle>{ar.settings}</DialogTitle>
+          <DialogTitle>{t("settings.title")}</DialogTitle>
           <DialogDescription className="sr-only">
-            {simpleMode ? "الإعدادات الأساسية: النموذج الأساسي ومجلد الجلسات" : "إعدادات المزودين والنموذج الأساسي والمجلد والمهلة"}
+            {simpleMode ? t("settings.simpleSectionsDesc") : t("settings.advancedSectionsDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <SimpleModeToggle />
+        <ClearCustomsToggle />
+
+        <CollapsibleSection id="language" title={t("language.label")} defaultOpen={true}>
+          <LanguageSwitcher />
+        </CollapsibleSection>
 
         {!simpleMode && (
           <>
@@ -91,24 +101,24 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={ar.searchSettings}
-                aria-label={ar.searchSettings}
+                placeholder={t("settings.search")}
+                aria-label={t("settings.search")}
                 className="ps-9"
               />
             </div>
 
             {/* Table of contents */}
-            <nav className="mb-4 p-3 rounded border border-sura-border bg-sura-panel" aria-label={ar.settingsSections}>
-              <p className="text-xs font-medium text-sura-muted mb-2">{ar.settingsSections}</p>
+            <nav className="mb-4 p-3 rounded border border-sura-border bg-sura-panel" aria-label={t("settings.sections")}>
+              <p className="text-xs font-medium text-sura-muted mb-2">{t("settings.sections")}</p>
               <div className="flex flex-wrap gap-2">
                 {filteredSections.map((s) => (
                   <a
                     key={s.id}
-                    href={"#section-" + s.title.replace(/s+/g, "-")}
+                    href={"#section-" + s.id}
                     className="text-xs text-sura-accent hover:underline"
                     onClick={(e) => {
                       e.preventDefault();
-                      document.getElementById("section-" + s.title.replace(/s+/g, "-"))?.scrollIntoView({ behavior: "smooth" });
+                      document.getElementById("section-" + s.id)?.scrollIntoView({ behavior: "smooth" });
                     }}
                   >
                     {s.title}
@@ -117,51 +127,53 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
               </div>
             </nav>
 
-            <CollapsibleSection title={ar.provider} defaultOpen={true}>
+            <CollapsibleSection id="providers" title={t("settings.providers")} defaultOpen={true}>
               {listProviderIds().map((id) => <ProviderKeyCard key={id} id={id} />)}
             </CollapsibleSection>
           </>
         )}
 
-        <CollapsibleSection title={ar.primaryModel} defaultOpen={true}>
-          <div className="flex gap-2">
-            <select aria-label="مزود النموذج الأساسي" className="bg-sura-bg border border-sura-border rounded p-2 text-sm" value={pSel} onChange={(e) => selectProvider(e.target.value as ProviderId)}>
+        <CollapsibleSection id="primary-model" title={t("settings.primaryModel")} defaultOpen={true}>
+          {/* [T5.3] Native selects cannot shrink below their widest option, so this row must be allowed to wrap:
+              at 320px the two selects alone were 358px wide and forced the whole dialog to scroll sideways. */}
+          <div className="flex flex-wrap gap-2">
+            <select aria-label={t("settings.primaryProviderLabel")} className="bg-sura-bg border border-sura-border rounded p-2 text-sm" value={pSel} onChange={(e) => selectProvider(e.target.value as ProviderId)}>
               {listProviderIds().map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
             </select>
-            <select aria-label="نموذج الموديل الأساسي" className="bg-sura-bg border border-sura-border rounded p-2 text-sm flex-1" value={mSel} onChange={(e) => setMSel(e.target.value)}>
-              <option value="">— اختر —</option>
+            <select aria-label={t("settings.primaryModelLabel")} className="bg-sura-bg border border-sura-border rounded p-2 text-sm flex-1" value={mSel} onChange={(e) => setMSel(e.target.value)}>
+              <option value="">{t("settings.choose")}</option>
               {PROVIDERS[pSel].staticModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
-            <Button size="sm" disabled={!mSel} onClick={() => void setPrimaryTarget({ providerId: pSel, modelId: mSel })}>تعيين</Button>
+            <Button size="sm" disabled={!mSel} onClick={() => void setPrimaryTarget({ providerId: pSel, modelId: mSel })}>{t("settings.set")}</Button>
           </div>
-          {primaryTarget && invalidPrimary && <p role="alert" className="text-xs text-sura-warn">النموذج المحفوظ غير صالح: هذا الموديل لا ينتمي إلى المزود المختار.</p>}
-          {primaryTarget && !invalidPrimary && <p className="text-xs text-sura-muted">الحالي: {primaryTarget.providerId} · {primaryTarget.modelId}</p>}
-          {!hasAnyTargets && <p className="text-xs text-sura-warn">لم تضف نماذج بعد — الأساسي يُستخدم للخلاصة وللأدوار العادية.</p>}
+          {primaryTarget && invalidPrimary && <p role="alert" className="text-xs text-sura-warn">{t("settings.invalidPrimary")}</p>}
+          {primaryTarget && !invalidPrimary && <p className="text-xs text-sura-muted">{t("settings.current", { value: primaryTarget.providerId + " · " + primaryTarget.modelId })}</p>}
+          {!hasAnyTargets && <p className="text-xs text-sura-warn">{t("settings.noTargetsYet")}</p>}
         </CollapsibleSection>
 
-        <CollapsibleSection title={ar.sessionDir} defaultOpen={true}>
-          <Input aria-label={ar.sessionDir} readOnly value={sessionRootDir ?? "Documents/Shura (يعمل داخل تطبيق سطح المكتب)"} className="text-xs" />
-          <p className="text-[11px] text-sura-muted">المسار ثابت في هذه النسخة: Documents/Shura</p>
+        <CollapsibleSection id="session-dir" title={t("settings.sessionDir")} defaultOpen={true}>
+          <Input aria-label={t("settings.sessionDir")} readOnly value={sessionRootDir ?? t("settings.sessionDirValue")} className="text-xs" />
+          <p className="text-[11px] text-sura-muted">{t("settings.sessionDirFixed")}</p>
         </CollapsibleSection>
 
         {!simpleMode && (
           <>
-            <CollapsibleSection title={ar.ragSettings}>
+            <CollapsibleSection id="rag-settings" title={t("rag.settings")}>
               <RagSettings />
             </CollapsibleSection>
 
-            <CollapsibleSection title={ar.ragFiles}>
-              <p className="text-xs text-sura-muted">{ar.ragFilesDesc}</p>
+            <CollapsibleSection id="rag-files" title={t("rag.files")}>
+              <p className="text-xs text-sura-muted">{t("rag.filesDesc")}</p>
               <RagFileManager />
             </CollapsibleSection>
 
-            <CollapsibleSection title={ar.ragExternalFolders}>
-              <p className="text-xs text-sura-muted">{ar.ragExternalFoldersDesc}</p>
+            <CollapsibleSection id="rag-external" title={t("rag.externalFolders")}>
+              <p className="text-xs text-sura-muted">{t("rag.externalFoldersDesc")}</p>
               <RagFolderManager />
             </CollapsibleSection>
 
-            <CollapsibleSection title={ar.timeout} defaultOpen={true}>
-              <Input aria-label={ar.timeout} type="number" min={10} value={timeoutDraft ?? String(Math.round(timeoutMs / 1000))}
+            <CollapsibleSection id="timeout" title={t("settings.timeout")} defaultOpen={true}>
+              <Input aria-label={t("settings.timeout")} type="number" min={10} value={timeoutDraft ?? String(Math.round(timeoutMs / 1000))}
                 onChange={(e) => setTimeoutDraft(e.target.value)}
                 onBlur={() => {
                   if (timeoutDraft === null) return;
@@ -173,7 +185,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
             </CollapsibleSection>
 
             {import.meta.env.DEV && (
-              <CollapsibleSection title={ar.devLog}>
+              <CollapsibleSection id="dev-log" title={t("dev.log")}>
                 <LogViewer />
               </CollapsibleSection>
             )}
@@ -181,7 +193,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
         )}
 
         <div className="flex justify-end gap-2 border-t border-sura-border pt-3">
-          <Button size="sm" onClick={() => { void load(); onClose(); }}>تم</Button>
+          <Button size="sm" onClick={() => { void load(); onClose(); }}>{t("settings.done")}</Button>
         </div>
       </DialogContent>
     </Dialog>

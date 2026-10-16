@@ -35,6 +35,11 @@ export interface RagChunk {
   chunkIndex: number;
   text: string;
   embedding: number[];
+  /**
+   * هوية التضمين التي أنتجت المتجه (D2 - ADR 0003). غياب الحقل يعني قطعة سبقت
+   * المخطط v6، وتُعامل قديمةً لا حديثة: متجهاتها أنتجها المُرمِّز البديل.
+   */
+  embeddingVersion?: string;
   metadata: {
     pageNumber?: number;
     source: string;

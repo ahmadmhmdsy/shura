@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fetchModelCatalog } from "./modelCatalog";
 import { PROVIDERS } from "./registry";
 
@@ -51,13 +51,13 @@ describe("fetchModelCatalog", () => {
 
   it("يرفض استجابة HTTP فاشلة بدل عرض قائمة فارغة", async () => {
     await expect(fetchModelCatalog("openrouter", { fetchImpl: async () => new Response("nope", { status: 503 }) }))
-      .rejects.toThrow(/503/);
+      .rejects.toThrow(/errors\.catalogFetchFailed/);
   });
 
   it("يرفض مزودًا بلا مصدر مباشر", async () => {
     expect(PROVIDERS.google.modelsSource).toBe("static");
     await expect(fetchModelCatalog("google", { fetchImpl: async () => jsonResponse({}) }))
-      .rejects.toThrow(/مباشر|static|قائمة/);
+      .rejects.toThrow(/errors\.catalogNotLive/);
   });
 
   it("يحترم الإلغاء ولا يعيد نتيجة بعده", async () => {
@@ -79,6 +79,33 @@ describe("fetchModelCatalog", () => {
       fetchImpl: () => new Promise<Response>(() => undefined),
       timeoutMs: 10,
     });
-    await expect(promise).rejects.toThrow(/انتهت المهلة|مهلة|timeout/i);
+    await expect(promise).rejects.toThrow(/errors\.catalogTimeout/);
+  });
+});
+
+describe("قائمة OpenCode Go المرتبطة بالاستحقاق (T2.8/LV-04)", () => {
+  it("يرسل مفتاح المزود حين تكون القائمة مرتبطة بالاستحقاق", async () => {
+    let seen: Headers | undefined;
+    const models = await fetchModelCatalog("opencodego", {
+      apiKey: "sk-test",
+      fetchImpl: async (_input, init) => { seen = new Headers(init?.headers); return catalog([{ id: "glm-5.3" }, { id: "kimi-k2.6" }]); },
+    });
+    expect(seen?.get("Authorization")).toBe("Bearer sk-test");
+    expect(models.map((m) => m.id)).toEqual(["glm-5.3", "kimi-k2.6"]);
+  });
+
+  it("لا يجلب القائمة المجهولة حين تلزمها مفتاح ولا يوجد مفتاح", async () => {
+    const fetchImpl = vi.fn(async () => catalog([{ id: "mimo-v2-pro" }]));
+    await expect(fetchModelCatalog("opencodego", { fetchImpl })).rejects.toThrow(/errors\.catalogNeedsKey/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("لا يرسل مفتاحًا إلى قائمة عامة", async () => {
+    let seen: Headers | undefined;
+    await fetchModelCatalog("openrouter", {
+      apiKey: "sk-test",
+      fetchImpl: async (_input, init) => { seen = new Headers(init?.headers); return catalog([{ id: "vendor/model-a" }]); },
+    });
+    expect(seen?.get("Authorization")).toBeNull();
   });
 });

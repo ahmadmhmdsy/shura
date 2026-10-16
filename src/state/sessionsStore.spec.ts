@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { uiText } from "@/i18n";
+import { en } from "@/i18n/en";
 import { useSessionsStore } from "./sessionsStore";
 import { useComposerStore } from "./composerStore";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
@@ -34,6 +36,18 @@ const row = (patch: Partial<ChatMessage> = {}): ChatMessage => ({
 
 beforeEach(() => {
   useSessionsStore.setState({ sessions: [session], currentId: session.id, messages: [] });
+});
+
+// [T3.2a] العنوان الافتراضي يُكتب بلغة الواجهة النشطة وقت الإنشاء، ثم يبقى بياناتٍ مخزَّنة.
+describe("default session title (T3.2a)", () => {
+  afterEach(() => uiText.setLocale("ar"));
+
+  it("يُخزَّن عنوان الجلسة الجديدة بلغة الواجهة النشطة", async () => {
+    uiText.setLocale("en");
+    const meta = await useSessionsStore.getState().newSession();
+    expect(meta.title).toBe(en.app.newSession);
+    expect((await getSession(meta.id))?.title).toBe(en.app.newSession);
+  });
 });
 
 describe("sessionsStore durable append guard", () => {

@@ -38,19 +38,19 @@ describe("useAppShortcuts", () => {
     const { result } = setup();
     expect(result.current).toHaveLength(7);
     expect(result.current.map((s) => s.key)).toEqual(["k", "n", "s", "Escape", "?", ",", "/"]);
-    expect(result.current[0].description).toBe(ar.shortcutSearch);
-    expect(result.current[1].description).toBe(ar.shortcutNewSession);
-    expect(result.current[2].description).toBe(ar.shortcutSettings);
-    expect(result.current[3].description).toBe(ar.shortcutStop);
-    expect(result.current[4].description).toBe(ar.shortcutHelp);
-    expect(result.current[5].description).toBe(ar.shortcutSettings);
-    expect(result.current[6].description).toBe(ar.shortcutToggleTheme);
+    expect(result.current[0].description).toBe(ar.keyboard.search);
+    expect(result.current[1].description).toBe(ar.keyboard.newSession);
+    expect(result.current[2].description).toBe(ar.keyboard.settings);
+    expect(result.current[3].description).toBe(ar.keyboard.stop);
+    expect(result.current[4].description).toBe(ar.keyboard.help);
+    expect(result.current[5].description).toBe(ar.keyboard.settings);
+    expect(result.current[6].description).toBe(ar.keyboard.toggleTheme);
   });
 
   it("Ctrl+K يركّز حقل البحث في الجلسات", () => {
     setup();
     const input = document.createElement("input");
-    input.setAttribute("aria-label", "ابحث في الجلسات…");
+    input.setAttribute("aria-label", ar.sessions.search);
     document.body.appendChild(input);
     window.dispatchEvent(createKeyboardEvent({ key: "k", ctrlKey: true }));
     expect(document.activeElement).toBe(input);

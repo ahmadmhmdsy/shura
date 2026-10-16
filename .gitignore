@@ -23,4 +23,8 @@ agent/
 docs/reviews/*
 # The hardened release smoke record is a deliverable and stays tracked.
 !docs/reviews/2026-09-24-shura-hardening-smoke.md
+# DECISION (2026-10-12, Q6 in docs/plans/2026-10-05-production-readiness-plan.md): review
+# documents are working notes and stay local on purpose. The release-facing facts they produced are
+# carried into the tracked plan, the progress file and CHANGELOG.md, so nothing here is a lost
+# deliverable. Add a negation only if a future review must ship with the release.
 %SystemDrive%/

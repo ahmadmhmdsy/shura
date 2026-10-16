@@ -126,6 +126,43 @@ describe("repos", () => {
 });
 
 describe("turns and tombstones (schema v2)", () => {
+  // [T7.5] التثبيت البنيوي للذرّية: فحص الشاهد والكتابة يجب أن يقعا في معاملة rw واحدة على
+  // الجدولين، فلا توجد نافذة يمرّ فيها حذف متزامن بينهما. (محاولة أولى قاست
+  // Dexie.currentTransaction حول الفحص والكتابة فمرّت حتى بعد إزالة المعاملة - تسرّب منطقة
+  // Dexie يجعل هذا القياس غير صالح، فاستُبدل به رصد النداء نفسه. أُثبت بالطفر: إزالة
+  // db.transaction من recordUsage تُفشل هذا الاختبار.)
+  it("recordUsage يفحص الشاهد ويكتب في معاملة rw واحدة على الجدولين", async () => {
+    const txSpy = vi.spyOn(db, "transaction");
+    try {
+      await recordUsage(mkUsage("u1", "unit"));
+      // Assert before mockRestore: restore clears the recorded calls.
+      expect(txSpy).toHaveBeenCalledWith("rw", [db.usage_events, db.tombstones], expect.any(Function));
+    } finally {
+      txSpy.mockRestore();
+    }
+    expect(await db.usage_events.where("sessionId").equals("unit").count()).toBe(1);
+  });
+
+  // [T7.5] سباق حقيقي: الحذف والكتابة يُطلقان معًا. Dexie يُسلسل المعاملات، فيكون الحذف
+  // إما قبل الفحص (فيرفض recordUsage) أو بعده (فيُزيل الصف). في الحالتين لا يبقى سجل يتيم.
+  it("حذف متزامن مع كتابة استهلاك لا يترك سجل استهلاك يتيمًا", async () => {
+    await createSession(session("race"));
+    await Promise.allSettled([recordUsage(mkUsage("u-race", "race")), deleteSessionData("race")]);
+    expect(await hasTombstone("race")).toBe(true);
+    expect(await db.usage_events.where("sessionId").equals("race").count()).toBe(0);
+  });
+
+  // [T7.5] الحماية الثالثة: الواجهة العامة ترفض الكتابة فوق جلسة موجودة بدل تكرار صفوفها.
+  it("importSessionAtomically يرفض جلسة موجودة بدل تكرار صفوفها", async () => {
+    await createSession(session("dup"));
+    await expect(importSessionAtomically(meta("dup"), [chatMessage("m-dup", "dup")], [turnRecord("tr-dup", "dup")], [mkUsage("u-dup", "dup")]))
+      .rejects.toThrow(/already exists/);
+    expect(await db.sessions.count()).toBe(1);
+    expect(await getMessages("dup")).toEqual([]);
+    expect(await getTurns("dup")).toEqual([]);
+    expect(await db.usage_events.where("sessionId").equals("dup").count()).toBe(0);
+  });
+
   it("deleteSessionData removes every row and writes a tombstone atomically", async () => {
     await createSession(meta("t1"));
     await appendMessage(chatMessage("m1", "t1"));

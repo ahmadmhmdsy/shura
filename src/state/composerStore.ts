@@ -24,6 +24,8 @@ export interface ComposerState {
   removeTarget(sessionId: string, targetId: string): void;
   setShared(sessionId: string, text: string): void;
   setCustom(sessionId: string, targetId: string, text: string): void;
+  /** إفراغ كل الأسئلة المخصصة للجلسة دفعة واحدة (يستدعيه الإرسال عند تفعيل الإعداد). */
+  clearCustoms(sessionId: string): void;
   setSyncMode(sessionId: string, value: boolean): void;
   setFocus(sessionId: string, targetId: string | null): void;
   setAgentMode(sessionId: string, value: boolean): void;
@@ -79,6 +81,13 @@ export const useComposerStore = create<ComposerState>((set, get) => ({
       ...(s.drafts[sessionId] ?? emptyComposerDraft()),
       customs: { ...(s.drafts[sessionId]?.customs ?? {}), [targetId]: text.slice(0, LIMITS.customPromptMax) },
     } } }));
+  },
+  clearCustoms(sessionId) {
+    set((s) => {
+      const d = s.drafts[sessionId];
+      if (!d) return {};
+      return { drafts: { ...s.drafts, [sessionId]: { ...d, customs: {} } } };
+    });
   },
   setSyncMode(sessionId, value) {
     set((s) => ({ drafts: { ...s.drafts, [sessionId]: { ...(s.drafts[sessionId] ?? emptyComposerDraft()), syncMode: value, focusTargetId: null } } }));

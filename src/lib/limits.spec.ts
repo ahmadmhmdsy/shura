@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LIMITS, clampTimeoutMs, isWithinLimit, limitError } from "./limits";
+import { errorText, isKeyedError } from "./errors/keyedError";
+import { ar, en, uiText } from "@/i18n";
+
+const originalLocale = uiText.getLocale();
+afterEach(() => uiText.setLocale(originalLocale));
 
 describe("hard limits", () => {
   it("declares the documented ceilings", () => {
@@ -32,10 +37,20 @@ describe("hard limits", () => {
     expect(isWithinLimit("a".repeat(LIMITS.apiKeyMax + 1), LIMITS.apiKeyMax)).toBe(false);
   });
 
-  it("produces a bounded message that names the field and the ceiling", () => {
-    const message = limitError("نص الطلب", LIMITS.sharedPromptMax);
+  it("produces a bounded keyed error that names the field and the ceiling", () => {
+    const error = limitError("نص الطلب", LIMITS.sharedPromptMax);
+    expect(isKeyedError(error)).toBe(true);
+    expect(error.key).toBe("errors.limitExceeded");
+    const message = errorText(uiText.t, error);
     expect(message).toContain("نص الطلب");
     expect(message).toContain("100000");
     expect(message.length).toBeLessThanOrEqual(120);
+  });
+
+  it("renders the limit error in the active locale, not in the producer's", () => {
+    const error = limitError("نص الطلب", LIMITS.sharedPromptMax);
+    expect(errorText(uiText.t, error)).toBe(ar.errors.limitExceeded.replace("{field}", "نص الطلب").replace("{max}", "100000"));
+    uiText.setLocale("en");
+    expect(errorText(uiText.t, error)).toBe(en.errors.limitExceeded.replace("{field}", "نص الطلب").replace("{max}", "100000"));
   });
 });

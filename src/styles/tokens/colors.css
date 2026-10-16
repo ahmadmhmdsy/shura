@@ -7,6 +7,13 @@
  * Usage:
  *   color: var(--sura-text-primary);
  *   background: var(--sura-surface-primary);
+ *
+ * Contrast contract: every foreground/background pair the components actually render
+ * must reach WCAG 2.2 AA (4.5:1 for text, 3:1 for UI boundaries). The lightness values
+ * below are solved for the worst surface each token is painted on, so a token that
+ * doubles as a solid fill and as text stays legible in both roles. Changing one of
+ * these numbers means re-running the audit in
+ * docs/plans/2026-10-05-universal-i18n-and-design-tokens.md (section 4.4).
  */
 
 :root {
@@ -20,36 +27,45 @@
   /* === Text Colors === */
   --sura-text-primary: oklch(0.20 0.02 260);
   --sura-text-secondary: oklch(0.45 0.02 260);
-  --sura-text-tertiary: oklch(0.55 0.02 260);
+  --sura-text-tertiary: oklch(0.50 0.02 260);
   --sura-text-disabled: oklch(0.65 0.02 260);
   --sura-text-inverse: oklch(0.98 0.005 260);
   
   /* === Accent Colors (Teal/Cyan — trust, clarity) === */
-  --sura-accent-primary: oklch(0.55 0.15 165);
-  --sura-accent-secondary: oklch(0.65 0.15 165);
-  --sura-accent-tertiary: oklch(0.75 0.15 165);
+  --sura-accent-primary: oklch(0.46 0.15 165);
+  --sura-accent-secondary: oklch(0.49 0.15 165);
+  --sura-accent-tertiary: oklch(0.52 0.15 165);
   --sura-accent-muted: oklch(0.90 0.05 165);
   --sura-accent-foreground: oklch(0.98 0.005 260);
   
   /* === Semantic Colors === */
-  --sura-success: oklch(0.60 0.15 145);
+  --sura-success: oklch(0.48 0.15 145);
   --sura-success-muted: oklch(0.90 0.05 145);
-  --sura-warning: oklch(0.70 0.15 85);
+  --sura-warning: oklch(0.52 0.15 85);
   --sura-warning-muted: oklch(0.95 0.05 85);
-  --sura-error: oklch(0.55 0.19 25);
+  /* --sura-error is the danger colour used as a fill, a border and a tint base;
+     --sura-error-text is the same hue pulled to a lightness that stays readable on
+     every surface and on a 10% tint of itself; --sura-error-foreground is the label
+     colour that sits on top of the solid danger fill. */
+  --sura-error: oklch(0.53 0.19 25);
+  /* The hover step of the solid danger fill. It replaces the 90%-alpha fill, which
+     composited to #cc4342 over the dark surface and dropped the label to 4.12:1. */
+  --sura-error-secondary: oklch(0.48 0.19 25);
+  --sura-error-text: oklch(0.52 0.19 25);
+  --sura-error-foreground: oklch(0.98 0.005 260);
   --sura-error-muted: oklch(0.95 0.05 25);
-  --sura-info: oklch(0.60 0.15 250);
+  --sura-info: oklch(0.48 0.15 250);
   --sura-info-muted: oklch(0.90 0.05 250);
   
   /* === Border Colors === */
   --sura-border-primary: oklch(0.88 0.01 260);
   --sura-border-secondary: oklch(0.82 0.01 260);
-  --sura-border-accent: oklch(0.70 0.10 165);
+  --sura-border-accent: oklch(0.62 0.10 165);
   
   /* === Interactive Colors === */
   --sura-hover: oklch(0.94 0.005 260);
   --sura-active: oklch(0.90 0.005 260);
-  --sura-focus-ring: oklch(0.55 0.15 165 / 0.3);
+  --sura-focus-ring: oklch(0.46 0.15 165 / 0.3);
   
   /* === Sidebar Colors === */
   --sura-sidebar-bg: oklch(0.97 0.005 260);
@@ -58,8 +74,9 @@
   --sura-sidebar-active: oklch(0.90 0.05 165);
   
   /* === Chat Colors === */
-  --sura-chat-user-bg: oklch(0.55 0.15 165);
-  --sura-chat-user-text: oklch(0.98 0.005 260);
+  /* The user bubble is the accent colour: one owner, so the pair can never drift. */
+  --sura-chat-user-bg: var(--sura-accent-primary);
+  --sura-chat-user-text: var(--sura-accent-foreground);
   --sura-chat-assistant-bg: oklch(0.96 0.005 260);
   --sura-chat-assistant-text: oklch(0.20 0.02 260);
   --sura-chat-system-bg: oklch(0.94 0.05 85);
@@ -68,7 +85,7 @@
   /* === Input Colors === */
   --sura-input-bg: oklch(1 0 0);
   --sura-input-border: oklch(0.88 0.01 260);
-  --sura-input-border-focus: oklch(0.55 0.15 165);
+  --sura-input-border-focus: var(--sura-accent-primary);
   --sura-input-placeholder: oklch(0.55 0.02 260);
   
   /* === Scrollbar Colors === */
@@ -97,7 +114,9 @@
   --sura-accent-secondary: oklch(0.75 0.15 165);
   --sura-accent-tertiary: oklch(0.80 0.15 165);
   --sura-accent-muted: oklch(0.30 0.05 165);
-  --sura-accent-foreground: oklch(0.98 0.005 260);
+  /* Dark mode inverts the accent polarity: the fill stays bright, so its label has to
+     be dark. 0.16 keeps 7.8:1 on the fill and 9.3:1 on the hover fill. */
+  --sura-accent-foreground: oklch(0.16 0.02 260);
   
   /* === Semantic Colors === */
   --sura-success: oklch(0.70 0.15 145);
@@ -105,6 +124,11 @@
   --sura-warning: oklch(0.80 0.15 85);
   --sura-warning-muted: oklch(0.35 0.05 85);
   --sura-error: oklch(0.62 0.19 25);
+  /* Dark keeps the hover step brighter than the fill, as --sura-accent-secondary does,
+     so the dark label holds 6.8:1 on it. */
+  --sura-error-secondary: oklch(0.70 0.15 25);
+  --sura-error-text: oklch(0.84 0.19 25);
+  --sura-error-foreground: oklch(0.16 0.02 260);
   --sura-error-muted: oklch(0.35 0.05 25);
   --sura-info: oklch(0.70 0.15 250);
   --sura-info-muted: oklch(0.30 0.05 250);
@@ -126,8 +150,8 @@
   --sura-sidebar-active: oklch(0.30 0.05 165);
   
   /* === Chat Colors === */
-  --sura-chat-user-bg: oklch(0.70 0.15 165);
-  --sura-chat-user-text: oklch(0.98 0.005 260);
+  --sura-chat-user-bg: var(--sura-accent-primary);
+  --sura-chat-user-text: var(--sura-accent-foreground);
   --sura-chat-assistant-bg: oklch(0.24 0.02 260);
   --sura-chat-assistant-text: oklch(0.93 0.01 260);
   --sura-chat-system-bg: oklch(0.35 0.05 85);
@@ -136,7 +160,7 @@
   /* === Input Colors === */
   --sura-input-bg: oklch(0.20 0.02 260);
   --sura-input-border: oklch(0.30 0.02 260);
-  --sura-input-border-focus: oklch(0.70 0.15 165);
+  --sura-input-border-focus: var(--sura-accent-primary);
   --sura-input-placeholder: oklch(0.65 0.01 260);
   
   /* === Scrollbar Colors === */

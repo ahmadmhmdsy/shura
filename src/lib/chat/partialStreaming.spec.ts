@@ -31,12 +31,17 @@ function controllableSseStream(): StreamHandle {
     error(e) { safe(() => controller.error(e)); },
     close() {
       safe(() => {
+        // [T2.2] مزود حقيقي يُرسل سبب النهاية في مكعبه الأخير. كان هذا المُهيّئ يُغلق بلا
+        // finish_reason أبدًا، فكان SDK يرى الاثنين — الإغلاق السليم والمقطوع — الحالة نفسها:
+        // finishReason === "error" وInvalidResponseDataError «ended without a finish reason».
+        controller.enqueue(line({ choices: [{ delta: {}, finish_reason: "stop" }] }));
         controller.enqueue(line({ choices: [{ delta: {} }], usage: { prompt_tokens: 7, completion_tokens: 3 } }));
         controller.enqueue(enc.encode("data: [DONE]\n\n"));
         controller.close();
       });
     },
-    // نهاية بث رشيق بلا [DONE] — النافذة الحميدة «ended without a finish reason» مع usage سليم
+    // انتهى جسم الاستجابة بلا سبب نهاية وبلا [DONE]: تصنيف SDK هو finishReason === "error"،
+    // أي بث مقطوع — لا نهاية ناجحة. (قياس مباشر: test-results/… أُثبت في T2.2)
     closeAbrupt() {
       safe(() => {
         controller.enqueue(line({ choices: [{ delta: {} }], usage: { prompt_tokens: 7, completion_tokens: 3 } }));
@@ -110,6 +115,10 @@ describe("dispatchTurn partial streaming", () => {
     expect(out.status).toBe("stopped");
     expect(out.text).toBe("بداية");
     expect(out.operationId).toBe("op-partial");
+    // [T7.4] قياس ai@7.0.92: إيقاف وسط خطوة واحدة لا يبلّغ عن استهلاك قط، ولا يُحسم
+    // result.usage أبدًا (يبقى PENDING)، فلا استهلاك مُستردًا هنا - وترك الحقل غير معرّف
+    // أصدق من صفر مُختلق، والسلوك مثبَّت بهذا السطر.
+    expect(out.usage).toBeUndefined();
     expect(updates).toEqual(["بداية"]);
     s.close();
   });
@@ -167,7 +176,7 @@ describe("dispatchTurn partial streaming", () => {
     s.closeAbrupt();
   });
 
-  it("no finish reason: benign stream close stays done (named compatibility behavior)", async () => {
+  it("no finish reason: an abruptly closed stream is truncated, not done (NM-02)", async () => {
     const s = controllableSseStream();
     setTransportFetch(s.fetch);
     const flow = dispatchTurn({ ...baseArgs, prompts: [prompt()] });
@@ -176,9 +185,12 @@ describe("dispatchTurn partial streaming", () => {
     await waitFor(() => true, "yield microtasks");
     s.closeAbrupt();
     const [out] = await flow;
-    expect(out.status).toBe("done");
+    // النص الجزئي محفوظ (لا يُحذف ما رآه المستخدم) لكن الدور لا يُوسم done:
+    // «أُنجز» تعني نهاية ناجحة، وهذه ليست كذلك.
+    expect(out.status).toBe("truncated");
     expect(out.text).toBe("بداية");
     expect(out.finishReason).toBeUndefined();
+    expect(out.error).toBeUndefined();
   });
 
   it("malformed finish reason classifies error, not done", async () => {

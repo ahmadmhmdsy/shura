@@ -114,7 +114,7 @@ describe("indexFolder", () => {
     await db.rag_folders.put(folder("f1"));
     await sink.writeFile("C:/docs/a.txt", "أ");
     await sink.writeFile("C:/docs/b.md", "ب");
-    await sink.writeFile("C:/docs/c.docx", "ج");
+    await sink.writeFile("C:/docs/c.xyz", "ج");
 
     const count = await indexFolder("f1", settings());
 

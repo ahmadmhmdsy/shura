@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uiText } from "@/i18n";
+import { en } from "@/i18n/en";
 import { db } from "@/lib/db/db";
 import type { ChatMessage, RagSettings, SessionMeta } from "@/types";
 import { DEFAULT_RAG_SETTINGS } from "@/types";
@@ -187,11 +189,30 @@ describe("indexSession", () => {
     expect(chunks[0].metadata.source).toBe("جلسة");
   });
 
+  it("يتبع العنوان الافتراضي لغة الواجهة النشطة (T3.2a)", async () => {
+    uiText.setLocale("en");
+    try {
+      const messages = [
+        msg("u1", "s1", { turnId: "t1", role: "user", text: "س" }),
+        msg("a1", "s1", { turnId: "t1", role: "assistant", text: "ج" }),
+      ];
+
+      const doc = await indexSession(session("s1", { title: "" }), messages, settings());
+
+      expect(doc.fileName).toBe(en.sessions.untitled);
+      const chunks = await db.rag_chunks.where("documentId").equals(doc.id).toArray();
+      expect(chunks[0].metadata.source).toBe(en.sessions.untitled);
+    } finally {
+      uiText.setLocale("ar");
+    }
+  });
+
   it("يعود إلى النموذج الأول لمعرّف نموذج غير معروف", async () => {
     await indexSession(session("s1"), [], settings({ embeddingModelId: "nope" }));
 
     expect(emb.constructorArgs).toEqual([["multilingual-e5-small", 384]]);
-    expect(vec.modelIds).toEqual(["nope"]);
+    // كما في documentManager: مفتاح الفهرس تابع للنموذج الذي أنتج المتجه لا للطلب.
+    expect(vec.modelIds).toEqual(["multilingual-e5-small"]);
   });
 
   it("يستخدم النموذج المطلوب عندما يكون معروفًا", async () => {

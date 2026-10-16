@@ -27,6 +27,12 @@ describe("SummaryCard", () => {
     expect(screen.getByText("تعذر حفظ الأرشيف")).toBeInTheDocument();
   });
 
+  it("الخلاصة المقطوعة تعرض تنبيه الانقطاع مع نصها (NM-02)", () => {
+    render(<SummaryCard horizontal={false} msg={{ ...base, status: "truncated", text: "خلاصة جزئية" }} />);
+    expect(screen.getByText("غير مكتمل: انتهى البث مبكرًا")).toBeInTheDocument();
+    expect(screen.getByText("خلاصة جزئية")).toBeInTheDocument();
+  });
+
   it("يبلغ عن غياب clipboard بدل رمي استثناء", async () => {
     vi.stubGlobal("navigator", {});
     const errorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");

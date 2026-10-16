@@ -11,6 +11,7 @@ import { clearAllIndexes } from "./vectorIndex";
 // الكتالوج انتقل إلى "./modelCatalog" كمصدر وحيد، ويُعاد تصدير getModelInfo من
 // هنا حفاظًا على مسار الاستيراد القائم في reindexManager.spec.ts.
 export { getModelInfo } from "./modelCatalog";
+import { uiText } from "@/i18n";
 import type { RagSettings } from "@/types";
 
 export interface ReindexProgress {
@@ -90,7 +91,7 @@ export function validateModelSwitch(
 
   return {
     safe: false,
-    warning: "تحويل النموذج يتطلب إعادة فهرسة جميع المستندات. التضمينات القديمة ستُحذف.",
+    warning: uiText.t("errors.reindexRequiredWarning"),
   };
 }
 

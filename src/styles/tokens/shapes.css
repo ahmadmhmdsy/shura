@@ -1,0 +1,24 @@
+/**
+ * Shura Design Tokens — Shapes
+ *
+ * Border widths and stacking order. Radius aliases live in radii.css.
+ * Aspect ratios are deliberately absent: nothing in the app sets one yet, so
+ * there is no value to own.
+ *
+ * Usage:
+ *   border-width: var(--sura-border-width);
+ *   z-index: var(--sura-z-modal);
+ */
+
+:root {
+  /* === Border Widths === */
+  --sura-border-width: 1px;
+  --sura-border-width-emphasis: 2px;  /* focus ring, blockquote rule */
+  --sura-border-width-accent: 4px;    /* provider stripe, blockquote rule */
+
+  /* === Stacking Order === */
+  --sura-z-base: 0;
+  --sura-z-sticky: 30;    /* mobile nav scrim */
+  --sura-z-overlay: 40;  /* mobile nav bar, select overlay */
+  --sura-z-modal: 50;     /* dialog, tooltip, dropdown, skip link */
+}

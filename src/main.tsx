@@ -2,6 +2,13 @@ import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { Toaster, toast } from "sonner";
+// The typeface named by --sura-font-sans. Bundled rather than linked so the desktop
+// build never depends on a network fetch at runtime, and limited to the four
+// weights the components actually use (normal / medium / semibold / bold).
+import "@fontsource/ibm-plex-sans-arabic/400.css";
+import "@fontsource/ibm-plex-sans-arabic/500.css";
+import "@fontsource/ibm-plex-sans-arabic/600.css";
+import "@fontsource/ibm-plex-sans-arabic/700.css";
 import "./styles/globals.css";
 import { useSessionsStore } from "@/state/sessionsStore";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -14,6 +21,8 @@ import { noticeFromRecoveryReport, recoverSessionsFromDisk, type StartupNotice }
 import { StartupNoticeBanner } from "@/features/startup/StartupNotice";
 import { initAppLogging, logger, safeExecuteAsync } from "@/lib/logging";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { uiText } from "@/i18n";
+import { cleanupOrphanedTempFiles } from "@/lib/rag/tempCleanup";
 
 async function runNonFatalPhase(phase: () => Promise<void> | void): Promise<void> {
   try {
@@ -43,7 +52,7 @@ export async function runStartup(phases: StartupPhases): Promise<void> {
     // Fail safe: an unknown live-operation set must never be treated as "no live
     // work". Reconciling with an empty set would stop turns that are still running,
     // so the phase is deferred and the user gets one bounded warning instead.
-    phases.warn?.("تعذر التحقق من العمليات الجارية — تأجيل مطابقة التمريرات المتوقفة");
+    phases.warn?.(uiText.t("startup.liveOperationsUnknown"));
   } else {
     await runNonFatalPhase(async () => {
       await phases.reconcile(new Set(liveOperationKeys));
@@ -80,7 +89,7 @@ async function recoverNotice(): Promise<StartupNotice | null> {
     onImported: () => useSessionsStore.getState().load(),
   });
   if (report.imported.length > 0) {
-    toast.success(`استُرجعت ${report.imported.length} جلسة من القرص`);
+    toast.success(uiText.plural("startup.restored", report.imported.length));
   }
   return noticeFromRecoveryReport(report);
 }
@@ -91,7 +100,30 @@ function Root({ notice }: { notice: StartupNotice | null }) {
     <>
       {notice && !dismissed ? <StartupNoticeBanner notice={notice} onDismiss={() => setDismissed(true)} /> : null}
       <App />
-      <Toaster richColors position="bottom-left" />
+      <Toaster
+        richColors
+        position="bottom-left"
+        // Sonner ships its own light palette by default, which put a light toast on
+        // the dark app and measured 4.34:1; these variables map it onto the token
+        // pairs the rest of the UI uses (Badge/Sidebar use the same danger pair).
+        style={{
+          "--normal-bg": "var(--sura-surface-elevated)",
+          "--normal-text": "var(--sura-text-primary)",
+          "--normal-border": "var(--sura-border-primary)",
+          "--error-bg": "var(--sura-error-muted)",
+          "--error-text": "var(--sura-error-text)",
+          "--error-border": "var(--sura-error)",
+          "--success-bg": "var(--sura-success-muted)",
+          "--success-text": "var(--sura-success)",
+          "--success-border": "var(--sura-success)",
+          "--warning-bg": "var(--sura-warning-muted)",
+          "--warning-text": "var(--sura-warning)",
+          "--warning-border": "var(--sura-warning)",
+          "--info-bg": "var(--sura-info-muted)",
+          "--info-text": "var(--sura-info)",
+          "--info-border": "var(--sura-info)",
+        } as React.CSSProperties}
+      />
     </>
   );
 }
@@ -116,7 +148,17 @@ if (rootElement) {
     bootstrap: async () => {
       if (isTauri()) await bootstrapDesktop();
     },
-    loadSettings: () => useSettingsStore.getState().load(),
+    loadSettings: async () => {
+      await useSettingsStore.getState().load();
+      // The stored language decides lang/dir on <html> (and the title) before the first render.
+      uiText.setLocale(useSettingsStore.getState().language);
+      uiText.applyDocumentLocale();
+      // [T8.1] ملفات مؤقتة خلّفها تشغيل سابق انهار قبل تنظيف نفسه؛ نكنسها عند الإقلاع
+      // ما لم يكن الإعداد "manual" (تنظيف يدوي فقط).
+      if (useSettingsStore.getState().ragSettings.tempCleanup !== "manual") {
+        await cleanupOrphanedTempFiles();
+      }
+    },
     loadSessions: () => useSessionsStore.getState().load(),
     recoverNotice,
     activeOperationKeys: () => sessionOperationCoordinator.activeOperationKeys(),

@@ -4,6 +4,7 @@ import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
+import { uiText } from "@/i18n"
 
 function Dialog({
   ...props
@@ -50,7 +51,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  closeLabel = "إغلاق",
+  closeLabel,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -76,7 +77,7 @@ function DialogContent({
             className="absolute top-4 right-4 rounded-[var(--sura-radius-sm)] p-1 opacity-70 transition-[var(--sura-transition-all)] hover:opacity-100 hover:bg-[var(--sura-hover)] focus:ring-2 focus:ring-[var(--sura-accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--sura-surface-elevated)] focus:outline-hidden disabled:pointer-events-none"
           >
             <XIcon className="size-4" />
-            <span className="sr-only">{closeLabel}</span>
+            <span className="sr-only">{closeLabel ?? uiText.t("common.close")}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
@@ -114,7 +115,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
+          <Button variant="outline">{uiText.t("common.close")}</Button>
         </DialogPrimitive.Close>
       )}
     </div>

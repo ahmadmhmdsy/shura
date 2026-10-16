@@ -21,6 +21,10 @@ vi.mock("pdfjs-dist", () => ({
   },
 }));
 
+vi.mock("./docxExtractor", () => ({
+  extractDocxText: vi.fn(async () => ({ text: "docx-content", metadata: {} })),
+}));
+
 import {
   detectFileType,
   extractText,
@@ -44,6 +48,7 @@ describe("detectFileType", () => {
     expect(detectFileType("a.csv")).toBe("csv");
     expect(detectFileType("a.log")).toBe("log");
     expect(detectFileType("a.pdf")).toBe("pdf");
+    expect(detectFileType("a.docx")).toBe("docx");
   });
 
   it("يتجاهل حالة الأحرف", () => {
@@ -52,7 +57,7 @@ describe("detectFileType", () => {
   });
 
   it("يعيد unknown للامتدادات غير المدعومة أو الملفات بلا امتداد", () => {
-    expect(detectFileType("a.docx")).toBe("unknown");
+    expect(detectFileType("a.xyz")).toBe("unknown");
     expect(detectFileType("README")).toBe("unknown");
     expect(detectFileType("")).toBe("unknown");
   });
@@ -67,7 +72,7 @@ describe("isSupportedFileType", () => {
   it("يقبل الأنواع المدعومة ويرفض غيرها", () => {
     expect(isSupportedFileType("a.txt")).toBe(true);
     expect(isSupportedFileType("a.pdf")).toBe(true);
-    expect(isSupportedFileType("a.docx")).toBe(false);
+    expect(isSupportedFileType("a.docx")).toBe(true);
   });
 });
 
@@ -90,11 +95,20 @@ describe("extractText", () => {
   });
 
   it("يرمي خطأ للأنواع غير المدعومة", async () => {
-    const file = new File(["x"], "a.docx");
+    const file = new File(["x"], "a.xyz");
 
-    await expect(extractText(file, "a.docx")).rejects.toThrow(
+    await expect(extractText(file, "a.xyz")).rejects.toThrow(
       "Unsupported file type: unknown",
     );
+  });
+
+  it("يوجّه ملفات docx إلى مستخرج DOCX", async () => {
+    const file = new File(["docx"], "a.docx");
+
+    const result = await extractText(file, "a.docx");
+
+    expect(result.text).toBe("docx-content");
+    expect(result.metadata).toEqual({});
   });
 
   it("يستخرج نص PDF ويرقّم الصفحات", async () => {

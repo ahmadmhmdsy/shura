@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useRagStore } from "@/state/ragStore";
-import { ar } from "@/i18n/ar";
+import { countStaleChunks, currentEmbeddingVersion } from "@/lib/rag/embeddingVersion";
+import { uiText, useUiText } from "@/i18n";
 import type { RagDocument, RagFolder } from "@/types";
 import { RagIndexingProgress } from "./RagIndexingProgress";
 
@@ -13,7 +15,8 @@ export interface RagStatusSummary {
 export function summarizeRagStatus(
   documents: RagDocument[],
   folders: RagFolder[],
-  indexingErrors: Record<string, string> = {}
+  indexingErrors: Record<string, string> = {},
+  staleChunks: number = 0
 ): RagStatusSummary {
   const indexing = documents.filter((d) => d.status === "indexing").length;
   const docErrors = documents.filter((d) => d.status === "error").length;
@@ -22,24 +25,48 @@ export function summarizeRagStatus(
   const totalErrors = docErrors + indexingErrorCount;
 
   if (documents.length === 0 && folders.length === 0) {
-    return { label: ar.ragChipNothing, tone: "muted" };
+    return { label: uiText.t("rag.chipNothing"), tone: "muted" };
   }
   if (indexing > 0) {
-    return { label: ar.ragChipIndexing, tone: "active" };
+    return { label: uiText.t("rag.chipIndexing"), tone: "active" };
   }
   if (totalErrors > 0) {
-    return { label: totalErrors + " " + ar.ragChipErrors, tone: "warn" };
+    return { label: uiText.plural("rag.chipErrors", totalErrors), tone: "warn" };
   }
-  const folderPart = folders.length > 0 ? " · " + folders.length + " " + ar.ragFolderFiles : "";
-  return { label: indexed + " " + ar.ragChipIndexed + folderPart, tone: "ok" };
+  // القطع القديمة تُعلن عن نفسها هنا: بدونها كان المستخدم يرى نتائج بحث فارغة
+  // بلا سبب بعد تغيير نموذج التضمين (T1.2).
+  if (staleChunks > 0) {
+    return { label: uiText.plural("rag.chipStale", staleChunks), tone: "warn" };
+  }
+  const folderPart = folders.length > 0 ? " · " + uiText.plural("rag.folderFiles", folders.length) : "";
+  return { label: uiText.plural("rag.chipIndexed", indexed) + folderPart, tone: "ok" };
 }
 
 export function RagStatusChip({ onOpenSettings }: { onOpenSettings(): void }) {
+  const { t } = useUiText();
   const documents = useRagStore((s) => s.documents);
   const folders = useRagStore((s) => s.folders);
   const indexingErrors = useRagStore((s) => s.indexingErrors);
+  const embeddingModelId = useRagStore((s) => s.settings.embeddingModelId);
+  const [staleChunks, setStaleChunks] = useState(0);
   const indexingProgress = useRagStore((s) => s.indexingProgress);
-  const summary = summarizeRagStatus(documents, folders, indexingErrors);
+  const summary = summarizeRagStatus(documents, folders, indexingErrors, staleChunks);
+
+  // يُعاد الحساب عند تغيّر النموذج أو المستندات؛ الخطأ هنا لا يجوز أن يُسقط
+  // الشريحة كلها، فيُعرض صفر خطأ بدل حالة معلّقة.
+  useEffect(() => {
+    let active = true;
+    countStaleChunks(currentEmbeddingVersion(embeddingModelId))
+      .then((count) => {
+        if (active) setStaleChunks(count);
+      })
+      .catch(() => {
+        if (active) setStaleChunks(0);
+      });
+    return () => {
+      active = false;
+    };
+  }, [embeddingModelId, documents]);
 
   const errorDetails = Object.entries(indexingErrors)
     .map(([fileId, error]) => fileId + ": " + error)
@@ -61,8 +88,8 @@ export function RagStatusChip({ onOpenSettings }: { onOpenSettings(): void }) {
           summary.tone === "warn" ? "border-sura-warn text-sura-warn" :
           "border-sura-border text-sura-foreground"
         )}
-        aria-label={ar.ragFiles + ": " + summary.label}
-        title={errorDetails || ar.ragFiles}
+        aria-label={t("rag.files") + ": " + summary.label}
+        title={errorDetails || t("rag.files")}
       >
         {summary.tone === "active" && <span className="size-1.5 rounded-full bg-sura-accent animate-pulse" aria-hidden="true" />}
         {summary.label}

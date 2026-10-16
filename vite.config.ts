@@ -16,8 +16,9 @@ export default defineConfig({
       "hnswlib-wasm": fileURLToPath(new URL("./src/test/mocks/hnswlib-wasm.ts", import.meta.url)),
     },
   },
-  // 1200 kB is the release budget recorded in docs/environment.md; a chunk above it
-  // needs a documented code split before release.
+  // Advisory only: Vite's warning is not a gate. The release budget is enforced in bytes by
+  // scripts/check-bundle.mjs (1,200,000 bytes on the base entry) and runs inside pnpm check:all.
+  // Keep this limit in step with that constant so the warning keeps meaning something.
   build: {
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
@@ -69,12 +70,17 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["src/test/setup.ts"],
+    // The machine-readable twin of the console report: scripts/render-env-tables.mjs
+    // measures the documented test/file counts from it.
+    reporters: ["default", ["json", { outputFile: "coverage/vitest-report.json" }]],
     // The browser suite in e2e/ is Playwright's: collecting it here would register
     // Playwright's test() inside Vitest and abort the whole run.
     exclude: ["**/node_modules/**", "**/dist/**", "**/src-tauri/**", "e2e/**"],
     coverage: {
       provider: "v8",
-      reporter: ["text", "lcov"],
+      // "json-summary" is what scripts/render-env-tables.mjs (pnpm docs:numbers) reads
+      // its documented percentages from; "text" stays for humans and "lcov" for tooling.
+      reporter: ["text", "lcov", "json-summary"],
       // Only application code is measured. Test helpers, the test setup, and the
       // Playwright suite are infrastructure, not product surface.
       include: ["src/**/*.{ts,tsx}"],

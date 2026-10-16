@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { uiText } from "@/i18n";
+import { ar } from "@/i18n/ar";
+import { en } from "@/i18n/en";
 import { codePointLength, redactExternalError } from "./redact";
 
 describe("redactExternalError", () => {
@@ -65,5 +68,51 @@ describe("redactExternalError", () => {
     expect(redactExternalError(hostile)).toBe("خطأ خارجي غير محدد");
     const err = Object.assign(new Error("فشل الطلب"), { cause: "sk-cause-secret-value-123456" });
     expect(redactExternalError(err)).not.toContain("sk-cause-secret");
+  });
+});
+
+// [T3.2a] العلامات تُقرأ وقت الاستدعاء لا وقت الاستيراد، فتتبع لغة الواجهة النشطة.
+describe("redactExternalError locale (T3.2a)", () => {
+  afterEach(() => uiText.setLocale("ar"));
+
+  it("يُنتج الفئة العامة والعلامة المقتطعة والمحذوفة بلغة الواجهة النشطة", () => {
+    uiText.setLocale("en");
+    expect(redactExternalError({ secret: "sk-should-never-appear" })).toBe(en.errors.redactionGeneric);
+    expect(redactExternalError("")).toBe(en.errors.redactionGeneric);
+    expect(redactExternalError("x".repeat(400))).toContain(en.errors.redactionTruncated);
+    expect(redactExternalError("C:\\Users\\name\\secret.json")).toContain(en.errors.redactionMarker);
+  });
+
+  it("النسخة العربية مطابقة بايتًا للقيم السابقة", () => {
+    expect(ar.errors.redactionGeneric).toBe("خطأ خارجي غير محدد");
+    expect(ar.errors.redactionTruncated).toBe("… [مقتطع]");
+    expect(ar.errors.redactionMarker).toBe("[محذوف]");
+  });
+});
+// [T7.3] صيغ المفاتيح التي تسمّيها السياسة: كانت جميعها تمرّ بلا حذف قبل هذا التغيير.
+describe("redactExternalError provider key formats (T7.3)", () => {
+  const google = "AIza" + "A".repeat(35);
+  const github = "ghp_" + "b".repeat(36);
+  const slack = "xoxb-" + "1234567890-0987654321-abcdefghijklmnop";
+  const aws = "AKIA" + "C".repeat(16);
+
+  it("يزيل صيغ Google وGitHub وSlack وAWS أينما ظهرت بلا تسمية", () => {
+    const out = redactExternalError([google, github, slack, aws].join(" and "));
+    for (const secret of [google, github, slack, aws]) expect(out).not.toContain(secret);
+  });
+
+  it("يزيل client_secret رغم أن الشرطة السفلية حرف كلمة لا حدّ كلمة", () => {
+    const out = redactExternalError("bad client_secret=abcdef123456 for the app");
+    expect(out).not.toContain("abcdef123456");
+  });
+
+  it("يزيل قيمة سرّية معروفة لا تطابق أي نمط، فلا يعتمد الأمان على تخمين الصيغة", () => {
+    const unknown = "0123456789abcdef0123456789abcdef";
+    const out = redactExternalError("provider echoed " + unknown, { secrets: [unknown] });
+    expect(out).not.toContain(unknown);
+  });
+
+  it("لا يحذف سرًّا أقصر من الحد الأدنى حمايةً لنصّ الرسالة", () => {
+    expect(redactExternalError("bad key abc", { secrets: ["abc"] })).toBe("bad key abc");
   });
 });

@@ -18,7 +18,7 @@ describe("قاعدة التوريث الثلاثية", () => {
     expect(out.prompts.every((p) => p.hasShared && !p.hasCustom)).toBe(true);
   });
   it("وضع الربط بموحد فارغ يرمي خطأ عربيًا حتى لو وجد مخصص", () => {
-    expect(() => buildTurnTargets(turn(null, { t1: "خاص مُهمَل" }), [...targets], true)).toThrow(/اكتب سؤالًا موحدًا/);
+    expect(() => buildTurnTargets(turn(null, { t1: "خاص مُهمَل" }), [...targets], true)).toThrow(/errors\.syncNeedsSharedPrompt/);
   });
   it("موحد + مخصص: المخصص يُلحق بعد الموحد بفاصل", () => {
     const out = buildTurnTargets(turn("السؤال العام", { t2: "تعليمات خاصة لجيميناي" }), [...targets], false);
@@ -36,13 +36,13 @@ describe("قاعدة التوريث الثلاثية", () => {
     expect(out.dropped).toEqual(["t1", "t3"]);
   });
   it("كلاهما فارغ تمامًا يرمي خطأ عربيًا", () => {
-    expect(() => buildTurnTargets(turn(null, {}), [...targets], false)).toThrow(/اكتب سؤال/);
+    expect(() => buildTurnTargets(turn(null, {}), [...targets], false)).toThrow(/errors\.noPromptForAnyTarget/);
   });
   it("الفراغات فقط تُعد فارغة (trim)", () => {
     const out = buildTurnTargets(turn("   ", { t2: "  س  " }), [...targets], false);
     expect(out.prompts.map((p) => p.text)).toEqual(["س"]);
   });
   it("الفرع الموحد بأهداف صفرية يرمي رسالة عربية موجّهة (لا تمريرة فارغة)", () => {
-    expect(() => buildTurnTargets(turn("سؤال موحد", {}), [], true)).toThrow("أضف نموذجًا واحدًا على الأقل قبل الإرسال");
+    expect(() => buildTurnTargets(turn("سؤال موحد", {}), [], true)).toThrow(/chat\.noTargets/);
   });
 });

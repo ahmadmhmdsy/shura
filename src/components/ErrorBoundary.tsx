@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { ar } from "@/i18n/ar";
+import { uiText } from "@/i18n";
 import { logger } from "@/lib/logging";
 
 interface ErrorBoundaryProps { children: ReactNode; }
@@ -30,15 +30,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <div dir="rtl" role="alert" className="grid h-full place-items-center p-8 text-center">
+      <div role="alert" className="grid h-full place-items-center p-8 text-center">
         <div className="flex max-w-md flex-col items-center gap-4">
           <h1 className="text-[var(--sura-text-h2)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
-            {ar.errorBoundaryTitle}
+            {uiText.t("errors.boundaryTitle")}
           </h1>
-          <p className="text-[var(--sura-text-body)] text-[var(--sura-text-secondary)]">{ar.errorBoundaryDesc}</p>
+          <p className="text-[var(--sura-text-body)] text-[var(--sura-text-secondary)]">{uiText.t("errors.boundaryDesc")}</p>
           <details className="w-full text-start">
             <summary className="cursor-pointer text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
-              {ar.errorBoundaryDetails}
+              {uiText.t("errors.boundaryDetails")}
             </summary>
             <pre
               dir="ltr"
@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               {error.message}
             </pre>
           </details>
-          <Button onClick={this.reload}>{ar.errorBoundaryReload}</Button>
+          <Button onClick={this.reload}>{uiText.t("errors.boundaryReload")}</Button>
         </div>
       </div>
     );

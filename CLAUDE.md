@@ -378,6 +378,46 @@ Avoid hardcoding content that belongs in data or configuration.
 
 Test keyboard and basic screen-reader behavior when relevant.
 
+
+
+Localization and design tokens (hard rules for this repository, no exceptions):
+
+
+
+Never hardcode user-visible text. Every string lives in `src/i18n/en.ts` (the source of truth) and
+its locale peers, and is read through `UiText`: `t("feature.key")`, `plural("feature.key", count)`, or
+`formatDate` / `formatNumber` / `formatUnit`. This covers JSX text, `aria-label`, `placeholder`,
+`title`, `alt`, option labels, and user-facing error and toast messages.
+
+
+
+Never hardcode a style or design value. Colors, typography, spacing, radii, shadows, and motion come
+from the tokens in `src/styles/tokens/*.css` (prefix `--sura-`), referenced as
+`bg-[var(--sura-surface-primary)]`, `p-[var(--sura-space-4)]`, and so on. Never inline a raw hex color,
+a magic pixel value, or a hand-written font stack in a component.
+
+
+
+Never hardcode a direction. `dir` and `lang` are set once on `document.documentElement` from the
+active locale; `dir="ltr"` is allowed only on inherently-LTR technical content (a stack trace, a
+percentage).
+
+
+
+One variable, one owner. A literal that appears twice becomes a token or a resource key; a value that
+changes per locale goes through `UiText`. Adding a language must mean adding one resource file plus one
+registry entry - never editing components.
+
+
+
+These rules are enforced, not advisory: `pnpm typecheck` fails when a locale file does not satisfy the
+`en` shape, and `src/i18n/parity.spec.ts` fails on missing keys, extra keys, wrong CLDR plural
+categories, or mismatched `{arg}` placeholders. The style half is enforced by `pnpm lint`: a
+`no-restricted-syntax` rule in `eslint.config.js` rejects raw hex literals, raw colour functions,
+and the `*-white` / `*-black` utilities across `src/**/*.{ts,tsx}` (the token set has no white or
+black, so those would break dark mode). Colour, spacing, radius, typography and motion values must
+therefore be read from `src/styles/tokens/*.css` (`--sura-*`) — never inlined.
+
 batch/parallel use:
 
 

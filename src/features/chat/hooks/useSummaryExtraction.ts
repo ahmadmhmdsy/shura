@@ -8,15 +8,13 @@ import {
   appendMessage,
   claimOperationLease,
   persistTurnAttempt,
-  recordUsage,
   releaseOperationLease,
-  updateSessionIfOperation,
   updateTurnAttemptStatus,
 } from "@/lib/db/repos";
-import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
-import { appendTurn, sessionFolderName } from "@/lib/markdown/writer";
 import { headersFor } from "@/lib/providers/registry";
-import type { ChatMessage, ContextMode, ProviderId, SessionMeta, TargetConfig } from "@/types";
+import { uiText } from "@/i18n";
+import { createSummaryPersistence } from "../summaryPersistence";
+import type { ChatMessage, ContextMode, ProviderId, SessionMeta, TargetConfig, TurnStatus } from "@/types";
 import type { TurnData } from "./useTurns";
 
 export interface SummaryExtractionDeps {
@@ -63,21 +61,21 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
 
   async function extractSummary(): Promise<void> {
     if (sessionOperationCoordinator.isActive(sessionId)) {
-      toast.warning("جارٍ تنفيذ عملية بالفعل");
+      toast.warning(uiText.t("chat.operationInProgress"));
       return;
     }
     const last = turns[turns.length - 1];
     if (!last || last[1].results.length === 0) {
-      toast.warning("لا نتائج لاستخلاصها بعد");
+      toast.warning(uiText.t("chat.summary.noResults"));
       return;
     }
     if (last[0].startsWith("syn-")) {
-      toast.warning("الخلاصة موجودة بالفعل — لا خلاصة فوق خلاصة");
+      toast.warning(uiText.t("chat.summary.alreadyExists"));
       return;
     }
     const primary = primaryTarget ?? (targets[0] ? { providerId: targets[0].providerId, modelId: targets[0].modelId } : null);
     if (!primary) {
-      toast.warning("حدد النموذج الأساسي من الإعدادات أولًا");
+      toast.warning(uiText.t("chat.summary.selectPrimary"));
       return;
     }
 
@@ -98,7 +96,7 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
     const viewGeneration = viewGenerationRef.current;
     const handle = sessionOperationCoordinator.start(sessionId, "summary", new AbortController());
     if (!handle) {
-      toast.warning("جارٍ تنفيذ عملية بالفعل");
+      toast.warning(uiText.t("chat.operationInProgress"));
       return;
     }
     const operationId = handle.id;
@@ -228,84 +226,17 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       }
       publishSummaryProgress(accumulated, "streaming");
     };
-    const archiveSummary = async (
-      text: string,
-      status: "done" | "stopped" | "error",
-      error: string | undefined,
-      usage: ChatMessage["usage"],
-    ): Promise<void> => {
-      if (!isFilePersistActive()) return;
-      let effectiveSession = session;
-      if (!effectiveSession.onDiskDir) {
-        const folder = sessionFolderName(effectiveSession.title, effectiveSession.id, effectiveSession.createdAt);
-        const updated = await updateSessionIfOperation(effectiveSession.id, operationId, { onDiskDir: folder }, operationIsCurrent);
-        if (!updated) throw new Error("تغيرت ملكية العملية قبل حفظ مسار الجلسة");
-        if (isLiveOwner()) {
-          useSessionsStore.setState((state) => ({
-            sessions: state.sessions.map((item) => item.id === effectiveSession.id ? { ...item, onDiskDir: folder } : item),
-          }));
-        }
-        effectiveSession = { ...effectiveSession, onDiskDir: folder };
-      }
-      await appendTurn(getFileSink(), "sessions/" + effectiveSession.onDiskDir, effectiveSession, {
-        turn: { id: turnId, sharedPrompt: text, customs: {} },
-        // A v2 synthesis entry carries the primary target snapshot so recovery can
-        // attribute its usage instead of fabricating a provider.
-        prompts: [{
-          targetId,
-          providerId: primary.providerId,
-          modelId: primary.modelId,
-          text,
-          hasShared: true,
-          hasCustom: false,
-        }],
-        results: [{ targetId, text, usage: usage ?? null }],
-        status: { [targetId]: status },
-        errors: error === undefined ? {} : { [targetId]: error },
-        createdAt,
-        attemptId,
-        operationId,
-      });
-    };
-    const runSummarySidecars = async (
-      text: string,
-      status: "done" | "stopped" | "error",
-      error: string | undefined,
-      usage: ChatMessage["usage"],
-      durationMs: number | undefined,
-    ): Promise<string | undefined> => {
-      const sidecars: Promise<{ warning?: string }>[] = [];
-      if (durationMs !== undefined) {
-        sidecars.push(
-          recordUsage({
-            id: newId("u"),
-            sessionId: session.id,
-            turnId,
-            ts: Date.now(),
-            providerId: primary.providerId,
-            modelId: primary.modelId,
-            inputTokens: usage?.inputTokens ?? 0,
-            outputTokens: usage?.outputTokens ?? 0,
-            cachedInputTokens: usage?.cachedInputTokens ?? 0,
-            costUSD: usage?.costUSD ?? null,
-            toolCalls: 0,
-            durationMs,
-            status: status === "error" ? "error" : "ok",
-            attemptId,
-            operationId,
-          }).then(() => ({})).catch(() => ({ warning: "تعذر حفظ حدث الاستهلاك" })),
-        );
-      }
-      if (isFilePersistActive()) {
-        sidecars.push(archiveSummary(text, status, error, usage).then(() => ({})).catch(() => ({ warning: "حُفظت الخلاصة محليًا وفشل أرشفتها على القرص" })));
-      }
-      const settled = await Promise.allSettled(sidecars);
-      const warnings = settled
-        .filter((result): result is PromiseFulfilledResult<{ warning?: string }> => result.status === "fulfilled")
-        .map((result) => result.value.warning)
-        .filter((warning): warning is string => Boolean(warning));
-      return warnings.length ? warnings.join(" ؛ ") : undefined;
-    };
+    const { runSummarySidecars } = createSummaryPersistence({
+      session,
+      operationId,
+      turnId,
+      targetId,
+      attemptId,
+      createdAt,
+      primary,
+      operationIsCurrent,
+      isLiveOwner,
+    });
     const appendSummaryRow = async (message: ChatMessage, canAppend?: () => boolean): Promise<boolean> => {
       const result = await appendMessage(message, canAppend);
       if (result.accepted && isLiveOwner()) {
@@ -313,7 +244,7 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       }
       return result.accepted;
     };
-    const updateSummaryAttemptStatus = async (status: "done" | "stopped" | "error"): Promise<boolean> => {
+    const updateSummaryAttemptStatus = async (status: TurnStatus): Promise<boolean> => {
       if (!canonicalAttempt) return false;
       for (let retry = 0; retry < 2; retry += 1) {
         try {
@@ -349,9 +280,9 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
         () => !handle.controller.signal.aborted && sessionOperationCoordinator.accepts(operationId, session.id),
         operationGeneration,
       );
-      if (!canonicalAttempt) throw new Error("تعذر حفظ محاولة الخلاصة");
+      if (!canonicalAttempt) throw new Error(uiText.t("chat.summary.attemptSaveFailed"));
       if (!sessionOperationCoordinator.accepts(operationId, session.id) || handle.controller.signal.aborted) {
-        throw new Error("أُلغيت عملية الخلاصة");
+        throw new Error(uiText.t("chat.summary.cancelled"));
       }
       const promptMessage: ChatMessage = {
         id: newId("m"),
@@ -360,14 +291,14 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
         createdAt: createdAt - 1,
         role: "user",
         kind: "prompt",
-        text: "طلب خلاصة من النموذج الأساسي",
+        text: uiText.t("chat.summary.requestLabel"),
         promptKind: "shared",
         status: "done",
         attemptId: canonicalAttempt.id,
         attempt: canonicalAttempt.attempt,
         operationId,
       };
-      if (!(await appendSummaryRow(promptMessage))) throw new Error("تعذر حفظ سؤال الخلاصة");
+      if (!(await appendSummaryRow(promptMessage))) throw new Error(uiText.t("chat.summary.promptSaveFailed"));
       const placeholder: ChatMessage = {
         id: messageId,
         sessionId: session.id,
@@ -385,10 +316,10 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
         attempt: canonicalAttempt.attempt,
         operationId,
       };
-      if (!(await appendSummaryRow(placeholder))) throw new Error("تعذر حفظ بطاقة الخلاصة");
+      if (!(await appendSummaryRow(placeholder))) throw new Error(uiText.t("chat.summary.cardSaveFailed"));
       placeholderDurable = true;
       if (!sessionOperationCoordinator.accepts(operationId, session.id) || handle.controller.signal.aborted) {
-        throw new Error("أُلغيت عملية الخلاصة");
+        throw new Error(uiText.t("chat.summary.cancelled"));
       }
       // No await is allowed between this final ownership check and frozen dispatch invocation.
       try {
@@ -411,7 +342,7 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
         });
         if (dispatchedOutcomes.length !== 1 || dispatchedOutcomes[0]?.operationId !== operationId || dispatchedOutcomes[0]?.targetId !== targetId) {
           outcomeContractFailed = true;
-          throw new Error("نتيجة الخلاصة غير مطابقة للهوية");
+          throw new Error(uiText.t("chat.summary.identityMismatch"));
         }
         outcome = dispatchedOutcomes[0];
       } finally {
@@ -421,9 +352,9 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       // dispatch settled must terminally recover the durable placeholder as stopped
       // instead of publishing a late "done" and then running success-only sidecars.
       if (!operationIsCurrent()) {
-        throw new Error("أُلغيت عملية الخلاصة بعد انتهاء البث");
+        throw new Error(uiText.t("chat.summary.cancelledAfterStream"));
       }
-      if (!outcome) throw new Error("لم تُرجع عملية الخلاصة نتيجة");
+      if (!outcome) throw new Error(uiText.t("chat.summary.noResult"));
       const finalMessage: ChatMessage = {
         ...placeholder,
         text: outcome.text,
@@ -434,12 +365,12 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       // The success claim binds to the captured operation inside the write transaction so
       // a cancellation that lands while this append is in flight cannot be published as done.
       primaryDurable = await appendSummaryRow(finalMessage, operationIsCurrent);
-      if (!primaryDurable) throw new Error("تعذر حفظ النتيجة الأساسية للخلاصة");
+      if (!primaryDurable) throw new Error(uiText.t("chat.summary.primaryResultSaveFailed"));
       publishSummaryProgress(finalMessage.text, finalMessage.status, finalMessage.error);
-      if (outcome.status === "error" && isLiveOwner()) toast.error(outcome.error ?? "فشل");
+      if (outcome.status === "error" && isLiveOwner()) toast.error(outcome.error ?? uiText.t("common.failed"));
       attemptTerminal = await updateSummaryAttemptStatus(outcome.status);
       if (!attemptTerminal) {
-        if (isLiveOwner()) toast.warning("تعذر تثبيت حالة المحاولة بعد حفظ خلاصة");
+        if (isLiveOwner()) toast.warning(uiText.t("chat.summary.attemptStatusFailed"));
         return;
       }
       const sidecarWarning = await runSummarySidecars(outcome.text, outcome.status, outcome.error, outcome.usage, outcome.ms);
@@ -455,7 +386,7 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       const message = error instanceof Error ? error.message : String(error);
       await settleStream().catch(() => clearInterval(streamTimer));
       if (primaryDurable) {
-        if (isLiveOwner()) toast.warning("تعذر تثبيت حالة النتيجة الأساسية للخلاصة");
+        if (isLiveOwner()) toast.warning(uiText.t("chat.summary.primaryStatusFailed"));
         return;
       }
       if (!canonicalAttempt) {
@@ -490,15 +421,15 @@ export function useSummaryExtraction(deps: SummaryExtractionDeps): () => Promise
       };
       const recoveredPersisted = placeholderDurable ? await appendSummaryRow(recovered) : false;
       if (!placeholderDurable) {
-        if (!attemptUpdated && isLiveOwner()) toast.warning("تعذر تحديث حالة محاولة الخلاصة");
+        if (!attemptUpdated && isLiveOwner()) toast.warning(uiText.t("chat.summary.attemptUpdateFailed"));
         return;
       }
       if (!recoveredPersisted) {
-        if (isLiveOwner()) toast.warning("تعذر حفظ النتيجة النهائية للخلاصة");
+        if (isLiveOwner()) toast.warning(uiText.t("chat.summary.finalSaveFailed"));
         return;
       }
       if (!attemptUpdated) {
-        if (isLiveOwner()) toast.warning("تعذر تحديث حالة محاولة الخلاصة");
+        if (isLiveOwner()) toast.warning(uiText.t("chat.summary.attemptUpdateFailed"));
         return;
       }
       publishSummaryProgress(recovered.text, recovered.status, recovered.error);
