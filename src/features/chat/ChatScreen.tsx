@@ -246,7 +246,8 @@ export function ChatScreen({ session, onOpenSettings, autoFocusComposer = true }
 
   return (
     <main ref={mainRef} tabIndex={-1} className="flex-1 flex flex-col h-full min-w-0">
-      <div className="px-4 pt-3 flex justify-start items-center gap-2">
+      {/* Below md the fixed top bar (theme, help, language) overlaps this row, so it starts under it. */}
+      <div className="px-4 pt-12 md:pt-3 flex flex-wrap justify-start items-center gap-2">
         <RagStatusChip onOpenSettings={onOpenSettings} />
         <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
           <Download className="size-4" />

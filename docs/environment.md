@@ -116,8 +116,8 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 |---|---|---|
 | تثبيت بقفل مجمّد | `pnpm install --frozen-lockfile` | PASS (exit 0) |
 | البوابة الكاملة | `pnpm check:all` | PASS (exit 0) |
-| تغطية | ضمن `check:all` | <!--G:counts.files-->109<!--/G--> ملفًا / <!--G:counts.tests-->1170<!--/G--> اختبارًا — <!--G:cov.statements-->88.63<!--/G-->% statements، <!--G:cov.branches-->82.35<!--/G-->% branches، <!--G:cov.functions-->86.27<!--/G-->% functions، <!--G:cov.lines-->92.49<!--/G-->% lines (العتبة 80/75/80/80 لم تُخفَّض) |
-| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية <!--G:bundle.entry.kb-->1,112.80<!--/G--> kB (gzip <!--G:bundle.entry.gzip-->313.84<!--/G--> kB)، تحت سقف 1,200,000 بايت؛ البوابة `scripts/check-bundle.mjs` |
+| تغطية | ضمن `check:all` | <!--G:counts.files-->109<!--/G--> ملفًا / <!--G:counts.tests-->1171<!--/G--> اختبارًا — <!--G:cov.statements-->88.63<!--/G-->% statements، <!--G:cov.branches-->82.35<!--/G-->% branches، <!--G:cov.functions-->86.29<!--/G-->% functions، <!--G:cov.lines-->92.49<!--/G-->% lines (العتبة 80/75/80/80 لم تُخفَّض) |
+| بناء الويب | ضمن `check:all` | PASS — الحزمة الأساسية <!--G:bundle.entry.kb-->1,112.92<!--/G--> kB (gzip <!--G:bundle.entry.gzip-->313.88<!--/G--> kB)، تحت سقف 1,200,000 بايت؛ البوابة `scripts/check-bundle.mjs` |
 | متصفح | `pnpm build && pnpm test:e2e:browser` | PASS — 24 ناجح / 0 فاشل (ومشروع tauri يضيف 6 اختبارات ويحتاج نافذة سطح مكتب حيّة) (القسم 12 يوثّق ما أُصلح) |
 | تدقيق JS (خام) | `pnpm audit --json` | FAIL (exit 1) — 11 تنبيهًا: 1 critical، 5 high، 5 moderate؛ ثلاثة منها بلا إصلاح منشور. الادعاء السابق «صفر ثغرة» كان قديمًا وغير صحيح. |
 | بوابة التدقيق | `pnpm audit:check` | PASS — كل تنبيه مسجَّل في `docs/security/dependency-advisories.md` مع مبرر وتاريخ إعادة مراجعة، ولا يوجد تنبيه غير مسجَّل أو منتهي المراجعة. |
@@ -129,7 +129,7 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 
 | الملف | الحجم | gzip |
 |---|---|---|
-| `dist/assets/index-*.js` (الحزمة الأساسية) | **<!--G:bundle.entry.kb-->1,112.80<!--/G--> kB** | <!--G:bundle.entry.gzip-->313.84<!--/G--> kB |
+| `dist/assets/index-*.js` (الحزمة الأساسية) | **<!--G:bundle.entry.kb-->1,112.92<!--/G--> kB** | <!--G:bundle.entry.gzip-->313.88<!--/G--> kB |
 | `dist/assets/pdf-*.js` (عند الطلب) | <!--G:bundle.pdf.kb-->430.23<!--/G--> kB | <!--G:bundle.pdf.gzip-->127.42<!--/G--> kB |
 | `dist/assets/ort.wasm.bundle.min-*.js` (عند الطلب) | <!--G:bundle.ort.kb-->70.67<!--/G--> kB | <!--G:bundle.ort.gzip-->23.24<!--/G--> kB |
 | `dist/assets/rag-tool-*.js` (عند الطلب) | <!--G:bundle.ragTool.kb-->107.85<!--/G--> kB | <!--G:bundle.ragTool.gzip-->31.14<!--/G--> kB |
@@ -140,7 +140,7 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 | `dist/assets/ort-wasm-simd-threaded-*.wasm` (عند الطلب) | <!--G:bundle.ortWasm.kb-->14,239.90<!--/G--> kB | <!--G:bundle.ortWasm.gzip-->3,687.16<!--/G--> kB |
 | `dist/assets/ort-wasm-simd-threaded-*.mjs` (عند الطلب) | <!--G:bundle.ortGlue.kb-->24.38<!--/G--> kB | <!--G:bundle.ortGlue.gzip-->9.12<!--/G--> kB |
 | `dist/assets/pdf.worker.min-*.mjs` (عند الطلب) | <!--G:bundle.pdfWorker.kb-->1,265.41<!--/G--> kB | <!--G:bundle.pdfWorker.gzip-->375.25<!--/G--> kB |
-| `dist/assets/index-*.css` | <!--G:bundle.css.kb-->94.09<!--/G--> kB | <!--G:bundle.css.gzip-->23.19<!--/G--> kB |
+| `dist/assets/index-*.css` | <!--G:bundle.css.kb-->94.19<!--/G--> kB | <!--G:bundle.css.gzip-->23.20<!--/G--> kB |
 | `dist/assets/credentialStore-*.js` | <!--G:bundle.credentialStore.kb-->2.01<!--/G--> kB | <!--G:bundle.credentialStore.gzip-->0.91<!--/G--> kB |
 | `dist/assets/dist-js-*.js` | <!--G:bundle.distJs.kb-->1.86<!--/G--> kB | <!--G:bundle.distJs.gzip-->0.85<!--/G--> kB |
 | `dist/index.html` | <!--G:bundle.html.kb-->0.92<!--/G--> kB | <!--G:bundle.html.gzip-->0.48<!--/G--> kB |
@@ -148,10 +148,10 @@ Chrome for Testing 153.0.8010.12) كان موجودًا في `%LOCALAPPDATA%\ms-
 الأصول الثلاثة الأخيرة (wasm المحرّك ولاصقه وعامل pdf.js) **تُشحن داخل المثبّت** وتُقرأ من القرص
 عند أول استخدام لـRAG؛ لا تُنزَّل من شبكة، وعمود gzip مذكور للمقارنة مع النسخ المضغوطة لا للنقل.
 
-**ملاحظة صادقة:** الهامش بين الحزمة الأساسية والحدّ 1,200,000 بايت هو **نحو <!--G:bundle.headroom.kb-->87.20<!--/G--> kB (<!--G:bundle.headroom.percent-->7.3<!--/G-->%)**.
+**ملاحظة صادقة:** الهامش بين الحزمة الأساسية والحدّ 1,200,000 بايت هو **نحو <!--G:bundle.headroom.kb-->87.08<!--/G--> kB (<!--G:bundle.headroom.percent-->7.3<!--/G-->%)**.
 قبل فصل شيفرة RAG كان ≈ 4.8 kB فقط (0.4%) وكانت أي إضافة صغيرة تكسر الحدّ. الحدّ نفسه **لم يُخفَّض
 ولم يُرفع** — التحسّن جاء من تقسيم الشيفرة لا من إضعاف العتبة. لكن `modulepreload` في `dist/index.html`
-يجعل الحمولة الفعلية عند الإقلاع **<!--G:bundle.eager.kb-->1,331.37<!--/G--> kB** لأن قطع RAG تُحمَّل مسبقًا.
+يجعل الحمولة الفعلية عند الإقلاع **<!--G:bundle.eager.kb-->1,331.49<!--/G--> kB** لأن قطع RAG تُحمَّل مسبقًا.
 نُفِّذ T1.3 Step 9 (استيرادات ديناميكية في `dispatch.ts` و`RagSettings.tsx` و`documentManager.ts`) **ولم
 تنقص** الحمولة الفعلية: قائمة `modulepreload` تُشتق من استيرادات المدخل الساكنة، وRolldown يُصدر قطع
 `codeSplitting.groups` كاستيرادات ساكنة للمدخل. إزالة التجميع تُلغي التحميل المسبق لكنها تنقل شيفرة RAG
