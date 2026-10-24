@@ -28,7 +28,7 @@ function MessageBubble({
   if (isSystem) {
     return (
       <div className={cn("flex justify-center", className)}>
-        <div className="flex items-center gap-2 rounded-[var(--sura-radius-full)] bg-[var(--sura-chat-system-bg)] px-4 py-2 text-[var(--sura-text-body-sm)] text-[var(--sura-chat-system-text)]">
+        <div className="flex items-center gap-2 rounded-[var(--sura-radius-full)] bg-[var(--sura-chat-system-bg)] px-4 py-2 text-[length:var(--sura-text-body-sm)] text-[var(--sura-chat-system-text)]">
           <AlertCircle className="size-4 shrink-0" />
           <span>{content}</span>
         </div>
@@ -56,7 +56,7 @@ function MessageBubble({
         isUser ? "items-end" : "items-start"
       )}>
         {modelLabel && (
-          <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+          <span className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
             {modelLabel}
           </span>
         )}
@@ -70,10 +70,10 @@ function MessageBubble({
           {error ? (
             <div className="flex items-center gap-2 text-[var(--sura-error-text)]">
               <AlertCircle className="size-4 shrink-0" />
-              <span className="text-[var(--sura-text-body-sm)]">{error}</span>
+              <span className="text-[length:var(--sura-text-body-sm)]">{error}</span>
             </div>
           ) : isUser ? (
-            <p className="text-[var(--sura-text-body)] whitespace-pre-wrap">{content}</p>
+            <p className="text-[length:var(--sura-text-body)] whitespace-pre-wrap">{content}</p>
           ) : (
             <div className="prose prose-sm max-w-none">
               <Markdown text={content} />

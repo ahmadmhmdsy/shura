@@ -9,7 +9,7 @@ import { KeyedError } from "@/lib/errors/keyedError";
 // a rate differs, or a source has no matching model.
 const staticPricing = (inP: number, outP: number) => ({ inputPerMTok: inP, outputPerMTok: outP });
 
-const APP_REFERER = (import.meta.env?.VITE_APP_REFERER as string | undefined) ?? "http://localhost:5173";
+const APP_REFERER = (import.meta.env?.VITE_APP_REFERER as string | undefined) ?? "http://localhost:5174"; // vite.config.ts server.port
 
 export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
   openrouter: {

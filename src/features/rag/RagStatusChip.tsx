@@ -105,7 +105,7 @@ export function RagStatusChip({ onOpenSettings }: { onOpenSettings(): void }) {
               aria-valuemax={100}
             />
             </span>
-            <span className="tabular-nums text-[10px]">{percent}%</span>
+            <span className="tabular-nums text-[length:var(--sura-text-micro)]">{percent}%</span>
           </span>
         )}
       </button>

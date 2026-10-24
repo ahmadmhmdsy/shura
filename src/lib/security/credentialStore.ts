@@ -1,3 +1,4 @@
+import { KeyedError } from "@/lib/errors/keyedError";
 import type { ProviderId } from "@/types";
 
 export interface CredentialStore {
@@ -42,7 +43,7 @@ function fromBase64(value: string): Uint8Array<ArrayBuffer> {
 
 function subtleOrThrow(): SubtleCrypto {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error("Web Crypto غير متاح — تعذّر تشفير مفتاح المزود على الويب");
+  if (!subtle) throw new KeyedError("errors.credentialCryptoUnavailable");
   return subtle;
 }
 
@@ -92,11 +93,11 @@ const DEVICE_KEY_ID = "shura.device-credential-key";
 let deviceKey: CryptoKey | null = null;
 
 // The key is generated once per install and stored in IndexedDB as a JWK. The CryptoKey
-// object is non-extractable (page scripts can use it but never read it out), but the JWK
-// in IndexedDB is accessible to any script running in the same origin. This is a known
-// limitation of web-based credential storage — the OS keychain on desktop provides stronger
-// isolation. The AES-GCM encryption still protects against casual inspection and XSS attacks
-// that don't have direct IndexedDB access.
+// handle is non-extractable, but the JWK record itself is readable by any script running
+// in the same origin, so an XSS payload can recover the key and decrypt every provider
+// key. The encryption therefore only keeps keys out of plain sight at rest (a copied
+// profile folder, casual inspection of storage); it is not an XSS defence. The desktop
+// build stores keys in the OS keychain instead.
 async function loadDeviceKey(): Promise<CryptoKey> {
   if (deviceKey) return deviceKey;
   const subtle = subtleOrThrow();
@@ -119,7 +120,7 @@ function idb(): Promise<IDBDatabase> {
     const request = indexedDB.open("shura-credentials", 1);
     request.onupgradeneeded = () => { request.result.createObjectStore("device"); };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(new Error("تعذّر فتح مخزن المفاتيح المحلي"));
+    request.onerror = () => reject(new KeyedError("errors.credentialStoreOpenFailed"));
   });
 }
 
@@ -141,6 +142,6 @@ async function writeDeviceKeyRecord(jwk: JsonWebKey): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const request = db.transaction("device", "readwrite").objectStore("device").put(jwk, DEVICE_KEY_ID);
     request.onsuccess = () => resolve();
-    request.onerror = () => reject(new Error("تعذّر حفظ مفتاح التشفير المحلي"));
+    request.onerror = () => reject(new KeyedError("errors.credentialKeySaveFailed"));
   });
 }

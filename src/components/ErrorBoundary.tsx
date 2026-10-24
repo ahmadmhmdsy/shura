@@ -32,17 +32,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return (
       <div role="alert" className="grid h-full place-items-center p-8 text-center">
         <div className="flex max-w-md flex-col items-center gap-4">
-          <h1 className="text-[var(--sura-text-h2)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
+          <h1 className="text-[length:var(--sura-text-h2)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
             {uiText.t("errors.boundaryTitle")}
           </h1>
-          <p className="text-[var(--sura-text-body)] text-[var(--sura-text-secondary)]">{uiText.t("errors.boundaryDesc")}</p>
+          <p className="text-[length:var(--sura-text-body)] text-[var(--sura-text-secondary)]">{uiText.t("errors.boundaryDesc")}</p>
           <details className="w-full text-start">
-            <summary className="cursor-pointer text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+            <summary className="cursor-pointer text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
               {uiText.t("errors.boundaryDetails")}
             </summary>
             <pre
               dir="ltr"
-              className="mt-2 overflow-x-auto rounded-[var(--sura-radius-sm)] bg-[var(--sura-surface-secondary)] p-2 text-[var(--sura-text-caption)] text-[var(--sura-text-secondary)]"
+              className="mt-2 overflow-x-auto rounded-[var(--sura-radius-sm)] bg-[var(--sura-surface-secondary)] p-2 text-[length:var(--sura-text-caption)] text-[var(--sura-text-secondary)]"
             >
               {error.message}
             </pre>

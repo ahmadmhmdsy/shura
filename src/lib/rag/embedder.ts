@@ -14,7 +14,8 @@
  */
 
 import { getTransportFetch } from "@/lib/transport/transport";
-import { getModelInfo, getModelUrl, tokenizerAssetId } from "./modelCatalog";
+import { getModelInfo, tokenizerAssetId } from "./modelCatalog";
+import { assertWithinSize, verifyDigest, type AssetDigest } from "./verifiedDownload";
 import {
   getModelBytes,
   getTokenizerAsset,
@@ -124,14 +125,15 @@ async function doLoadModel(modelId: string): Promise<LoadedEmbeddingModel> {
     session = await ort.InferenceSession.create(modelData);
   } else {
     // Download model and cache it
-    const modelUrl = getModelUrl(modelId);
+    const info = getModelInfo(modelId);
+    if (!info) throw new Error(`Unknown embedding model: ` + modelId);
     // التنزيل عبر النقل الموحّد: plugin-http تحت Tauri (يحكمه سماح http:default
     // فلا حاجة لفتح connect-src)، وfetch العادي في الويب.
-    const response = await getTransportFetch()(modelUrl);
+    const response = await getTransportFetch()(info.url);
     if (!response.ok) {
       throw new Error(`Model download failed: ${response.status} ${response.statusText}`);
     }
-    const modelBytes = await response.arrayBuffer();
+    const modelBytes = await readVerified(response, info.integrity.model);
     // الكتابة عبر كاتب الكاش الوحيد (T1.6)، وفشلها غير قاتل: البايتات تمرّ إلى
     // المحرك في الذاكرة، فإفشال تحميل نجح لأن الكاش لم يُكتب خسارة بلا مقابل.
     await putModelQuietly(modelId, modelBytes);
@@ -312,8 +314,12 @@ async function doLoadTokenizer(modelId: string): Promise<TextTokenizer> {
   // الملفان معًا: `tokenizer.json` يحمل المفردات، و`tokenizer_config.json` يحمل
   // الإعدادات التي تبني عليها المكتبة المُرمِّز (منها مقبض التقطيع المسبق).
   const [tokenizerJson, tokenizerConfig] = await Promise.all([
-    loadTokenizerAsset(info.tokenizerUrl, tokenizerAssetId(modelId, "tokenizer.json")),
-    loadTokenizerAsset(info.tokenizerConfigUrl, tokenizerAssetId(modelId, "tokenizer_config.json")),
+    loadTokenizerAsset(info.tokenizerUrl, tokenizerAssetId(modelId, "tokenizer.json"), info.integrity.tokenizer),
+    loadTokenizerAsset(
+      info.tokenizerConfigUrl,
+      tokenizerAssetId(modelId, "tokenizer_config.json"),
+      info.integrity.tokenizerConfig,
+    ),
   ]);
 
   const { Tokenizer } = await import("@huggingface/tokenizers");
@@ -333,19 +339,27 @@ async function doLoadTokenizer(modelId: string): Promise<TextTokenizer> {
 }
 
 /** تنزيل أصل مرة واحدة وتخزينه في كاش النماذج، ثم إعادته ككائن JSON. */
-async function loadTokenizerAsset(url: string, assetId: string): Promise<object> {
+async function loadTokenizerAsset(url: string, assetId: string, expected: AssetDigest): Promise<object> {
   const cached = await getTokenizerAsset(assetId);
-  const bytes = cached ?? (await downloadAsset(url, assetId));
+  const bytes = cached ?? (await downloadAsset(url, assetId, expected));
   return JSON.parse(new TextDecoder().decode(bytes)) as object;
 }
 
-async function downloadAsset(url: string, assetId: string): Promise<ArrayBuffer> {
+async function downloadAsset(url: string, assetId: string, expected: AssetDigest): Promise<ArrayBuffer> {
   const response = await getTransportFetch()(url);
   if (!response.ok) {
     throw new Error(`Tokenizer download failed: ` + response.status + " " + response.statusText);
   }
-  const bytes = await response.arrayBuffer();
+  const bytes = await readVerified(response, expected);
   await putTokenizerAsset(assetId, bytes);
+  return bytes;
+}
+
+/** Reads a pinned asset, refusing an oversized response and bytes that fail the digest. */
+async function readVerified(response: Response, expected: AssetDigest): Promise<ArrayBuffer> {
+  assertWithinSize(Number(response.headers?.get("content-length") ?? 0), expected);
+  const bytes = await response.arrayBuffer();
+  await verifyDigest(bytes, expected);
   return bytes;
 }
 

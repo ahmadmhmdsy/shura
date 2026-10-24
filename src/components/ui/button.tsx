@@ -6,7 +6,7 @@ import { Slot } from "radix-ui"
 // [Q9] حلقة التركيز الميتة (ring/ring-offset مع var() غير مصنّف) حُذفت هنا وفي badge/input/textarea/switch/Composer:
 // Tailwind يفسّر var() غير المصنّف لونًا لا عرضًا فلا تُرسم أبدًا، ومؤشر التركيز الوحيد هو outline العام في globals.css.
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--sura-radius-button)] text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] whitespace-nowrap transition-[var(--sura-transition-all)] outline-none disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-[var(--sura-error)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--sura-radius-button)] text-[length:var(--sura-text-body-sm)] font-[var(--sura-font-medium)] whitespace-nowrap transition-[var(--sura-transition-all)] outline-none disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-[var(--sura-error)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -27,7 +27,7 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        xs: "h-6 gap-1 rounded-[var(--sura-radius-sm)] px-2 text-[var(--sura-text-caption)] has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        xs: "h-6 gap-1 rounded-[var(--sura-radius-sm)] px-2 text-[length:var(--sura-text-caption)] has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 rounded-[var(--sura-radius-sm)] px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-[var(--sura-radius-lg)] px-6 has-[>svg]:px-4",
         icon: "size-9",

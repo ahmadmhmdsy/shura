@@ -10,9 +10,16 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     for component in path.components() {
         match component {
             Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
+            // `..` cancels only a named segment. At the root it is a no-op (the OS
+            // resolves `/..` to `/`), and on a relative path a leading `..` is kept,
+            // so `../root/x` can never normalise into `root/x`.
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => normalized.push(".."),
+            },
             Component::Normal(part) => normalized.push(part),
             Component::RootDir | Component::Prefix(_) => normalized.push(component.as_os_str()),
         }
@@ -71,6 +78,13 @@ mod tests {
             Path::new("/root"),
             Path::new("/etc/shadow")
         ));
+    }
+
+    #[test]
+    fn leading_parent_segments_are_not_dropped() {
+        assert!(!is_within_root(Path::new("root"), Path::new("../root/x")));
+        assert!(!is_within_root(Path::new("root"), Path::new("root/../../root/x")));
+        assert!(is_within_root(Path::new("/root"), Path::new("/../root/x")));
     }
 
     #[test]

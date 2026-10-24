@@ -107,7 +107,7 @@ export function Composer({ ref, ...props }: ComposerProps) {
     <div className="border-t border-[var(--sura-border-primary)] bg-[var(--sura-surface-primary)] p-3 space-y-2" data-composer="true">
       {/* Targets row — compact chips */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.targetHint")} aria-hidden="true"><Info className="size-3.5" /></span>
+        <span className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.targetHint")} aria-hidden="true"><Info className="size-3.5" /></span>
         {/* الشريحة زرّان شقيقان داخل إطار واحد: التركيز على النموذج، وإزالته. لا يجوز أن يحوي
             أحدهما الآخر — فالتداخل يُخفي الإزالة عن قارئ الشاشة ويصادره axe كـ
             nested-interactive. الإطار نفسه غير تفاعلي. */}
@@ -149,7 +149,7 @@ export function Composer({ ref, ...props }: ComposerProps) {
         </Button>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.contextModeHint")}>
+          <label className="flex items-center gap-1 text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("chat.contextModeHint")}>
             <Switch checked={props.contextMode === "stateless"} onCheckedChange={(v) => props.onContextModeChange(v ? "stateless" : "stateful")} aria-label={t("chat.contextMode")} />
             {props.contextMode === "stateless" ? t("chat.contextStateless") : t("chat.contextStateful")}
           </label>
@@ -167,7 +167,7 @@ export function Composer({ ref, ...props }: ComposerProps) {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)] hover:text-[var(--sura-text-primary)] transition-colors"
+          className="flex items-center gap-1 text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)] hover:text-[var(--sura-text-primary)] transition-colors"
           onClick={() => setAdvancedOpen(!advancedOpen)}
           aria-expanded={advancedOpen}
         >
@@ -176,8 +176,8 @@ export function Composer({ ref, ...props }: ComposerProps) {
         </button>
         {/* يُعرض المفتاح دائمًا. مع هدف واحد كان لا يُرسم إطلاقًا، فكان من المستحيل إيقاف
             «سؤال موحد للجميع» والوصول إلى حقل السؤال المخصص لهذا النموذج. */}
-        <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">·</span>
-        <label className="flex items-center gap-1 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("onboarding.syncDesc")}><Link2 className="size-3.5" /> {t("chat.syncMode")}
+        <span className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">·</span>
+        <label className="flex items-center gap-1 text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]" title={t("onboarding.syncDesc")}><Link2 className="size-3.5" /> {t("chat.syncMode")}
           <Switch checked={syncMode} onCheckedChange={(v) => setSyncMode(sessionId, v)} aria-label={t("chat.syncMode")} /></label>
       </div>
 
@@ -187,12 +187,12 @@ export function Composer({ ref, ...props }: ComposerProps) {
           {!syncMode && (focusTargetId
             ? targets.filter((target) => target.targetId === focusTargetId).map((target) => (
               <div key={target.targetId} className="space-y-1">
-                <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">{t("chat.customField")} {PROVIDERS[target.providerId].label} · {target.modelId}</span>
+                <span className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">{t("chat.customField")} {PROVIDERS[target.providerId].label} · {target.modelId}</span>
                 <Textarea value={customs[target.targetId] ?? ""} onChange={(e) => setCustom(sessionId, target.targetId, e.target.value)} placeholder={t("chat.customPlaceholder")} className="min-h-24" aria-label={t("chat.customField") + "" + PROVIDERS[target.providerId].label + "" + target.modelId} />
               </div>
             ))
             : targets.map((target) => (
-              <button key={target.targetId} className="w-full text-start text-[var(--sura-text-caption)] px-2 py-1 rounded-[var(--sura-radius-sm)] border border-dashed border-[var(--sura-border-primary)] text-[var(--sura-text-tertiary)] hover:bg-[var(--sura-hover)]" onClick={() => setFocus(sessionId, target.targetId)}>
+              <button key={target.targetId} className="w-full text-start text-[length:var(--sura-text-caption)] px-2 py-1 rounded-[var(--sura-radius-sm)] border border-dashed border-[var(--sura-border-primary)] text-[var(--sura-text-tertiary)] hover:bg-[var(--sura-hover)]" onClick={() => setFocus(sessionId, target.targetId)}>
                 {t("chat.customField")} {target.modelId} {(customs[target.targetId] ?? "").length > 0 ? "✓" : t("chat.customEmptyHint")}
               </button>
             ))
@@ -205,7 +205,7 @@ export function Composer({ ref, ...props }: ComposerProps) {
       <Textarea ref={ref} value={sharedPrompt} onChange={(e) => setShared(sessionId, e.target.value)} onKeyDown={handleSharedKeyDown} placeholder={t("chat.sharedPlaceholder")} className="min-h-[var(--sura-composer-min-height)] max-h-[var(--sura-composer-max-height)] overflow-y-auto" aria-label={t("chat.sharedPlaceholder")} />
 
       <div className="flex items-center gap-2 justify-end">
-        <span className="me-auto flex items-center gap-2 text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+        <span className="me-auto flex items-center gap-2 text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
           <span className="hidden sm:inline">{t("chat.sendHint")}</span>
           {sharedPrompt.length > 0 && (
             <span

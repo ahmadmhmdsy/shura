@@ -8,6 +8,12 @@ import {
   isModelDownloaded,
 } from "./modelDownloader";
 import { putModel } from "./modelCache";
+import { getModelInfo } from "./modelCatalog";
+import { verifyDigest } from "./verifiedDownload";
+
+// The fixtures stream a few fake bytes; the real digest check has its own spec
+// (verifiedDownload.spec.ts). Here it is a spy, so the wiring can be asserted.
+vi.mock("./verifiedDownload", () => ({ assertWithinSize: vi.fn(), verifyDigest: vi.fn(async () => {}) }));
 
 const mockFetch = vi.fn();
 
@@ -92,6 +98,23 @@ describe("downloadModel", () => {
 
     expect(onProgress).not.toHaveBeenCalled();
     expect((await db.rag_models.get("multilingual-e5-base"))?.sizeBytes).toBe(2);
+  });
+
+  it("checks the bytes against the pinned catalog digest before caching", async () => {
+    mockFetch.mockResolvedValue(streamResponse([[1, 2, 3]], 3));
+    await downloadModel("multilingual-e5-small");
+    expect(verifyDigest).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      getModelInfo("multilingual-e5-small")?.integrity.model,
+    );
+    expect(String(mockFetch.mock.calls[0][0])).not.toContain("/resolve/main/");
+  });
+
+  it("caches nothing when the digest check fails", async () => {
+    mockFetch.mockResolvedValue(streamResponse([[1, 2, 3]], 3));
+    vi.mocked(verifyDigest).mockRejectedValueOnce(new Error("errors.modelIntegrity"));
+    await expect(downloadModel("multilingual-e5-small")).rejects.toThrow("errors.modelIntegrity");
+    expect(await db.rag_models.get("multilingual-e5-small")).toBeUndefined();
   });
 
   it("يرمي خطأ لنموذج غير معروف دون تنزيل", async () => {

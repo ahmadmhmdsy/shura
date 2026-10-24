@@ -129,7 +129,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-[var(--sura-text-h3)] leading-[var(--sura-leading-tight)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]", className)}
+      className={cn("text-[length:var(--sura-text-h3)] leading-[var(--sura-leading-tight)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]", className)}
       {...props}
     />
   )
@@ -142,7 +142,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]", className)}
+      className={cn("text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]", className)}
       {...props}
     />
   )

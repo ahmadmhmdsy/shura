@@ -66,7 +66,7 @@ function ModelSelector({
           >
             <div className="max-h-60 overflow-y-auto p-1">
               {models.length === 0 ? (
-                <div className="px-3 py-2 text-[var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
+                <div className="px-3 py-2 text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
                   {t("models.empty")}
                 </div>
               ) : (
@@ -88,17 +88,17 @@ function ModelSelector({
                     }}
                   >
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="truncate text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] text-[var(--sura-text-primary)]">
+                      <span className="truncate text-[length:var(--sura-text-body-sm)] font-[var(--sura-font-medium)] text-[var(--sura-text-primary)]">
                         {model.label}
                       </span>
-                      <span className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+                      <span className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
                         {model.provider}
                         {model.contextLength && ` • ${plural("models.tokens", model.contextLength)}`}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {model.isFree && (
-                        <Badge variant="secondary" className="text-[var(--sura-text-caption)]">
+                        <Badge variant="secondary" className="text-[length:var(--sura-text-caption)]">
                           {t("models.free")}
                         </Badge>
                       )}

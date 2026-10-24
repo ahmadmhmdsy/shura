@@ -28,3 +28,4 @@ docs/reviews/*
 # carried into the tracked plan, the progress file and CHANGELOG.md, so nothing here is a lost
 # deliverable. Add a negation only if a future review must ship with the release.
 %SystemDrive%/
+.claude/handoffs/

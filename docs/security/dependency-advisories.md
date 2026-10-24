@@ -48,6 +48,7 @@ Severity is the npm advisory severity, not our own.
 | 1240097 | ip-address | moderate | no (dev toolchain) | shadcn > @modelcontextprotocol/sdk > express-rate-limit > ip-address | >=10.7.1 | accept - dev-only; clears with the same shadcn bump as 1241339 | 2027-10-05 |
 | 1240098 | ip-address | moderate | no (dev toolchain) | shadcn > @modelcontextprotocol/sdk > express-rate-limit > ip-address | >=10.7.1 | accept - same path and reasoning as 1240097 | 2027-10-05 |
 | 1241202 | sprintf-js | moderate | **yes - bundled** | mammoth > argparse > sprintf-js | none published | accept with mitigation - see below | 2027-04-05 |
+| 1243066 | zod | high | no (dev toolchain) | shadcn > @modelcontextprotocol/sdk > zod (3.25.76) | >=4.6.6 (no 3.x fix) | accept - the shadcn CLI pins zod 3 and runs at development time only; the runtime zod is 4.x and is overridden to >=4.6.6 | 2027-10-24 |
 
 ### 1241202 - the only production-path advisory
 
@@ -87,6 +88,18 @@ The plan asks for the cheap fixes to be attempted before accepting risk. Result:
   a genuine production-graph row); `shadcn`, `@eslint/js` and `@tailwindcss/vite` are
   **devDependencies**, which is why the other ten rows are marked dev/build only.
 
+## Update 2026-10-24 - overrides applied
+
+The audit now reported 15 further advisories (vite, zod, undici, body-parser, hono), several
+on the production graph (zod and undici through `@ai-sdk/*`). The earlier "not attempted"
+position was revisited: `pnpm-workspace.yaml` now carries `overrides`, each scoped to the
+vulnerable range and pinned to the patched release **within the same major**, so no parent
+is pushed outside the semver range it declares. Direct deps `vite` (^8.2.4) and `zod`
+(^4.6.6) were bumped in `package.json`. Result: every row above except 1243066 is no longer
+reported (braces and sprintf-js have also left the graph), and the production graph has
+zero advisories. The older rows are kept as history; the gate only requires that reported
+advisories are registered.
+
 ## Measured evidence
 
 | Date | Command | Result |
@@ -94,3 +107,4 @@ The plan asks for the cheap fixes to be attempted before accepting risk. Result:
 | 2026-10-05 | `pnpm audit --json` | exit 1 - 11 advisories: 1 critical, 5 high, 5 moderate |
 | 2026-10-05 | `pnpm audit --prod --json` | exit 1 - 1 moderate (1241202 sprintf-js) |
 | 2026-10-05 | `pnpm audit:check` | PASS - all 11 advisories registered, no re-review date passed |
+| 2026-10-24 | `pnpm audit:check` (after overrides) | 1 advisory (1243066, dev-only zod 3); production: 0 |

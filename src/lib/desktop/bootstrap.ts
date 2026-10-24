@@ -6,28 +6,34 @@ import { documentDir, join } from "@tauri-apps/api/path";
 
 let bootstrapped = false;
 
+/**
+ * Installs the desktop transport and file sink. Runs before settings load, so it must
+ * not read or write settings; the default session root is filled in afterwards by
+ * `ensureDesktopSessionRoot`.
+ */
 export async function bootstrapDesktop(): Promise<void> {
   if (!isTauri()) return;
   // Idempotent: startup and any later re-entry must install the same sink/transport once.
+  // The flag is set only after both are installed, so a failed import can be retried.
   if (bootstrapped) return;
-  bootstrapped = true;
   const mod = await import("@tauri-apps/plugin-http");
   setTransportFetch(mod.fetch as unknown as typeof fetch);
   setFileSink(tauriFileSink());
-  // Settings are already loaded by the startup phase; reloading here would overwrite a
-  // root the user configured, so only the default is filled in when it is still missing.
-  const s = useSettingsStore.getState();
-  if (!s.sessionRootDir) await s.load();
-  // [انحراف موثق 1/2 عن كود الخطة] الحرفي «if (!s.sessionRootDir)» يقرأ لقطة getState()
-  // الملتقطة قبل load() فقيمتها null دائمًا ويستبدل جذرًا محفوظًا بالإفتراضي في كل إقلاع؛
-  // الحالة تُقرأ بعد التحميل.
+  bootstrapped = true;
+}
+
+/**
+ * Fills in the default session root when the loaded settings have none. Must run after
+ * the settings load: called earlier it would replace a root the user configured.
+ */
+export async function ensureDesktopSessionRoot(): Promise<void> {
+  if (!isTauri()) return;
   // [انحراف موثق 2/2] جذر الجلسات = Shura\sessions لا Shura: عقد الاسترجاع (المهمة 13) يقرأ
   // مجلدات الجلسات مباشرة تحت الجذر (اختباره recoverFromDisk(sink, "sessions") وشجرة وثيقة
   // التصميم «Documents\Shura\sessions\<مجلد>»)، والمرحّل يكتب «sessions/<folder>» نسبيًا
   // (tauriSink يجذّره عند Documents\Shura). بجذر Shura فقط يصبح الاسترجاع أعمى عن كتابات
   // سطح المكتب حتمًا.
-  if (!useSettingsStore.getState().sessionRootDir) {
-    const root = await join(await documentDir(), "Shura", "sessions");
-    await useSettingsStore.getState().setSessionRootDir(root);
-  }
+  if (useSettingsStore.getState().sessionRootDir) return;
+  const root = await join(await documentDir(), "Shura", "sessions");
+  await useSettingsStore.getState().setSessionRootDir(root);
 }

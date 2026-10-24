@@ -101,8 +101,6 @@ export async function dispatchTurn(args: DispatchArgs): Promise<DispatchOutcome[
       externalSignal?.removeEventListener("abort", externalListener);
     };
     const status = args.onStatus ? (s: TurnStatus, error?: string) => args.onStatus?.(args.operationId, p.targetId, s, error) : undefined;
-    // [L5] Move status?.("streaming") inside the try block so cleanup runs if it throws.
-    // status?.("streaming"); // Moved inside try block below.
     // [تصحيح المهمة 5] سبب المهلة كائن ملتقط واحد: التصنيف بمطابقة الهوية (r === timeoutReason) بدل regex الرسالة
     const timeoutReason = new KeyedError("errors.callTimeout");
     const timer = setTimeout(() => ac.abort(timeoutReason), timeout);

@@ -1,8 +1,8 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Shura: a local desktop chat that sends one prompt to several AI providers in parallel"
+authors = ["Ahmad Mahmoud"]
 license = ""
 repository = ""
 edition = "2021"

@@ -40,7 +40,7 @@ export function SummaryCard({ msg, horizontal }: { msg: ChatMessage; horizontal:
         {msg.text && <Markdown text={msg.text} />}
         {msg.sidecarWarning && <p className="mt-2 text-xs text-sura-warn whitespace-pre-wrap">{msg.sidecarWarning}</p>}
       </div>
-      <div className="px-3 py-1.5 border-t border-sura-border text-[11px] text-sura-muted flex gap-3">
+      <div className="px-3 py-1.5 border-t border-sura-border text-[length:var(--sura-text-mini)] text-sura-muted flex gap-3">
         {usage ? <><span>↓ {usage.inputTokens}</span><span>↑ {usage.outputTokens}</span><span>{t("chat.cachedTokens")} {usage.cachedInputTokens}</span>{usage.cacheWriteInputTokens ? <span>{t("chat.cacheWriteTokens")} {usage.cacheWriteInputTokens}</span> : null}<span>{formatCost(usage.costUSD, t("common.noValue"), formatNumber)}</span></> : <span>{t("common.noValue")}</span>}
       </div>
     </div>

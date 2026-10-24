@@ -141,7 +141,7 @@ export function AddModelDialog({ open, onOpenChange, onPick }: { open: boolean; 
                   {recentModels.map((m) => (
                     <Button key={m.id} variant="ghost" className="justify-between font-normal" onClick={() => handlePick(provider, m)}>
                       <span className="truncate">{m.label}</span>
-                      <span className="text-[10px] text-sura-muted">{m.id}</span>
+                      <span className="text-[length:var(--sura-text-micro)] text-sura-muted">{m.id}</span>
                     </Button>
                   ))}
                 </>
@@ -149,7 +149,7 @@ export function AddModelDialog({ open, onOpenChange, onPick }: { open: boolean; 
               {filteredModels.map((m) => (
                 <Button key={m.id} variant="ghost" className="justify-between font-normal" onClick={() => handlePick(provider, m)}>
                   <span className="truncate">{m.label}</span>
-                  <span className="text-[10px] text-sura-muted">{m.id}</span>
+                  <span className="text-[length:var(--sura-text-micro)] text-sura-muted">{m.id}</span>
                 </Button>
               ))}
               {filteredModels.length === 0 && !loading && (

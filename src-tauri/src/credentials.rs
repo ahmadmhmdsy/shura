@@ -1,12 +1,19 @@
 // [المهمة 9] مخزن مفاتيح المزودين في مخزن أسرار نظام التشغيل.
-// لا يُسجَّل أي مفتاح ولا خطأ خام: كل ما يخرج من هنا رسالة قصيرة موجّهة للمستخدم.
+// لا يُسجَّل أي مفتاح ولا خطأ خام: كل ما يخرج من هنا رمز خطأ ثابت يترجمه الواجهة.
 use std::sync::{Mutex, OnceLock};
 
 use keyring::Entry;
-use tauri::State;
 
 const SERVICE: &str = "app.shura.local";
 const PROVIDERS: [&str; 4] = ["openrouter", "google", "minimax", "opencodego"];
+
+// Errors are stable codes, not display text: the frontend maps each one to a resource
+// key in the reader's language (credentialBackend.ts), so nothing here is localized.
+const LOCK_FAILED: &str = "keychain.lockFailed";
+const UNKNOWN_PROVIDER: &str = "keychain.unknownProvider";
+const PLATFORM_FAILURE: &str = "keychain.platformFailure";
+const OPERATION_FAILED: &str = "keychain.operationFailed";
+const EMPTY_VALUE: &str = "keychain.emptyValue";
 
 // وصول مخزن أسرار ويندوز غير آمن للاستخدام المتزامن، فكل وصول يُسلسل بقفل واحد.
 static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -15,26 +22,23 @@ fn lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
     STORE_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .map_err(|_| "تعذر الوصول إلى مخزن المفاتيح".to_string())
+        .map_err(|_| LOCK_FAILED.to_string())
 }
 
 fn validate_provider(provider_id: &str) -> Result<(), String> {
     if PROVIDERS.contains(&provider_id) {
         Ok(())
     } else {
-        Err("مزود غير معروف".to_string())
+        Err(UNKNOWN_PROVIDER.to_string())
     }
 }
 
 fn map_keyring_error(error: keyring::Error) -> String {
     match error {
-        keyring::Error::NoEntry => NO_ENTRY.to_string(),
-        keyring::Error::PlatformFailure(_) => "تعذر الوصول إلى مخزن مفاتيح النظام".to_string(),
-        _ => "تعذر تنفيذ عملية على مخزن المفاتيح".to_string(),
+        keyring::Error::PlatformFailure(_) => PLATFORM_FAILURE.to_string(),
+        _ => OPERATION_FAILED.to_string(),
     }
 }
-
-const NO_ENTRY: &str = "لا يوجد مفتاح محفوظ لهذا المزود";
 
 fn entry(provider_id: &str) -> Result<Entry, String> {
     validate_provider(provider_id)?;
@@ -47,21 +51,15 @@ pub fn get_provider_key(provider_id: String) -> Result<Option<String>, String> {
     let _guard = lock()?;
     match entry.get_password() {
         Ok(secret) => Ok(Some(secret)),
-        Err(error) => {
-            let message = map_keyring_error(error);
-            if message == NO_ENTRY {
-                Ok(None)
-            } else {
-                Err(message)
-            }
-        }
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(map_keyring_error(error)),
     }
 }
 
 #[tauri::command]
 pub fn set_provider_key(provider_id: String, value: String) -> Result<(), String> {
     if value.is_empty() {
-        return Err("قيمة المفتاح فارغة".to_string());
+        return Err(EMPTY_VALUE.to_string());
     }
     let entry = entry(&provider_id)?;
     let _guard = lock()?;
@@ -73,20 +71,10 @@ pub fn delete_provider_key(provider_id: String) -> Result<(), String> {
     let entry = entry(&provider_id)?;
     let _guard = lock()?;
     match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let message = map_keyring_error(error);
-            if message == NO_ENTRY {
-                Ok(())
-            } else {
-                Err(message)
-            }
-        }
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(map_keyring_error(error)),
     }
 }
-
-#[allow(dead_code)]
-fn _state_is_linked(_: Option<State<()>>) {}
 
 #[cfg(test)]
 mod tests {
@@ -110,7 +98,12 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_entry_is_not_an_error_for_delete() {
-        assert_eq!(map_keyring_error(keyring::Error::NoEntry), NO_ENTRY);
+    fn errors_are_stable_codes_the_frontend_can_map() {
+        assert_eq!(validate_provider("evil"), Err(UNKNOWN_PROVIDER.to_string()));
+        let message = map_keyring_error(keyring::Error::PlatformFailure(Box::new(
+            std::io::Error::other("boom"),
+        )));
+        assert_eq!(message, PLATFORM_FAILURE);
+        assert_eq!(map_keyring_error(keyring::Error::NoEntry), OPERATION_FAILED);
     }
 }

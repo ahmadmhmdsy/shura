@@ -35,12 +35,16 @@ vi.mock("@/lib/db/repos", () => ({
   reconcileInterruptedTurns: vi.fn(async () => 0),
 }));
 vi.mock("@/lib/transport/transport", () => ({ isTauri: () => false }));
-vi.mock("@/lib/desktop/bootstrap", () => ({ bootstrapDesktop: vi.fn(async () => undefined) }));
+vi.mock("@/lib/desktop/bootstrap", () => ({
+  bootstrapDesktop: vi.fn(async () => undefined),
+  ensureDesktopSessionRoot: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/chat/operationCoordinator", () => ({
   sessionOperationCoordinator: { activeOperationKeys: () => [] },
 }));
 
 import { runStartup, type StartupPhases } from "./main";
+import { uiText } from "@/i18n";
 import { liveOperationKey } from "@/lib/operationIdentity";
 
 type StartupPhase = "bootstrap" | "settings" | "sessions" | "recover";
@@ -140,8 +144,9 @@ describe("startup seam", () => {
     // Fail safe: an unknown live-operation set must never be reconciled as "no live
     // work", because that would stop turns that are still running.
     expect(dependencies.reconcile).not.toHaveBeenCalled();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("العمليات الجارية");
+    // The fixture fails the recovery phase too, which now reports its own warning first.
+    expect(warnings).toEqual([uiText.t("startup.recoveryFailed"), uiText.t("startup.liveOperationsUnknown")]);
+    expect(warnings[1]).toContain("العمليات الجارية");
     expect(events).toEqual(["bootstrap", "settings", "sessions", "recover", "render"]);
     expect(dependencies.render).toHaveBeenCalledOnce();
   });
@@ -155,6 +160,18 @@ describe("startup seam", () => {
     });
     await runStartup(dependencies);
     expect(dependencies.render).toHaveBeenCalledWith({ title: "تقرير استرجاع الأرشيف", details: ["عُزل أرشيف تالف: quarantine/broken-1"] });
+  });
+
+  it("reports a failed recovery phase as a visible warning instead of swallowing it", async () => {
+    const events: string[] = [];
+    const dependencies = createDeps("recover", events);
+    const warnings: string[] = [];
+    dependencies.warn = (message: string) => { warnings.push(message); };
+
+    await runStartup(dependencies);
+
+    expect(warnings).toEqual([uiText.t("startup.recoveryFailed")]);
+    expect(dependencies.render).toHaveBeenCalledWith(null);
   });
 
   it("keeps reconciliation failure non-fatal and still renders", async () => {

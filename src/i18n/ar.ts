@@ -432,6 +432,17 @@ export const ar: Resources = {
     summary: "أخطاء",
     unknownProvider: "مزود غير معروف",
     apiKeyTooLong: "مفتاح المزود يتجاوز الحد المسموح",
+    credentialCryptoUnavailable: "Web Crypto غير متاح — تعذّر تشفير مفتاح المزود على الويب",
+    credentialStoreOpenFailed: "تعذّر فتح مخزن المفاتيح المحلي",
+    credentialKeySaveFailed: "تعذّر حفظ مفتاح التشفير المحلي",
+    credentialStoreNotReady: "لم يُهيَّأ مخزن المفاتيح بعد",
+    keychainUnavailable: "تعذر الوصول إلى مخزن مفاتيح النظام",
+    keychainUnknownProvider: "مزود غير معروف",
+    keychainOperationFailed: "تعذر تنفيذ عملية على مخزن المفاتيح",
+    keychainEmptyValue: "قيمة المفتاح فارغة",
+    modelDownloadFailed: "تعذّر تنزيل النموذج: {detail}",
+    modelIntegrity: "فشل الملف المنزَّل في فحص السلامة",
+    modelTooLarge: "التنزيل أكبر من المتوقع فأُوقف",
     // [T3.2b] مطابقة بايتًا لما كان يبنيه limitError: "{field} يتجاوز الحد المسموح ({max} حرفًا)".
     limitExceeded: "{field} يتجاوز الحد المسموح ({max} حرفًا)",
     unexpected: "خطأ غير متوقع",
@@ -527,6 +538,7 @@ export const ar: Resources = {
   },
   startup: {
     liveOperationsUnknown: "تعذر التحقق من العمليات الجارية — تأجيل مطابقة التمريرات المتوقفة",
+    recoveryFailed: "تعذّر فحص الأرشيف بحثًا عن عمل متوقف — تُخطّي الاسترداد",
     restored: {
       zero: "لم تُسترجَع أي جلسة من القرص",
       one: "استُرجعت جلسة واحدة من القرص",

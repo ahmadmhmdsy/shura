@@ -24,11 +24,11 @@ function EmptyState({
         </div>
       )}
       <div className="space-y-2">
-        <h3 className="text-[var(--sura-text-h3)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
+        <h3 className="text-[length:var(--sura-text-h3)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
           {title}
         </h3>
         {description && (
-          <p className="max-w-sm text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">
+          <p className="max-w-sm text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">
             {description}
           </p>
         )}

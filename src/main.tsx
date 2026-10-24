@@ -15,7 +15,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 import { getFileSink, isFilePersistActive } from "@/lib/markdown/sink";
 import { hasTombstone, importSessionAtomically, reconcileInterruptedTurns } from "@/lib/db/repos";
 import { isTauri } from "@/lib/transport/transport";
-import { bootstrapDesktop } from "@/lib/desktop/bootstrap";
+import { bootstrapDesktop, ensureDesktopSessionRoot } from "@/lib/desktop/bootstrap";
 import { sessionOperationCoordinator } from "@/lib/chat/operationCoordinator";
 import { noticeFromRecoveryReport, recoverSessionsFromDisk, type StartupNotice } from "@/lib/startupRecovery";
 import { StartupNoticeBanner } from "@/features/startup/StartupNotice";
@@ -30,7 +30,7 @@ async function runNonFatalPhase(phase: () => Promise<void> | void): Promise<void
   } catch (e) {
     // A failed startup/recovery phase must not prevent the remaining phases or the first render.
     // But we log the error so it's not completely silent.
-    console.error("Startup phase failed:", e);
+    logger.error("Startup phase failed", undefined, e as Error);
   }
 }
 
@@ -41,8 +41,10 @@ export async function runStartup(phases: StartupPhases): Promise<void> {
   let notice: StartupNotice | null = null;
   try {
     notice = await phases.recoverNotice();
-  } catch {
-    // A failed recovery phase must not prevent the first render; it is reported below.
+  } catch (e) {
+    // A failed recovery phase must not prevent the first render, but it is reported.
+    logger.error("Startup recovery failed", undefined, e as Error);
+    phases.warn?.(uiText.t("startup.recoveryFailed"));
   }
   let liveOperationKeys: readonly string[] | null = null;
   await runNonFatalPhase(async () => {
@@ -150,6 +152,7 @@ if (rootElement) {
     },
     loadSettings: async () => {
       await useSettingsStore.getState().load();
+      await ensureDesktopSessionRoot();
       // The stored language decides lang/dir on <html> (and the title) before the first render.
       uiText.setLocale(useSettingsStore.getState().language);
       uiText.applyDocumentLocale();

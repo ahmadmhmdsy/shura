@@ -32,7 +32,7 @@ export function LanguageSwitcher({ variant = "field" }: { variant?: "field" | "c
       className={
         compact
           ? "flex items-center gap-1"
-          : "flex items-center gap-2 text-[var(--sura-text-body-sm)]"
+          : "flex items-center gap-2 text-[length:var(--sura-text-body-sm)]"
       }
     >
       <Languages className="size-4 shrink-0" aria-hidden="true" />
@@ -45,8 +45,8 @@ export function LanguageSwitcher({ variant = "field" }: { variant?: "field" | "c
         onChange={(event) => change(event.target.value as Locale)}
         className={
           compact
-            ? "cursor-pointer bg-transparent text-[var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)] outline-none hover:text-[var(--sura-text-primary)] focus-visible:text-[var(--sura-text-primary)]"
-            : "cursor-pointer rounded-[var(--sura-radius-sm)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-secondary)] px-2 py-1 text-[var(--sura-text-body-sm)] text-[var(--sura-text-primary)] outline-none focus-visible:border-[var(--sura-border-accent)]"
+            ? "cursor-pointer bg-transparent text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)] outline-none hover:text-[var(--sura-text-primary)] focus-visible:text-[var(--sura-text-primary)]"
+            : "cursor-pointer rounded-[var(--sura-radius-sm)] border border-[var(--sura-border-primary)] bg-[var(--sura-surface-secondary)] px-2 py-1 text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-primary)] outline-none focus-visible:border-[var(--sura-border-accent)]"
         }
       >
         {LOCALES.map((locale) => (

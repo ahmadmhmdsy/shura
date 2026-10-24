@@ -12,6 +12,9 @@ import { downloadModel } from "@/lib/rag/modelDownloader";
 import { downloadRagData } from "@/lib/export/ragExporter";
 import { importRagData, validateRagImportData } from "@/lib/export/ragImporter";
 import { toast } from "sonner";
+import { isKeyedError, errorText } from "@/lib/errors/keyedError";
+import { redactExternalError } from "@/lib/security/redact";
+import { logger } from "@/lib/logging";
 import type { RagSettings as RagSettingsType } from "@/types";
 
 export function RagSettings() {
@@ -32,7 +35,11 @@ export function RagSettings() {
     try {
       await downloadModel(modelId, (p) => setProgress(p));
     } catch (e) {
-      console.error("Model download failed:", e);
+      logger.error("Model download failed", { modelId }, e as Error);
+      // A digest or size failure is a resource key; anything else is external text, so
+      // it is redacted before it reaches the toast.
+      const detail = isKeyedError(e) ? errorText(t, e) : redactExternalError(e);
+      toast.error(t("errors.modelDownloadFailed", { detail }));
     } finally {
       setDownloading(null);
       setProgress(null);
@@ -93,7 +100,7 @@ export function RagSettings() {
                 style={{ width: `${progress.percent}%` }}
               />
             </div>
-            <p className="text-[11px] text-sura-muted">
+            <p className="text-[length:var(--sura-text-mini)] text-sura-muted">
               {progress.percent}% ({Math.round(progress.loaded / 1024 / 1024)}MB / {Math.round(progress.total / 1024 / 1024)}MB)
             </p>
           </div>
@@ -134,7 +141,7 @@ export function RagSettings() {
             onChange={(e) => update({ chunkSize: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{t("rag.chunkSizeDesc")}</p>
+          <p className="text-[length:var(--sura-text-mini)] text-sura-muted">{t("rag.chunkSizeDesc")}</p>
         </div>
         <div className="space-y-1">
           <label className="text-xs text-sura-muted" htmlFor="rag-chunk-overlap">
@@ -150,7 +157,7 @@ export function RagSettings() {
             onChange={(e) => update({ chunkOverlap: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{t("rag.chunkOverlapDesc")}</p>
+          <p className="text-[length:var(--sura-text-mini)] text-sura-muted">{t("rag.chunkOverlapDesc")}</p>
         </div>
       </section>
 
@@ -213,7 +220,7 @@ export function RagSettings() {
             onChange={(e) => update({ searchResultCount: Number(e.target.value) })}
             className="w-full"
           />
-          <p className="text-[11px] text-sura-muted">{t("rag.resultsCountDesc")}</p>
+          <p className="text-[length:var(--sura-text-mini)] text-sura-muted">{t("rag.resultsCountDesc")}</p>
         </div>
       </section>
 

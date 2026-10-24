@@ -117,10 +117,10 @@ export default function App() {
                 <MessageSquare className="size-8 text-[var(--sura-accent-primary)]" />
               </div>
               <div className="space-y-2">
-                <h2 className="text-[var(--sura-text-h2)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
+                <h2 className="text-[length:var(--sura-text-h2)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">
                   {t("chat.emptyStateTitle")}
                 </h2>
-                <p className="text-[var(--sura-text-body)] text-[var(--sura-text-secondary)]">
+                <p className="text-[length:var(--sura-text-body)] text-[var(--sura-text-secondary)]">
                   {t("chat.emptyStateDesc")}
                 </p>
               </div>

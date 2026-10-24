@@ -21,7 +21,7 @@ describe("provider registry", () => {
   it("openrouter على قاعدته الصحيحة مع ترويسات هوية التطبيق", () => {
     const p = getProvider("openrouter");
     expect(p.baseURL).toBe("https://openrouter.ai/api/v1");
-    expect(p.defaultHeaders?.["HTTP-Referer"]).toBe("http://localhost:5173");
+    expect(p.defaultHeaders?.["HTTP-Referer"]).toBe("http://localhost:5174");
   });
   it("opencodego على بوابة zen/go مع دعم جلسة", () => {
     const p = getProvider("opencodego");

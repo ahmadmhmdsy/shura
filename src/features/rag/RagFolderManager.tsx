@@ -73,7 +73,7 @@ export function RagFolderManager() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-sura-muted">{t("rag.autoShort")}</span>
+                <span className="text-[length:var(--sura-text-micro)] text-sura-muted">{t("rag.autoShort")}</span>
                 <Switch
                   checked={folder.autoReindex}
                   onCheckedChange={(v) => {

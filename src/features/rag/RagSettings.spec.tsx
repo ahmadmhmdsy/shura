@@ -8,6 +8,8 @@ import { downloadModel } from "@/lib/rag/modelDownloader";
 import { downloadRagData } from "@/lib/export/ragExporter";
 import { importRagData } from "@/lib/export/ragImporter";
 import { toast } from "sonner";
+import { KeyedError } from "@/lib/errors/keyedError";
+import { uiText } from "@/i18n";
 
 vi.mock("@/lib/rag/modelDownloader", () => ({ downloadModel: vi.fn() }));
 vi.mock("@/lib/export/ragExporter", () => ({ downloadRagData: vi.fn() }));
@@ -170,17 +172,27 @@ describe("RagSettings", () => {
     expect(screen.queryByText(/50%/)).toBeNull();
   });
 
-  it("فشل تحميل النموذج يُسجَّل ويعيد الزر لحالته", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("فشل تحميل النموذج يظهر للمستخدم ويعيد الزر لحالته", async () => {
     vi.mocked(downloadModel).mockRejectedValue(new Error("network"));
     render(<RagSettings />);
 
     fireEvent.click(screen.getByText("تحميل النموذج"));
 
-    await waitFor(() =>
-      expect(errorSpy).toHaveBeenCalledWith("Model download failed:", expect.any(Error)),
-    );
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toContain("network");
     await waitFor(() => expect(screen.getByText("تحميل النموذج")).toBeTruthy());
+  });
+
+  it("فشل التحقق من سلامة النموذج يُعرض بنصّ مترجم", async () => {
+    vi.mocked(downloadModel).mockRejectedValue(new KeyedError("errors.modelIntegrity"));
+    render(<RagSettings />);
+
+    fireEvent.click(screen.getByText("تحميل النموذج"));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toBe(
+      uiText.t("errors.modelDownloadFailed", { detail: uiText.t("errors.modelIntegrity") }),
+    );
   });
 
   it("زر تصدير البيانات يستدعي التصدير", () => {

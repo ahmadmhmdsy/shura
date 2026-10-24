@@ -7,7 +7,12 @@ import { LIMITS, clampTimeoutMs } from "@/lib/limits";
 import { listProviderIds } from "@/lib/providers/registry";
 import { logger } from "@/lib/logging";
 import { DEFAULT_LOCALE, uiText, type Locale } from "@/i18n";
-import { KeyedError } from "@/lib/errors/keyedError";
+import { KeyedError, errorText, isKeyedError } from "@/lib/errors/keyedError";
+
+/** A keyed error is ours and safe to translate; anything else is redacted first. */
+function describeError(error: unknown): string {
+  return isKeyedError(error) ? errorText(uiText.t, error) : redactExternalError(error);
+}
 
 /** The persisted record never contains a credential: keys live in the credential store. */
 export interface PersistedSettings {
@@ -88,10 +93,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       const keys: Partial<Record<ProviderId, string>> = {};
       const failures: string[] = [];
 
-      for (const providerId of listProviderIds()) {
+      // The store is built once; if that fails every provider would fail the same way,
+      // so the error is recorded once instead of per provider.
+      let store: Awaited<ReturnType<typeof initializeCredentialStore>> | null = null;
+      try {
+        store = await initializeCredentialStore();
+      } catch (error) {
+        failures.push(describeError(error));
+      }
+
+      if (store) for (const providerId of listProviderIds()) {
         const legacy = legacyKeys[providerId];
         try {
-          const store = await initializeCredentialStore();
           if (typeof legacy === "string" && legacy) {
             // A legacy plaintext key is moved into the credential store and the
             // settings record is rewritten without it. If that fails the key is
@@ -103,7 +116,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
             if (stored) keys[providerId] = stored;
           }
         } catch (error) {
-          failures.push(redactExternalError(error));
+          failures.push(describeError(error));
         }
       }
 
@@ -142,8 +155,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         const providerKeys = { ...get().providerKeys };
         if (before) providerKeys[id] = before;
         else delete providerKeys[id];
-        set({ providerKeys, error: redactExternalError(error) });
-        throw new Error(redactExternalError(error), { cause: error });
+        const message = describeError(error);
+        set({ providerKeys, error: message });
+        throw new Error(message, { cause: error });
       } finally {
         set({ saving: false });
       }

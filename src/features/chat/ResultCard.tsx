@@ -62,7 +62,7 @@ export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, dis
         {isBestAnswer && <Badge className="gap-1"><Trophy className="size-3" /> {t("chat.bestAnswer")}</Badge>}
         <div className="flex-1" />
         {onMarkBest && (
-          <Button size="icon" variant="ghost" aria-label={t("chat.bestAnswer")} onClick={onMarkBest} className={isBestAnswer ? "text-sura-accent" : ""}>
+          <Button size="icon" variant="ghost" aria-label={t("chat.bestAnswer")} aria-pressed={isBestAnswer} onClick={onMarkBest} className={isBestAnswer ? "text-sura-accent" : ""}>
             <Trophy className="size-3.5" />
           </Button>
         )}
@@ -103,7 +103,7 @@ export function ResultCard({ msg, customPrompt, horizontal, onStop, onRetry, dis
         {msg.text && <Markdown text={msg.text} />}
         {msg.sidecarWarning && <p className="mt-2 text-xs text-sura-warn whitespace-pre-wrap">{msg.sidecarWarning}</p>}
       </div>
-      <div className="px-3 py-1.5 border-t border-sura-border text-[11px] text-sura-muted flex gap-3">
+      <div className="px-3 py-1.5 border-t border-sura-border text-[length:var(--sura-text-mini)] text-sura-muted flex gap-3">
         {usage ? <><span>↓ {usage.inputTokens}</span><span>↑ {usage.outputTokens}</span><span>{t("chat.cachedTokens")} {usage.cachedInputTokens}</span>{usage.cacheWriteInputTokens ? <span>{t("chat.cacheWriteTokens")} {usage.cacheWriteInputTokens}</span> : null}<span>{formatCost(usage.costUSD, t("common.noValue"), formatNumber)}</span></> : <span>{t("common.noValue")}</span>}
       </div>
     </div>

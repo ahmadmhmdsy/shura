@@ -63,14 +63,14 @@ describe("web credential store", () => {
   it("refuses persistence when Web Crypto is unavailable", async () => {
     vi.stubGlobal("crypto", undefined);
     const store = createCredentialStore(harness.backend);
-    await expect(store.set("openrouter", "sk-secret")).rejects.toThrow(/Web Crypto|التشفير/);
+    await expect(store.set("openrouter", "sk-secret")).rejects.toThrow("errors.credentialCryptoUnavailable");
     expect(harness.rows.size).toBe(0);
   });
 
   it("refuses persistence when SubtleCrypto is unavailable", async () => {
     vi.stubGlobal("crypto", { getRandomValues: (bytes: Uint8Array) => bytes });
     const store = createCredentialStore(harness.backend);
-    await expect(store.set("openrouter", "sk-secret")).rejects.toThrow(/Web Crypto|التشفير/);
+    await expect(store.set("openrouter", "sk-secret")).rejects.toThrow("errors.credentialCryptoUnavailable");
     expect(harness.rows.size).toBe(0);
   });
 

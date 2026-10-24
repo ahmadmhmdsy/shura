@@ -48,7 +48,7 @@ export function ProviderKeyCard({ id }: { id: ProviderId }) {
     <div className="border border-sura-border rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">{p.label}</span>
-        {!p.browserDirect && <span className="text-[10px] text-sura-warn">{t("settings.desktopRequired")}</span>}
+        {!p.browserDirect && <span className="text-[length:var(--sura-text-micro)] text-sura-warn">{t("settings.desktopRequired")}</span>}
       </div>
       <label className="block text-xs text-sura-muted" htmlFor={`provider-key-${id}`}>{t("settings.apiKey")}</label>
       <Input id={`provider-key-${id}`} type="password" autoComplete="off" spellCheck={false} maxLength={LIMITS.apiKeyMax}

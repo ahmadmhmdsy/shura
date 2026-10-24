@@ -5,3 +5,18 @@ allowBuilds:
 # pnpm 11 no longer reads the "pnpm" field in package.json; build approvals live here.
 onlyBuiltDependencies:
   - protobufjs
+
+# Patched versions for advisories reported by `pnpm audit` (all reach us through dev tooling).
+# braces and sprintf-js have no patched release; they stay in docs/security/dependency-advisories.md.
+overrides:
+  "brace-expansion@>=4 <5.0.12": ^5.0.12
+  source-map-js: ^1.2.2
+  proxy-addr: ^2.0.8
+  "@modelcontextprotocol/sdk": ^1.31.0
+  fast-uri: ^3.1.8
+  ip-address: ^10.7.1
+  "zod@>=4 <4.6.6": ^4.6.6
+  "undici@>=7 <7.30.1": ^7.30.1
+  "undici@>=8 <8.12.2": ^8.12.2
+  "body-parser@>=2 <2.4.0": ^2.4.0
+  "hono@>=4 <4.13.11": ^4.13.11

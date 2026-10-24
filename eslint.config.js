@@ -18,6 +18,21 @@ const COLOUR_SELECTORS = [{
   message: "Hardcoded colour utility. The design system has no white/black token — use a --sura-* surface or text token so both themes stay correct.",
 }];
 
+// Font sizes come from --sura-text-* tokens. Tailwind reads an untyped arbitrary value
+// such as `text-[var(--x)]` as a colour, so a size token must carry the `length:` hint,
+// and a raw pixel size bypasses the scale altogether.
+const RAW_SIZE = "(?:^|\\s)text-\\[\\d+(?:\\.\\d+)?(?:px|rem|em)\\]";
+const UNTYPED_SIZE = "text-\\[var\\(--sura-text-(?:display|h[1-4]|body|body-sm|caption|label|mini|micro)\\)\\]";
+const RAW_SIZE_MESSAGE = "Raw font size. Use text-[length:var(--sura-text-*)] from src/styles/tokens/typography.css.";
+const UNTYPED_SIZE_MESSAGE =
+  "Untyped size token: Tailwind compiles text-[var(--sura-text-...)] to `color`. Write text-[length:var(--sura-text-...)].";
+const TYPOGRAPHY_SELECTORS = [
+  { selector: `Literal[value=/${RAW_SIZE}/]`, message: RAW_SIZE_MESSAGE },
+  { selector: `TemplateElement[value.raw=/${RAW_SIZE}/]`, message: RAW_SIZE_MESSAGE },
+  { selector: `Literal[value=/${UNTYPED_SIZE}/]`, message: UNTYPED_SIZE_MESSAGE },
+  { selector: `TemplateElement[value.raw=/${UNTYPED_SIZE}/]`, message: UNTYPED_SIZE_MESSAGE },
+];
+
 // [T3.2/D5] The Arabic block ranges (Arabic, Arabic Supplement, Arabic Extended-A,
 // Arabic Presentation Forms-A/B). Comments are never AST nodes, so an Arabic comment is
 // untouched by design; only literals, template text and JSX text are checked.
@@ -63,7 +78,7 @@ export default tseslint.config(
     // one owner. See the exemption object below for the deliberate exceptions.
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", ...COLOUR_SELECTORS, ...ARABIC_SELECTORS],
+      "no-restricted-syntax": ["error", ...COLOUR_SELECTORS, ...TYPOGRAPHY_SELECTORS, ...ARABIC_SELECTORS],
     },
   },
   {
@@ -82,7 +97,8 @@ export default tseslint.config(
     //    candidates - the recovery-report details in `parser.ts` (a failed quarantine
     //    move and usage restored with no provider snapshot) - are now resource keys;
     //    `parser.ts` stays listed for its thrown, redacted validation messages (Class 5).
-    // The colour guards stay active in every exempted file.
+    //    The two credential modules have since left the list: their errors are keys too.
+    // The colour and typography guards stay active in every exempted file.
     files: [
       "src/i18n/**",
       "src/**/*.spec.{ts,tsx}",
@@ -106,11 +122,9 @@ export default tseslint.config(
       "src/lib/markdown/parser.ts",
       "src/lib/markdown/sink.ts",
       "src/lib/markdown/tauriSink.ts",
-      "src/lib/security/credentialBackend.ts",
-      "src/lib/security/credentialStore.ts",
     ],
     rules: {
-      "no-restricted-syntax": ["error", ...COLOUR_SELECTORS],
+      "no-restricted-syntax": ["error", ...COLOUR_SELECTORS, ...TYPOGRAPHY_SELECTORS],
     },
   },
 );

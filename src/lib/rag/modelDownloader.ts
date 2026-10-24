@@ -7,6 +7,7 @@
 
 import { getTransportFetch } from "@/lib/transport/transport";
 import { getModelInfo } from "./modelCatalog";
+import { assertWithinSize, verifyDigest } from "./verifiedDownload";
 import { deleteModel as deleteCachedModel, getModel, listModels, putModel } from "./modelCache";
 import type { RagModel } from "@/types";
 
@@ -50,6 +51,8 @@ export async function downloadModel(
   }
 
   const contentLength = Number(response.headers.get("content-length") ?? 0);
+  // A response that announces more than the pinned file is refused before it is read.
+  assertWithinSize(contentLength, model.integrity.model);
   const reader = response.body?.getReader() ?? (await toReader(response));
 
   const chunks: Uint8Array[] = [];
@@ -61,6 +64,10 @@ export async function downloadModel(
     
     chunks.push(value);
     loaded += value.length;
+    if (loaded > model.integrity.model.bytes) {
+      await reader.cancel?.().catch(() => undefined);
+      assertWithinSize(loaded, model.integrity.model);
+    }
     
     if (onProgress && contentLength > 0) {
       onProgress({
@@ -79,6 +86,8 @@ export async function downloadModel(
     modelBytes.set(chunk, offset);
     offset += chunk.length;
   }
+
+  await verifyDigest(modelBytes.buffer as ArrayBuffer, model.integrity.model);
 
   // الكتابة عبر كاتب الكاش الوحيد (T1.6): صف وصفي خفيف وبايتات في جدول منفصل،
   // وإلا صار كل استعلام «هل النموذج منزَّل؟» يسحب مئات الميغابايتات.

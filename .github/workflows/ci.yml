@@ -77,14 +77,13 @@ jobs:
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
       - name: cargo test --locked
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Report cargo-audit (non-blocking, unavailable when not installed)
+      - name: Report cargo-audit (non-blocking)
         continue-on-error: true
         run: |
+          # Install only when missing; the step stays non-blocking either way.
           if ! command -v cargo-audit >/dev/null 2>&1; then
-            echo "SKIPPED: cargo-audit REASON: cargo-audit is not installed on this runner (cargo install cargo-audit, then re-run)"
-            exit 0
+            cargo install cargo-audit --locked
           fi
-          cargo install cargo-audit --locked
           cargo audit
 
   nsis:

@@ -389,6 +389,17 @@ export const en = {
     summary: "Errors",
     unknownProvider: "Unknown provider",
     apiKeyTooLong: "The provider key exceeds the allowed length",
+    credentialCryptoUnavailable: "Web Crypto is unavailable - the provider key could not be encrypted in the browser",
+    credentialStoreOpenFailed: "Could not open the local key store",
+    credentialKeySaveFailed: "Could not save the local encryption key",
+    credentialStoreNotReady: "The key store is not ready yet",
+    keychainUnavailable: "Could not access the system keychain",
+    keychainUnknownProvider: "Unknown provider",
+    keychainOperationFailed: "A keychain operation could not be completed",
+    keychainEmptyValue: "The key value is empty",
+    modelDownloadFailed: "Could not download the model: {detail}",
+    modelIntegrity: "The downloaded file failed its integrity check",
+    modelTooLarge: "The download is larger than expected and was stopped",
     // [T3.2b] produced through KeyedError and translated at the boundary; {field} is a
     // rendered label and {max} a plain integer.
     limitExceeded: "{field} exceeds the allowed length ({max} chars)",
@@ -483,6 +494,7 @@ export const en = {
   },
   startup: {
     liveOperationsUnknown: "Could not verify the running operations - deferring the interrupted-turn reconciliation",
+    recoveryFailed: "Could not check the archive for interrupted work - recovery was skipped",
     restored: {
       one: "{count} session restored from disk",
       other: "{count} sessions restored from disk",

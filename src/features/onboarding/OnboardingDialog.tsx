@@ -48,8 +48,8 @@ export function OnboardingDialog({ open, onClose }: { open: boolean; onClose(): 
         <div className="space-y-4 py-4">
           {steps.map((entry, index) => index === step ? (
             <div key={entry.title} className="space-y-2">
-              <h3 className="text-[var(--sura-text-h4)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{entry.title}</h3>
-              <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">{entry.desc}</p>
+              <h3 className="text-[length:var(--sura-text-h4)] font-[var(--sura-font-semibold)] text-[var(--sura-text-primary)]">{entry.title}</h3>
+              <p className="text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-secondary)]">{entry.desc}</p>
             </div>
           ) : null)}
           {/* Step indicators */}

@@ -36,7 +36,7 @@ export function SearchResultDisplay({ results, onViewSource }: SearchResultDispl
                 <Badge variant="secondary" className="ml-1">
                   {result.source}
                 </Badge>
-                <span className="text-[10px]">
+                <span className="text-[length:var(--sura-text-micro)]">
                   {Math.round(result.score * 100)}%
                 </span>
               </p>
@@ -65,7 +65,7 @@ export function SearchResultIndicator({ count }: { count: number }) {
   if (count === 0) return null;
   
   return (
-    <Badge variant="outline" className="text-[10px]">
+    <Badge variant="outline" className="text-[length:var(--sura-text-micro)]">
       {plural("rag.resultCount", count)}
     </Badge>
   );

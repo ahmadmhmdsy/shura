@@ -153,7 +153,7 @@ export function SettingsScreen({ onClose }: { onClose(): void }) {
 
         <CollapsibleSection id="session-dir" title={t("settings.sessionDir")} defaultOpen={true}>
           <Input aria-label={t("settings.sessionDir")} readOnly value={sessionRootDir ?? t("settings.sessionDirValue")} className="text-xs" />
-          <p className="text-[11px] text-sura-muted">{t("settings.sessionDirFixed")}</p>
+          <p className="text-[length:var(--sura-text-mini)] text-sura-muted">{t("settings.sessionDirFixed")}</p>
         </CollapsibleSection>
 
         {!simpleMode && (

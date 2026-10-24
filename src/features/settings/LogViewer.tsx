@@ -102,7 +102,7 @@ export function LogViewer({ read = defaultRead }: { read?: () => LogSnapshot } =
           data-testid="log-entries"
         >
           {newestFirst.map((entry, i) => (
-            <li key={`${entry.timestamp}-${i}`} className="p-2 font-mono text-[11px] leading-relaxed">
+            <li key={`${entry.timestamp}-${i}`} className="p-2 font-mono text-[length:var(--sura-text-mini)] leading-relaxed">
               <span className="text-muted-foreground">{formatTime(entry.timestamp)}</span>{" "}
               <span className={LEVEL_CLASS[entry.level]}>[{levelLabel[entry.level]}]</span>{" "}
               <span className="text-foreground">{entry.message}</span>

@@ -11,6 +11,9 @@ const { mockCreateSession, mockFetch } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
 }));
 
+// Fixture bytes are not the pinned files; verifiedDownload.spec.ts covers the real check.
+vi.mock("./verifiedDownload", () => ({ assertWithinSize: vi.fn(), verifyDigest: vi.fn(async () => {}) }));
+
 vi.mock("onnxruntime-web/wasm", () => ({
   env: { wasm: { wasmPaths: "" } },
   InferenceSession: {

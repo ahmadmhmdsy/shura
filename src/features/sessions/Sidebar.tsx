@@ -49,7 +49,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
     <aside className="flex h-full w-64 shrink-0 flex-col border-e border-[var(--sura-sidebar-border)] bg-[var(--sura-sidebar-bg)]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
-        <h1 className="text-[var(--sura-text-h3)] font-[var(--sura-font-bold)] text-[var(--sura-text-primary)]">
+        <h1 className="text-[length:var(--sura-text-h3)] font-[var(--sura-font-bold)] text-[var(--sura-text-primary)]">
           {t("app.name")}
         </h1>
         <Button
@@ -91,7 +91,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       {/* Delete Notice */}
       {notice && (
         <div role="alert" className="mx-3 mb-2 rounded-[var(--sura-radius-md)] border border-[var(--sura-error)]/40 bg-[var(--sura-error-muted)] p-3">
-          <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-error-text)]">{notice.message}</p>
+          <p className="text-[length:var(--sura-text-body-sm)] text-[var(--sura-error-text)]">{notice.message}</p>
           {notice.retryable && (
             <Button
               variant="ghost"
@@ -110,7 +110,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
         {filteredSessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <MessageSquare className="size-8 text-[var(--sura-text-tertiary)]" />
-            <p className="text-[var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
+            <p className="text-[length:var(--sura-text-body-sm)] text-[var(--sura-text-tertiary)]">
               {query ? t("sessions.noResults") : t("sessions.empty")}
             </p>
             {!query && (
@@ -157,7 +157,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
                       if (e.key === "Enter") (e.target as HTMLInputElement).blur()
                       if (e.key === "Escape") setEditing(null)
                     }}
-                    className="flex-1 min-w-0 bg-transparent text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)] outline-none border-b border-[var(--sura-accent-primary)]"
+                    className="flex-1 min-w-0 bg-transparent text-[length:var(--sura-text-body-sm)] font-[var(--sura-font-medium)] outline-none border-b border-[var(--sura-accent-primary)]"
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
@@ -168,7 +168,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
                     aria-current={s.id === currentId ? "true" : undefined}
                   >
                     <p className={cn(
-                      "truncate text-[var(--sura-text-body-sm)] font-[var(--sura-font-medium)]",
+                      "truncate text-[length:var(--sura-text-body-sm)] font-[var(--sura-font-medium)]",
                       s.id === currentId ? "text-[var(--sura-text-primary)]" : "text-[var(--sura-text-secondary)]"
                     )}>
                       {s.title}
@@ -178,7 +178,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 
                 <div className={cn(
                   "flex items-center gap-0.5",
-                  "opacity-0 group-hover:opacity-100 transition-opacity"
+                  "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                 )}>
                   <Button
                     variant="ghost"
@@ -213,7 +213,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 
       {/* Footer */}
       <div className="border-t border-[var(--sura-sidebar-border)] px-3 py-2">
-        <p className="text-[var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
+        <p className="text-[length:var(--sura-text-caption)] text-[var(--sura-text-tertiary)]">
           {plural("sessions.count", sessions.length)}
         </p>
       </div>
