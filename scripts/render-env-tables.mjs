@@ -2,7 +2,7 @@
 /**
  * Measured-documentation generator (plan T0.3, decisions D7/Q7).
  *
- * Rewrites the value inside every `<!--G:key-->...<!--/G-->` span in README.md and
+ * Rewrites the value inside every `<!--G:key-->...<!--/G-->` span in README.md, README.ar.md and
  * docs/environment.md from artifacts the release gate already produced:
  *
  *   dist/index.html + dist/assets/*        -> bundle sizes         (pnpm build)
@@ -30,7 +30,7 @@ const BUDGET_BYTES = 1_200_000;
 // here with Node zlib level 9. Vite prints its own gzip figure from the bundler, which
 // can differ by about one percent, so the documents say which convention they record.
 const REPO = path.resolve(import.meta.dirname, "..");
-const DOCUMENTS = ["README.md", "docs/environment.md"];
+const DOCUMENTS = ["README.md", "README.ar.md", "docs/environment.md"];
 const MARKER = /<!--G:([A-Za-z0-9._-]+)-->[\s\S]*?<!--\/G-->/g;
 
 function cannotMeasure(reason) {
